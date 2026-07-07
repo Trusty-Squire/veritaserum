@@ -62,6 +62,20 @@ describe("ser MCP server", () => {
     expect(textOf(r)).toMatch(/added/);
   });
 
+  it("returns tool errors gracefully (isError), does not crash the server", async () => {
+    const client = await connect();
+    const { dir, cleanup } = await tempRepo();
+    cleanups.push(cleanup);
+    await client.callTool({ name: "contract_seed", arguments: { goal: "toy", dir } });
+    // re-seed an existing contract → SeedError, surfaced as isError, server stays up
+    const dup = await client.callTool({ name: "contract_seed", arguments: { goal: "again", dir } });
+    expect(dup.isError).toBe(true);
+    expect(textOf(dup)).toMatch(/already exists/);
+    // server still responsive afterward
+    const st = await client.callTool({ name: "contract_status", arguments: { dir } });
+    expect(textOf(st)).toMatch(/active=/);
+  });
+
   it("amend requires confirm (weakening guard)", async () => {
     const client = await connect();
     const { dir, cleanup } = await tempRepo();
