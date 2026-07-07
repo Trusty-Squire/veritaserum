@@ -21,7 +21,6 @@ import { makeSemanticJudge, type SemanticJudge } from "../src/judge-verdict.js";
 import { seed } from "../src/seed.js";
 import { loadContract, activeGates } from "../src/contract.js";
 import { verify } from "../src/verify.js";
-import { hookStop } from "../src/hook.js";
 import type { ContractFile } from "../src/schema.js";
 import { commitPaths } from "../src/git.js";
 import { saveContract } from "../src/contract.js";
@@ -106,11 +105,14 @@ async function run() {
   await rm(off, { recursive: true, force: true });
 
   // 3. ON arm — build from goal + provenances, ser-enforced, up to K rounds.
+  // ONE verify per round drives BOTH the block decision and the defect measurement
+  // (no double-judge: the enforcement pass IS the measurement, so a nondeterministic
+  // judge can't disagree with itself across two calls).
   const on = await newRepo();
   await installContract(on, contract, graders);
   let rounds = 0;
   let lastSymptom = "";
-  let blocked = true;
+  let onV = await verify(on, { judge }); // pre-build baseline (all red)
   for (let r = 1; r <= K; r++) {
     rounds = r;
     const prompt =
@@ -118,13 +120,12 @@ async function run() {
       (lastSymptom ? `\nA prior attempt was rejected:\n${lastSymptom}\nFix it.\n` : "") +
       `${IGNORE}\nMake any CLI executable.`;
     await build(on, prompt);
-    const d = await hookStop(on, "Done — implemented it and the test passes.", { judge });
-    blocked = d.block;
-    lastSymptom = d.reason ?? "";
-    if (!blocked) break;
+    onV = await verify(on, { judge });
+    if (!onV.blocked) break;
+    lastSymptom = onV.failures.map((f) => `- ${f.gateId}: ${f.symptom ?? "failed"}`).join("\n");
   }
-  const onV = await verify(on, { judge });
   const defectsOn = onV.failures.map((f) => f.gateId);
+  const blocked = onV.blocked;
   await rm(on, { recursive: true, force: true });
 
   const result = {

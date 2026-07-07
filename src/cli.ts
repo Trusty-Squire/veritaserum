@@ -10,47 +10,14 @@
  */
 import { loadContract, activeGates } from "./contract.js";
 import { commitPaths } from "./git.js";
-import { mockTranscriber, MockKnight, type Knight } from "./judge.js";
-import { LlmKnight } from "./knight-llm.js";
+import { mockTranscriber } from "./judge.js";
 import { ratchetComplaint, retireByProvenance } from "./ratchet.js";
 import { seed, SeedError } from "./seed.js";
 import { CONTRACT_FILENAME } from "./schema.js";
 import { verify, NotSealedError } from "./verify.js";
 import { hookStop, hookPrompt } from "./hook.js";
 import { readLastAssistantMessage } from "./transcript.js";
-import { detectVendors, selectJudgeVendor, makeClient, type Vendor } from "./llm.js";
-import { makeSemanticJudge, type SemanticJudge } from "./judge-verdict.js";
-
-/**
- * Build a cross-vendor semantic judge from local subscriptions (free). Returns
- * undefined when no cross-vendor local subscription is available → semantic gates
- * abstain (route to human). Never auto-runs the metered OpenRouter path.
- */
-/**
- * The Knight authors the contract. Any available local subscription works
- * (authoring is not judging, so no cross-vendor requirement). No subscription, or
- * SER_MOCK_KNIGHT set → the deterministic MockKnight (offline/test).
- */
-async function resolveKnight(): Promise<Knight> {
-  if (process.env.SER_MOCK_KNIGHT) return new MockKnight();
-  const vendors = await detectVendors();
-  if (!vendors.length) return new MockKnight();
-  // Authoring is not judging → no cross-vendor rule; prefer the faster generator.
-  // claude (-p) returns structured JSON in ~15s; codex exec is minutes-slow.
-  const v: Vendor = vendors.includes("claude") ? "claude" : vendors[0]!;
-  return new LlmKnight(makeClient({ vendor: v, reason: "knight authoring", metered: false }));
-}
-
-async function resolveJudge(): Promise<SemanticJudge | undefined> {
-  const executor = (process.env.SER_EXECUTOR as Vendor | "unknown") || "unknown";
-  try {
-    const sel = selectJudgeVendor(executor, { available: await detectVendors() });
-    if (sel.metered) return undefined;
-    return makeSemanticJudge(makeClient(sel));
-  } catch {
-    return undefined;
-  }
-}
+import { resolveKnight, resolveJudge } from "./resolve.js";
 
 /** Read the harness hook payload (JSON HookContext) from stdin. */
 async function readStdin(): Promise<string> {
