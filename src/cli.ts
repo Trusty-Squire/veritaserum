@@ -16,6 +16,7 @@ import { seed, SeedError } from "./seed.js";
 import { CONTRACT_FILENAME } from "./schema.js";
 import { verify, NotSealedError } from "./verify.js";
 import { hookStop, hookPrompt } from "./hook.js";
+import { readLastAssistantMessage } from "./transcript.js";
 
 /** Read the harness hook payload (JSON HookContext) from stdin. */
 async function readStdin(): Promise<string> {
@@ -25,8 +26,15 @@ async function readStdin(): Promise<string> {
 }
 
 interface HookPayload {
+  // goose / codex: assistant claim inline; goose UserPromptSubmit: `message`.
+  last_assistant_message?: string;
   message?: string;
+  // Claude Code: Stop hands a transcript path; UserPromptSubmit hands `prompt`.
+  transcript_path?: string;
+  prompt?: string;
+  // repo dir: goose(post-PR) `working_dir`; Claude Code `cwd`.
   working_dir?: string;
+  cwd?: string;
 }
 function parsePayload(raw: string): HookPayload {
   try {
@@ -35,6 +43,21 @@ function parsePayload(raw: string): HookPayload {
   } catch {
     return {};
   }
+}
+/** The repo dir to verify against, across harnesses. */
+function payloadDir(p: HookPayload, fallback: string): string {
+  return p.working_dir || p.cwd || fallback;
+}
+/** The agent's completion-claim text, across harnesses (inline or via transcript). */
+function claimMessage(p: HookPayload): string {
+  if (p.last_assistant_message) return p.last_assistant_message;
+  if (p.message) return p.message;
+  if (p.transcript_path) return readLastAssistantMessage(p.transcript_path);
+  return "";
+}
+/** The human's message, across harnesses. */
+function promptMessage(p: HookPayload): string {
+  return p.prompt || p.message || "";
 }
 
 function flag(args: string[], name: string): boolean {
@@ -123,9 +146,9 @@ async function main(argv: string[]): Promise<number> {
     // --- harness hook entrypoints (Archetype A). Read JSON HookContext on stdin. ---
     case "hook-stop": {
       const p = parsePayload(await readStdin());
-      const wd = p.working_dir || dir;
+      const wd = payloadDir(p, dir);
       try {
-        const d = await hookStop(wd, p.message ?? "", { level: flag(rest, "full") ? "full" : "fast" });
+        const d = await hookStop(wd, claimMessage(p), { level: flag(rest, "full") ? "full" : "fast" });
         if (d.block) {
           // goose blocks on a stdout {"decision":"block"} payload; exit 0.
           process.stdout.write(JSON.stringify({ decision: "block", reason: d.reason }) + "\n");
@@ -142,11 +165,12 @@ async function main(argv: string[]): Promise<number> {
 
     case "hook-prompt": {
       const p = parsePayload(await readStdin());
-      const wd = p.working_dir || dir;
+      const wd = payloadDir(p, dir);
+      const msg = promptMessage(p);
       try {
-        const r = await hookPrompt(wd, p.message ?? "");
+        const r = await hookPrompt(wd, msg);
         if (r.ratcheted && r.outcome) {
-          await commitPaths(wd, [CONTRACT_FILENAME], `ser: ratchet (correction) — ${(p.message ?? "").slice(0, 50)}`);
+          await commitPaths(wd, [CONTRACT_FILENAME], `ser: ratchet (correction) — ${msg.slice(0, 50)}`);
           console.error(`ser: ${r.outcome.action}${r.outcome.gateId ? ` (${r.outcome.gateId})` : ""}`);
         }
       } catch (err) {

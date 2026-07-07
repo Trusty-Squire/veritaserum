@@ -1,0 +1,13 @@
+{
+  "name": "ser",
+  "version": "0.1.0",
+  "description": "ser ground-truth layer: the agent can't end a turn on a false 'done'.",
+  "hooks": {
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "ser hook-stop" }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "ser hook-prompt" }] }
+    ]
+  }
+}

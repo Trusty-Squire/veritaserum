@@ -352,3 +352,21 @@ Building the goose adapter surfaced a refinement to the §9 capability matrix:
   logic (`hookStop`/`hookPrompt`) is done and tested and works on CC/Codex now.
 - **Matrix nuance:** "hard-block" needs a second axis — *can it block* (goose ✅) AND
   *does it pass the claim* (goose ✗ today, CC/Codex ✅). Claim-gated blocking needs both.
+
+## 16. P1.5a — Claude Code adapter + goose PR (2026-07-06)
+
+Correction to §15 from pulling latest goose: the "Stop is context-free" finding was
+against a stale checkout. Latest goose already emits `last_assistant_message` on Stop
+(upstream #9968). The only remaining Stop gap was `working_dir` — filed as a one-line
+additive PR: **aaif-goose/goose#10296** (thread `session.working_dir` into
+`stop_hook_context`). `cargo check -p goose` passes.
+
+**Claude Code adapter shipped (hard-block, today).** CC needs no upstream change: its
+Stop hook hands us `transcript_path` + `cwd`, `UserPromptSubmit` hands `prompt`. The CLI
+now normalizes all harness payloads — claim = `last_assistant_message` (goose/codex) |
+last assistant turn of `transcript_path` (CC) | `message`; dir = `working_dir` | `cwd` |
+cwd. So one `ser hook-stop` binary serves goose, CC, and codex; only the payload shape
+differs. Proven by a test that blocks a false "done" delivered via a CC transcript.
+
+This is the first end-to-end proof that a real agent can't end a turn on a false claim —
+no mocked harness, no pending upstream dependency. `adapters/claude-code/`.
