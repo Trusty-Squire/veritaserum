@@ -108,4 +108,16 @@ describe("CLI hook contract (goose payload shape → block decision on stdout)",
     expect(r.code).toBe(0);
     expect(r.out).toBe(""); // no block payload
   });
+
+  it("blocks a false done delivered in codex shape (last_assistant_message + cwd)", async () => {
+    const dir = await seeded(null);
+    const r = await hook(dir, "hook-stop", {
+      hook_event_name: "Stop",
+      last_assistant_message: "Done — implemented it, tests pass.",
+      cwd: dir,
+      stop_hook_active: false,
+    });
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.out).decision).toBe("block");
+  });
 });

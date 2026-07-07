@@ -33,7 +33,7 @@ export interface StopDeps {
 
 export async function hookStop(dir: string, message: string, deps: StopDeps = {}): Promise<StopDecision> {
   const extract = deps.extract ?? mockClaimExtractor;
-  const claim = extract(message);
+  const claim = await extract(message);
   if (!claim.claimsDone) {
     return { block: false, claimed: false };
   }

@@ -370,3 +370,28 @@ differs. Proven by a test that blocks a false "done" delivered via a CC transcri
 
 This is the first end-to-end proof that a real agent can't end a turn on a false claim —
 no mocked harness, no pending upstream dependency. `adapters/claude-code/`.
+
+## 17. codex adapter + P2 cross-vendor judge (2026-07-06)
+
+**codex adapter shipped** (`adapters/codex/`) — hard-block today. codex passes
+`last_assistant_message`; `ser hook-stop` already consumes it. Config via
+`~/.codex/config.toml` `[[hooks.Stop]]` or a marketplace plugin; hook-trust required.
+The hard-block trio (Claude Code, codex, goose-on-merge) is complete; one `ser hook-stop`
+binary serves all three.
+
+**P2 cross-vendor judge (owner policy, no metered spend)** — `src/llm.ts`:
+- Selection (gstack's rule): executor≠codex ∧ codex available → judge=codex; else
+  executor≠claude ∧ claude available → judge=claude; else OpenRouter with a
+  USER-SPECIFIED model (metered, approval-gated, never auto-selected).
+- Clients run **local subscriptions** — `codex exec -s read-only` (tools forbidden) and
+  `claude -p`. Free. OpenRouter is the only metered path and is opt-in.
+- First real consumer: `makeLlmClaimExtractor` (cross-vendor read of the executor's
+  claim), fails SAFE to the heuristic on any judge error so an outage never fabricates
+  a block.
+- **Live-proven (free):** on this box both subscriptions detect; executor=goose→judge=codex;
+  a real codex call reads "Done…tests pass"→true, "more to do"→false. `pnpm tsx
+  scripts/judge-smoke.ts`.
+
+Next P2: the real semantic-gate Judge (verdict over captured evidence) + the real LLM
+Knight (seed), both on this same cross-vendor/local-subscription substrate. Still no
+metered spend unless neither subscription is available.
