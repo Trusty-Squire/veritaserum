@@ -40,6 +40,7 @@ export async function seed(dir: string, goal: string, knight: Knight = new MockK
     gates: design.gates.map((g, i) => ({
       id: `g${i + 1}-seed`,
       run: g.run,
+      ...(g.semantic ? { semantic: g.semantic } : {}),
       ...(g.checklist ? { checklist: g.checklist } : {}),
       gatePaths: g.gatePaths,
       lineage: g.lineage,

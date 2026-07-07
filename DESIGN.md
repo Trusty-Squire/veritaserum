@@ -395,3 +395,26 @@ binary serves all three.
 Next P2: the real semantic-gate Judge (verdict over captured evidence) + the real LLM
 Knight (seed), both on this same cross-vendor/local-subscription substrate. Still no
 metered spend unless neither subscription is available.
+
+## 18. P2 continued — real LLM Knight + semantic-gate Judge (2026-07-06)
+
+The mocks come out. Both run on the free local-subscription substrate (§17).
+
+- **Semantic gates** (`schema.ts`): a gate is now exactly one of command | semantic |
+  checklist. A semantic gate carries `{capture, claim}` — capture produces evidence
+  deterministically (pristine, R2), then a CROSS-VENDOR judge rules on the claim.
+- **Semantic Judge** (`judge-verdict.ts`): adversarial ("told it's broken, prove the
+  claim holds"), returns pass | fail | **abstain**. Abstain routes to a human and NEVER
+  blocks or passes; a judge outage abstains (never fabricates a green). Symptom-only.
+- **verify** runs semantic gates: pristine capture → judge → block on fail, route
+  abstain to human. No judge available → abstain (never silent pass).
+- **LlmKnight** (`knight-llm.ts`): a capable LLM authors the contract from a goal —
+  command gates + committed grader scripts, semantic gates, honest checklist gates.
+  Output is zod-validated; a malformed contract is a hard error, never silently bad.
+  Authoring needs no cross-vendor model (it isn't grading the executor).
+- **CLI wiring**: `ser seed` uses LlmKnight when a subscription is available (else
+  MockKnight); `ser verify` builds a cross-vendor judge from local subs (else semantic
+  gates abstain). Metered OpenRouter is never auto-selected.
+
+45 hermetic vitest green (MockLlmClient for knight + judge). Live smokes free
+(`scripts/knight-smoke.ts`, `judge-smoke.ts`).

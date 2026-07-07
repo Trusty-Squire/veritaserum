@@ -10,13 +10,45 @@
  */
 import { loadContract, activeGates } from "./contract.js";
 import { commitPaths } from "./git.js";
-import { mockTranscriber } from "./judge.js";
+import { mockTranscriber, MockKnight, type Knight } from "./judge.js";
+import { LlmKnight } from "./knight-llm.js";
 import { ratchetComplaint, retireByProvenance } from "./ratchet.js";
 import { seed, SeedError } from "./seed.js";
 import { CONTRACT_FILENAME } from "./schema.js";
 import { verify, NotSealedError } from "./verify.js";
 import { hookStop, hookPrompt } from "./hook.js";
 import { readLastAssistantMessage } from "./transcript.js";
+import { detectVendors, selectJudgeVendor, makeClient, type Vendor } from "./llm.js";
+import { makeSemanticJudge, type SemanticJudge } from "./judge-verdict.js";
+
+/**
+ * Build a cross-vendor semantic judge from local subscriptions (free). Returns
+ * undefined when no cross-vendor local subscription is available → semantic gates
+ * abstain (route to human). Never auto-runs the metered OpenRouter path.
+ */
+/**
+ * The Knight authors the contract. Any available local subscription works
+ * (authoring is not judging, so no cross-vendor requirement). No subscription, or
+ * SER_MOCK_KNIGHT set → the deterministic MockKnight (offline/test).
+ */
+async function resolveKnight(): Promise<Knight> {
+  if (process.env.SER_MOCK_KNIGHT) return new MockKnight();
+  const vendors = await detectVendors();
+  const v = vendors[0];
+  if (!v) return new MockKnight();
+  return new LlmKnight(makeClient({ vendor: v, reason: "knight authoring", metered: false }));
+}
+
+async function resolveJudge(): Promise<SemanticJudge | undefined> {
+  const executor = (process.env.SER_EXECUTOR as Vendor | "unknown") || "unknown";
+  try {
+    const sel = selectJudgeVendor(executor, { available: await detectVendors() });
+    if (sel.metered) return undefined;
+    return makeSemanticJudge(makeClient(sel));
+  } catch {
+    return undefined;
+  }
+}
 
 /** Read the harness hook payload (JSON HookContext) from stdin. */
 async function readStdin(): Promise<string> {
@@ -81,7 +113,7 @@ async function main(argv: string[]): Promise<number> {
     case "seed": {
       const goal = positional(rest).join(" ").trim();
       if (!goal) return usage("seed <goal>");
-      const out = await seed(dir, goal);
+      const out = await seed(dir, goal, await resolveKnight());
       console.log(`sealed contract: ${out.gates} gate(s), ${out.files.length} grader file(s)`);
       console.log(`contractCommit ${out.contractCommit.slice(0, 10)}`);
       return 0;
@@ -126,7 +158,8 @@ async function main(argv: string[]): Promise<number> {
 
     case "verify": {
       const level = flag(rest, "full") ? "full" : "fast";
-      const r = await verify(dir, level);
+      const judge = await resolveJudge();
+      const r = await verify(dir, { level, ...(judge ? { judge } : {}) });
       for (const t of r.tamper) {
         console.log(`⚠ TAMPER (${t.kind}): ${t.path} — ${t.detail} [ran pristine grader anyway]`);
       }
@@ -134,12 +167,17 @@ async function main(argv: string[]): Promise<number> {
         console.log(`✗ ${f.gateId} (${f.provenance})`);
         if (f.symptom) console.log(`    ${f.symptom.replace(/\n/g, "\n    ")}`);
       }
+      for (const a of r.abstentions) console.log(`? ${a.gateId} (${a.provenance}) — ABSTAIN → human: ${a.symptom ?? ""}`);
       for (const item of r.checklist) console.log(`○ checklist ${item.gateId}: ${item.text}`);
       if (r.blocked) {
         console.log(`BLOCKED — ${r.failures.length}/${r.ran} gate(s) failed. A "done" claim would be false.`);
         return 1;
       }
-      console.log(`OK — ${r.passed}/${r.ran} gate(s) pass${r.tamper.length ? ` (${r.tamper.length} tamper flag(s))` : ""}.`);
+      const tail = [
+        r.tamper.length ? `${r.tamper.length} tamper flag(s)` : "",
+        r.abstentions.length ? `${r.abstentions.length} abstention(s) → human` : "",
+      ].filter(Boolean).join(", ");
+      console.log(`OK — ${r.passed}/${r.ran} gate(s) pass${tail ? ` (${tail})` : ""}.`);
       return 0;
     }
 

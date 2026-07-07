@@ -13,6 +13,7 @@
 import { loadContract } from "./contract.js";
 import { mockClaimExtractor, mockCorrectionClassifier, type ClaimExtractor, type CorrectionClassifier } from "./claim.js";
 import { mockTranscriber, type ComplaintTranscriber } from "./judge.js";
+import type { SemanticJudge } from "./judge-verdict.js";
 import { ratchetComplaint, type RatchetOutcome } from "./ratchet.js";
 import { verify, NotSealedError } from "./verify.js";
 
@@ -29,6 +30,7 @@ export interface StopDecision {
 export interface StopDeps {
   extract?: ClaimExtractor;
   level?: "fast" | "full";
+  judge?: SemanticJudge;
 }
 
 export async function hookStop(dir: string, message: string, deps: StopDeps = {}): Promise<StopDecision> {
@@ -40,7 +42,7 @@ export async function hookStop(dir: string, message: string, deps: StopDeps = {}
 
   let result;
   try {
-    result = await verify(dir, deps.level ?? "fast");
+    result = await verify(dir, { level: deps.level ?? "fast", ...(deps.judge ? { judge: deps.judge } : {}) });
   } catch (err) {
     // No sealed contract yet → nothing to contradict; let the turn end.
     if (err instanceof NotSealedError) return { block: false, claimed: true };

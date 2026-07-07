@@ -24,25 +24,50 @@ export const GateLineageSchema = z
   .strict();
 export type GateLineage = z.infer<typeof GateLineageSchema>;
 
+/**
+ * A semantic gate: reality is captured deterministically (the `capture` command
+ * produces evidence on stdout), then a CROSS-VENDOR judge decides whether `claim`
+ * holds over that evidence (DESIGN §5). The judge never drives — the recipe does.
+ */
+export const SemanticSpecSchema = z
+  .object({
+    /** Shell command whose stdout/stderr is the evidence bundle (deterministic). */
+    capture: z.string().min(1),
+    /** What must be true of the evidence (the thing the judge rules on). */
+    claim: z.string().min(1),
+  })
+  .strict();
+export type SemanticSpec = z.infer<typeof SemanticSpecSchema>;
+
 export const ContractGateSchema = z
   .object({
     id: z.string().min(1),
-    /** Rendered command (exit 0 = pass), or null for human checklist items. */
+    /** Command gate: shell, exit 0 = pass. null for semantic/checklist gates. */
     run: z.string().min(1).nullable(),
+    /** Semantic gate: capture + claim, judged cross-vendor. */
+    semantic: SemanticSpecSchema.optional(),
     /** Human checklist text (audit-only items — never run in the loop). */
     checklist: z.string().min(1).optional(),
     /**
      * R2: the grader files this gate depends on (test files, configs, the check
-     * script). At verify these are restored to their committed version so the
-     * executor cannot tamper the thing that grades it. Literal repo-relative
-     * paths in P0 (globs are P1).
+     * or capture script). At verify these are restored to their committed version
+     * so the executor cannot tamper the thing that grades it.
      */
     gatePaths: z.array(z.string().min(1)).default([]),
     lineage: GateLineageSchema,
     /** Set when the clutch (amend --retire) retires this gate. */
     retiredBy: z.string().min(1).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((g, ctx) => {
+    const kinds = [g.run !== null, Boolean(g.semantic), Boolean(g.checklist)].filter(Boolean).length;
+    if (kinds !== 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `gate "${g.id}" must be exactly one of command(run) | semantic | checklist`,
+      });
+    }
+  });
 export type ContractGate = z.infer<typeof ContractGateSchema>;
 
 export const RepeatSchema = z.object({

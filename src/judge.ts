@@ -7,13 +7,15 @@
  * ONLY behind these seams now — the mechanics (contract, ratchet, pristine,
  * verify) never parse prose.
  */
-import type { ContractFile, GateLineage } from "./schema.js";
+import type { ContractFile, GateLineage, SemanticSpec } from "./schema.js";
 
 /** A constructed, not-yet-persisted gate: one pattern application. */
 export interface GateInstance {
-  /** Rendered shell command (exit 0 = pass), or null for a human checklist item. */
+  /** Command gate: shell (exit 0 = pass). null for semantic/checklist. */
   run: string | null;
-  /** Human checklist text (only when run === null). */
+  /** Semantic gate: capture + claim, judged cross-vendor. */
+  semantic?: SemanticSpec;
+  /** Human checklist text (audit-only). */
   checklist?: string;
   /** R2 grader files this gate depends on. */
   gatePaths: string[];
