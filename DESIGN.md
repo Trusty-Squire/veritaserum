@@ -426,8 +426,13 @@ The mocks come out. Both run on the free local-subscription substrate (§17).
   builds from goal + gate provenances, ser blocks a false done + feeds the symptom back
   (K rounds). Measures defects-shipped and churn. Free (claude authors+judges, codex
   builds). CAVEAT (owner's standing lesson, confirmed): trivial tractable goals TIE —
-  goal 0 (reverse) was off 0 / on 0. The wedge needs large, ill-defined, edge-uncertain
-  work; a rigorous A/B is a separate, larger experiment. Harness fix: one verify per ON
+  ALL 4 trivial CLI goals (reverse, fizzbuzz, celsius2f, wordcount) tied at off 0 / on
+  0, 1 round each — a faithful NULL: a capable agent clears easy tasks one-shot in both
+  arms, so ser adds no measurable delta THERE. ser's real defect-catch is proven
+  separately (the e2e caught codex's pipefail/dash test bug); it is only VISIBLE when
+  the bare agent actually ships a defect, which trivial tasks don't reliably produce.
+  The wedge needs large, ill-defined, edge-uncertain work; that rigorous A/B is a
+  separate, larger (possibly metered) experiment. Harness fix: one verify per ON
   round drives both the block and the measurement (no double-judge nondeterminism).
 - **MCP wrapper (`src/mcp.ts`)**: pull-side tools contract_seed/ratchet/amend/verify/
   status over the same engine (NOT the enforcement path — MCP is pull-only). Shared
