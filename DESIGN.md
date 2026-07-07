@@ -330,3 +330,25 @@ with R1-R6 as gating requirements; R7 as a watch-item.
 amend-retire (§4 updated). amend is the only weakening path, human-confirmed.
 
 NO UNRESOLVED DECISIONS
+
+## 15. P1 build findings (goose adapter, 2026-07-06)
+
+Building the goose adapter surfaced a refinement to the §9 capability matrix:
+
+- **goose UserPromptSubmit is rich, goose Stop is context-free.** UserPromptSubmit
+  calls `.with_message(...)` (ratchet-capture works today). But BOTH Stop
+  `emit_blocking` sites build `HookContext::new(Stop, session_id)` with **no message
+  and no working_dir** (agent.rs ~L1851, ~L2570). goose can still *veto* (hard-block
+  capability intact), but the hook can't read the agent's completion claim from the
+  payload, and the session transcript now lives in **SQLite** (`sessions.db`) — too
+  coupled to read.
+- **Resolution = a one-line upstream PR, not a workaround.** goose already has the
+  `.with_message()` builder; the Stop site just doesn't call it, and the assistant text
+  is in scope as `output`. Adding `.with_message(output).with_working_dir(...)` makes
+  goose full claim-gated hard-block, same as Claude Code + Codex (which pass the last
+  message today). This is the first ser→goose PR. See `adapters/goose/README.md`.
+- **Until then:** ser on goose = ratchet-capture (works) + verify-and-report; the Stop
+  enforcement no-ops SAFELY (never traps honest-incomplete). The harness-agnostic hook
+  logic (`hookStop`/`hookPrompt`) is done and tested and works on CC/Codex now.
+- **Matrix nuance:** "hard-block" needs a second axis — *can it block* (goose ✅) AND
+  *does it pass the claim* (goose ✗ today, CC/Codex ✅). Claim-gated blocking needs both.

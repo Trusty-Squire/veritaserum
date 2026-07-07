@@ -1,0 +1,15 @@
+{
+  "_comment": "ser goose adapter (Archetype A). Drop this plugin into an enabled goose plugin dir; goose discovers <plugin-root>/hooks/hooks.json automatically. `ser` must be on PATH (npm i -g, or replace with an absolute path / ${PLUGIN_ROOT}/bin/ser wrapper).",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [{ "type": "command", "command": "ser hook-stop" }]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [{ "type": "command", "command": "ser hook-prompt" }]
+      }
+    ]
+  }
+}

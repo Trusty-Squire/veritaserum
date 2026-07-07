@@ -8,13 +8,34 @@
  *
  * Exit codes: verify blocked -> 1, verify green -> 0, errors -> 2.
  */
-import { loadContract, activeGates, saveContract } from "./contract.js";
+import { loadContract, activeGates } from "./contract.js";
 import { commitPaths } from "./git.js";
 import { mockTranscriber } from "./judge.js";
 import { ratchetComplaint, retireByProvenance } from "./ratchet.js";
 import { seed, SeedError } from "./seed.js";
 import { CONTRACT_FILENAME } from "./schema.js";
 import { verify, NotSealedError } from "./verify.js";
+import { hookStop, hookPrompt } from "./hook.js";
+
+/** Read the harness hook payload (JSON HookContext) from stdin. */
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const c of process.stdin) chunks.push(c as Buffer);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+interface HookPayload {
+  message?: string;
+  working_dir?: string;
+}
+function parsePayload(raw: string): HookPayload {
+  try {
+    const v = JSON.parse(raw) as unknown;
+    return v && typeof v === "object" ? (v as HookPayload) : {};
+  } catch {
+    return {};
+  }
+}
 
 function flag(args: string[], name: string): boolean {
   return args.includes(`--${name}`);
@@ -99,8 +120,43 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
 
+    // --- harness hook entrypoints (Archetype A). Read JSON HookContext on stdin. ---
+    case "hook-stop": {
+      const p = parsePayload(await readStdin());
+      const wd = p.working_dir || dir;
+      try {
+        const d = await hookStop(wd, p.message ?? "", { level: flag(rest, "full") ? "full" : "fast" });
+        if (d.block) {
+          // goose blocks on a stdout {"decision":"block"} payload; exit 0.
+          process.stdout.write(JSON.stringify({ decision: "block", reason: d.reason }) + "\n");
+        }
+        return 0;
+      } catch (err) {
+        // Fail OPEN on our own error: ser blocks on contradiction, never on a ser
+        // bug (blocking the agent because our hook crashed would get ser disabled;
+        // goose treats an erroring hook as allow anyway).
+        console.error(`ser hook-stop (allowed, internal error): ${err instanceof Error ? err.message : String(err)}`);
+        return 0;
+      }
+    }
+
+    case "hook-prompt": {
+      const p = parsePayload(await readStdin());
+      const wd = p.working_dir || dir;
+      try {
+        const r = await hookPrompt(wd, p.message ?? "");
+        if (r.ratcheted && r.outcome) {
+          await commitPaths(wd, [CONTRACT_FILENAME], `ser: ratchet (correction) — ${(p.message ?? "").slice(0, 50)}`);
+          console.error(`ser: ${r.outcome.action}${r.outcome.gateId ? ` (${r.outcome.gateId})` : ""}`);
+        }
+      } catch (err) {
+        console.error(`ser hook-prompt (skipped, internal error): ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return 0; // never blocks the human's prompt
+    }
+
     default:
-      return usage("<seed|ratchet|amend|verify>");
+      return usage("<seed|ratchet|amend|verify|hook-stop|hook-prompt>");
   }
 }
 
