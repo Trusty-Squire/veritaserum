@@ -1,14 +1,16 @@
-# plumb — a portable ground-truth layer for coding agents
+# ser — a portable ground-truth layer for coding agents
 
-> Working name. A plumb line is the physical ground-truth reference for "true":
-> you hang it, and reality tells you what's vertical. This is that, for agent claims.
+> ser is the Castellan verification binary. This repo is the clean rebuild of ser
+> as a portable layer that clips onto any coding agent (goose / Claude Code / Codex /
+> Cursor / opencode) instead of being its own harness. The proj-cs ser is the source
+> we extract the engine from; this is where it goes next.
 
 ## 0. One sentence
 
 **A lie-detector-and-referee that clips onto the coding agent you already use, so the
 agent cannot say "done" until reality agrees — and remembers your corrections forever.**
 
-You prompt normally. plumb turns your request into checkable "done" conditions, refuses
+You prompt normally. ser turns your request into checkable "done" conditions, refuses
 to let the agent end a turn on a false claim, and turns every complaint you make into a
 permanent check. It rides the harness's existing hooks; you learn nothing.
 
@@ -25,7 +27,7 @@ permanent check. It rides the harness's existing hooks; you learn nothing.
 - **The discipline is known but hand-rolled.** The viral "LOOPS.md" field notes
   (apocryphal — no Karpathy primary source, but the ideas are SOTA-validated) describe
   contract-first / separate-roles / disk-state / restart / read-traces. They assume a
-  power user hand-builds the loop. ~Nobody will. **plumb packages that discipline as
+  power user hand-builds the loop. ~Nobody will. **ser packages that discipline as
   enforcement a non-expert gets by enabling one extension.**
 - **Not a harness:** OpenHands / Devin / Claude Code / goose own that surface, and
   verification is staying *in-harness* by consensus (MCP standardizes transport +
@@ -33,13 +35,13 @@ permanent check. It rides the harness's existing hooks; you learn nothing.
 - **Not (necessarily) a company:** it needs to work well and be adoptable, not raise.
   ser demotes to reference implementation + corpus generator.
 
-### What plumb adds beyond the LOOPS.md discipline (the parts it omits)
+### What ser adds beyond the LOOPS.md discipline (the parts it omits)
 1. **Oracle layer for un-testable claims** — a contract of "testable assertions" can't
-   hold "is this tractable / is this abstraction right." plumb designs an independent
+   hold "is this tractable / is this abstraction right." ser designs an independent
    check for those (anchor / certificate / metamorphic / property / consequential-use)
    or honestly abstains. *This is the open research frontier.*
 2. **Anti-gaming teeth** — the naive "the contract is what gets graded" *is* the
-   reward-hackable surface. plumb protects the grader from the executor
+   reward-hackable surface. ser protects the grader from the executor
    (assertion-authority), runs the judge on a read-only snapshot, and ships
    null-solution attack tests.
 3. **Durable, human-attributed ratchet** — corrections persist across iterations and
@@ -140,7 +142,7 @@ Reliable firing; only the classification is fuzzy.
 
 **CI / git pre-push** runs the full contract at real ship — but as a **human/team merge
 backstop**, never the agent's feedback loop (the agent ignores out-of-band signals).
-The same `contract.yaml` travels with the repo, so CI runs `plumb check` with zero
+The same `contract.yaml` travels with the repo, so CI runs `ser check` with zero
 extra wiring.
 
 ## 7. Durable vs disposable
@@ -168,7 +170,7 @@ generalize.* The knight:
 3. Or, if none exists, **abstains honestly** and pulls the earliest consequential-use
    check forward (route to human).
 
-plumb's standing research problem: *for a claim with no obvious test, reliably design a
+ser's standing research problem: *for a claim with no obvious test, reliably design a
 trustworthy independent check — and reliably know the boundary where you can't, so you
 escalate instead of faking it.* Making (1) reliable at the tail, (2) un-foolable once
 designed, (3) calibrated about when to abstain.
@@ -176,7 +178,7 @@ designed, (3) calibrated about when to abstain.
 ## 9. Distribution — harness capability matrix (researched 2026-07-07)
 
 **Universal finding (all 5 harnesses): MCP is pull-only; enforcement is ALWAYS the
-command-hook layer.** The verifier must be a shell/CLI check the hook runs (`plumb
+command-hook layer.** The verifier must be a shell/CLI check the hook runs (`ser
 verify`), never an MCP tool the model chooses to call. MCP is the pull-side surface;
 the CLI is the enforcement door. This holds on every target.
 
@@ -190,17 +192,17 @@ the CLI is the enforcement door. This holds on every target.
 
 **Headline: 3 of 5 are hard-block (goose, Claude Code, Codex); 2 are soft-block
 (Cursor, opencode).** The false-"done" promise is real on the first three; on the last
-two it degrades to *detect-and-relaunch* (the false claim surfaces briefly, then plumb
+two it degrades to *detect-and-relaunch* (the false claim surfaces briefly, then ser
 re-injects a correction turn). Corrects an earlier assumption that codex was the weak
 case — it is not.
 
 ### Two adapter archetypes (the whole per-harness surface)
 - **Archetype A — hard-block** (goose, Claude Code, Codex): bundle a plugin that wires
-  `Stop → plumb verify` (block on contradiction) + `user-message → plumb ratchet`. Same
+  `Stop → ser verify` (block on contradiction) + `user-message → ser ratchet`. Same
   shape; only the config format differs (`hooks.json` / `settings.json` / `hooks.toml`)
   and the trust/managed-hook detail (Codex).
 - **Archetype B — soft-block / auto-reprompt** (Cursor, opencode): observe turn-end
-  (`session.idle` / `stop`) → `plumb verify` → on fail, re-inject a correction turn
+  (`session.idle` / `stop`) → `ser verify` → on fail, re-inject a correction turn
   (`client.session.prompt` / `followup_message`). The verifier CLI is identical; only
   delivery differs (re-prompt instead of veto). Set `failClosed` on Cursor.
 
@@ -243,13 +245,13 @@ auto-trigger; confirmed.)
 
 - **P0 — extract the engine.** Lift from ser (harness-independent already): intake +
   gate registry + contract-file + ratchet + suite runner + salvage-first parsing. Wrap
-  as a CLI (`plumb open|verify|check`) over `contract.yaml`. Kill the regex-that-
+  as a CLI (`ser open|verify|check`) over `contract.yaml`. Kill the regex-that-
   interprets-claims; make interpretation the thin judge.
-- **P1 — goose adapter.** Plugin bundling `hooks/hooks.json` → Stop (`plumb verify`,
+- **P1 — goose adapter.** Plugin bundling `hooks/hooks.json` → Stop (`ser verify`,
   block on contradiction) + UserPromptSubmit (ratchet). One-command install.
 - **P2 — MCP wrapper.** Same engine behind `contract_open` / `contract_verify` for
   tool-call hosts + Claude Code subagent judge.
-- **P3 — the decisive A/B.** Same harness, same model, **plumb on vs off**, on
+- **P3 — the decisive A/B.** Same harness, same model, **ser on vs off**, on
   organically-failing tasks. Endpoint: post-done surprises (defects surviving an
   endorsed "done") ↓, false-block ≤5%. This is the only chart that matters.
 - **P4 — oracle layer hardening.** The frontier work of §8, gated on P3.
@@ -281,13 +283,13 @@ same top risks. Decisions taken:
   seed; verify runs them from their committed version (`git checkout <commit> -- <gate
   paths>`), against working-tree code-under-test — tamper is inert AND detected (a diff
   on a gate path is a gaming signal). NOT sufficient alone: gate execution is treated as
-  hostile — external trusted `plumb` binary, clean env, fixed PATH, command + writable-
+  hostile — external trusted `ser` binary, clean env, fixed PATH, command + writable-
   dir allowlists — because the executor can stage the world (`package.json`, fixtures,
   PATH) it can't edit directly.
 - **[R3] Ship-gate trigger uses explicit lifecycle states, not inferred prose.**
   Contract state ∈ {`working`, `ready_for_review`, `done`, `ship`}. Expensive gates key
   off state transitions + strong proxies (final turn after edits, no pending tool calls,
-  attempted commit/push), never prose alone. `plumb check --full` is a REQUIRED
+  attempted commit/push), never prose alone. `ser check --full` is a REQUIRED
   pre-push/CI gate, not merely a backstop.
 - **[R4] Split the contract API:** `contract_seed` / `contract_ratchet` /
   `contract_amend|retire`. Adapters may auto-SUGGEST the op; the op is always recorded

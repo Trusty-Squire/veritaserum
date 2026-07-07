@@ -1,4 +1,4 @@
-# plumb (working name)
+# ser (working name)
 
 A portable ground-truth layer for coding agents. Clips onto the agent you already use
 (goose, opencode, Claude Code, codex) via its existing hooks; turns your request into
