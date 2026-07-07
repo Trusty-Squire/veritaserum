@@ -79,20 +79,31 @@ Three roles, three contexts, deliberately unequal power.
   A judge that can act is a second executor; a judge that can edit its criteria is not
   a judge.
 
-## 4. Tool surface (lean — two tools)
+## 4. Tool surface (lean — explicit ops, not auto-detected)
 
-`contract_open(goal | correction)` — **seed or ratchet, auto-detected.**
-- No contract yet → seed: goal → contract.yaml (knight; ingest spec+evals if provided).
-- Contract exists + passed + input is a correction → ratchet: append a gate, reconcile
-  (new / duplicate-repeat-signal / contradiction-surface-to-human). Corrections never
-  regress; only a human clutch retires a gate (recorded, not deleted).
+**Ratified R4 (2026-07-07):** the contract-mutating operations are SPLIT — never one
+auto-detecting tool. Silent auto-detect can weaken the contract ("don't worry about
+mobile" → retires a gate = monotonicity violation). The op is always explicit and
+recorded; adapters may auto-*suggest* which op to call for a one-call UX, but they never
+silently mutate.
 
-`contract_verify(snapshot, claims)` — **the one verification.** Run the claim-relevant
-gates against reality; return pass, or a confrontation with the symptom.
+- `contract_seed(goal)` — no contract yet → goal → contract.yaml (knight; ingest an
+  authoritative spec+evals if provided, gap-fill only).
+- `contract_ratchet(complaint)` — append a gate from a correction; reconcile
+  (new / duplicate-repeat-signal / contradiction-surface-to-human). Append-only;
+  monotonic; never weakens.
+- `contract_amend(retire | scope-change)` — the ONLY weakening path. Requires human
+  confirmation; recorded, not deleted (audit history). Handles requirement changes and
+  gate retirement (governance, §14 R6).
 
-There is **no separate `contract_check`** — "check the whole thing" is `verify` with the
-expensive gates switched on, gated by a completion claim (§6). A read-only
-`contract_status()` may exist for pull-convenience; it is not load-bearing.
+`contract_verify(snapshot, claims, level)` — **the one verification.** Run the
+claim-relevant gates against reality; return pass, or a confrontation with the (redacted,
+§14 R5) symptom. `level=full` switches on the expensive gates at the ship transition
+(§6). A read-only `contract_status()` exists for pull-convenience; not load-bearing.
+
+Adapter UX: the harness adapter classifies the human's message and calls the right op,
+requiring confirmation for `amend`. Classification is a *suggestion*; the op is the
+record of truth.
 
 ## 5. Gate types
 
@@ -282,6 +293,7 @@ asserted (grader integrity, ship trigger, symptom leakage, contract governance) 
 be *designed*, not stated. All folded into §14 as P0/P1 requirements. Proceed to build
 with R1-R6 as gating requirements; R7 as a watch-item.
 
-**UNRESOLVED DECISIONS:**
-- R4 (split contract API) reverses an earlier "one tool" decision — recommended and
-  recorded, but flagged for owner ratification before P0.
+**R4 RATIFIED (owner, 2026-07-07):** contract API split into seed / ratchet /
+amend-retire (§4 updated). amend is the only weakening path, human-confirmed.
+
+NO UNRESOLVED DECISIONS
