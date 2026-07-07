@@ -173,21 +173,52 @@ trustworthy independent check — and reliably know the boundary where you can't
 escalate instead of faking it.* Making (1) reliable at the tail, (2) un-foolable once
 designed, (3) calibrated about when to abstain.
 
-## 9. Distribution
+## 9. Distribution — harness capability matrix (researched 2026-07-07)
 
-- **MCP server** — portable machinery + pull tools, for hosts that want tool-calls.
-- **CLI (`plumb verify` / `plumb check`)** — what a hook shells out to (goose hooks run
-  *commands*, not MCP calls; source-confirmed). Same engine, command door.
-- **goose** — ship as a **plugin that bundles `hooks/hooks.json`**; enabling the plugin
-  installs the Stop + UserPromptSubmit hooks. No manual `config.yaml` editing.
-- **opencode** — JS/TS plugin (npm-installable); hooks `tool.execute.before/after`,
-  `session.idle`; veto by throwing. Softer completion-block than goose.
-- **Claude Code** — native Stop hook + subagents (fresh-context judge) + auto-routing
-  via `CLAUDE.md`.
-- **codex** — MCP + config (OpenAI unlikely to merge a PR; adapter path covers it).
+**Universal finding (all 5 harnesses): MCP is pull-only; enforcement is ALWAYS the
+command-hook layer.** The verifier must be a shell/CLI check the hook runs (`plumb
+verify`), never an MCP tool the model chooses to call. MCP is the pull-side surface;
+the CLI is the enforcement door. This holds on every target.
 
-The "magic moment" requires **auto-trigger** (a routing rule fires the loop on
-build-intent), never a `/command` the user must learn.
+| Harness | Turn-end veto | Human-msg hook | Judge isolation | Install | **Tier** |
+|---|---|---|---|---|---|
+| **goose** | Stop → `{"decision":"block"}` (source-verified) | `UserPromptSubmit` | subagent | plugin bundles `hooks/hooks.json`, one enable | **hard-block** |
+| **Claude Code** | `Stop` exit 2 / `decision:"block"` + reason | `UserPromptSubmit` | fresh-context **subagent** (own model) | **plugin bundles hooks+subagent+MCP**, `claude /plugin install` | **hard-block** (best install) |
+| **Codex CLI** (v0.142) | `Stop` force-continue (`reason`→next prompt) | `UserPromptSubmit` | subagent | `codex plugin add` from marketplace; **hook-trust** (ship managed hook) | **hard-block** |
+| **Cursor** | ✗ `stop` can't veto — false msg already shown; `followup_message` auto-relaunch (loop≤5) | `beforeSubmitPrompt` (can block) | — | `.cursor/hooks.json` (commit) or Customize; **fail-open → set `failClosed`** | **soft-block** |
+| **opencode** (v1.17.4) | ✗ no turn-end veto exists; `session.idle` is observe-only, post-hoc; `tool.execute.before` vetoes one tool only | `chat.message` | — | npm plugin / `.opencode/plugin/` drop-in | **soft-block** |
+
+**Headline: 3 of 5 are hard-block (goose, Claude Code, Codex); 2 are soft-block
+(Cursor, opencode).** The false-"done" promise is real on the first three; on the last
+two it degrades to *detect-and-relaunch* (the false claim surfaces briefly, then plumb
+re-injects a correction turn). Corrects an earlier assumption that codex was the weak
+case — it is not.
+
+### Two adapter archetypes (the whole per-harness surface)
+- **Archetype A — hard-block** (goose, Claude Code, Codex): bundle a plugin that wires
+  `Stop → plumb verify` (block on contradiction) + `user-message → plumb ratchet`. Same
+  shape; only the config format differs (`hooks.json` / `settings.json` / `hooks.toml`)
+  and the trust/managed-hook detail (Codex).
+- **Archetype B — soft-block / auto-reprompt** (Cursor, opencode): observe turn-end
+  (`session.idle` / `stop`) → `plumb verify` → on fail, re-inject a correction turn
+  (`client.session.prompt` / `followup_message`). The verifier CLI is identical; only
+  delivery differs (re-prompt instead of veto). Set `failClosed` on Cursor.
+
+### Beachhead
+**Claude Code** (largest base, single-plugin bundle = cleanest install) and **goose**
+(open, warm channel via #9708, source-verified) are the primary targets; **Codex** a
+strong third. Cursor/opencode ship as the degraded auto-reprompt mode — honestly
+labeled, still valuable, not the launch claim.
+
+### Judge cross-vendor note
+On Claude Code a *subagent* judge is same-vendor (self-preference bias). The judge must
+be an **external call to a non-Claude model**, not a Claude subagent — the subagent is
+fine for the *knight* (design) but not the verdict *judge*.
+
+The "magic moment" auto-trigger: enforcement auto-fires via the Stop hook (no user
+action). Auto-*seed* (starting the contract on a build goal) rides the human-message
+hook — not a `/command` the user must learn. (CLAUDE.md is advisory context, does NOT
+auto-trigger; confirmed.)
 
 ## 10. Anti-gaming teeth (mapped to the attacks)
 
