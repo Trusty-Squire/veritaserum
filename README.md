@@ -27,6 +27,36 @@ unset VS_ADVISORY                    # then turn on real blocking
 Judge-primary, no contract setup needed. **Fail-open**: no judge / LLM error /
 unparseable reply never blocks — only an explicit contradiction does.
 
+## How it works
+
+Your agent finishes a turn and claims "done." veritaserum's Stop hook fires and
+hands that claim — plus the actual repo state (`git diff`, `git status`) — to a
+**fresh, cross-vendor judge**: a different LLM vendor than the one that wrote the
+code. It answers one question — *is this claim supported by what actually
+happened?* — and blocks the turn only on a clear contradiction.
+
+- **Cross-vendor on purpose.** A model grading its own family's output is biased
+  toward passing it, and it shares the same blind spots. A fresh external judge
+  with no stake in the work catches what self-review structurally can't.
+- **Fail-open.** No judge, an LLM error, or an unparseable reply never blocks —
+  only a named, unsupported claim does. veritaserum never halts your agent over
+  its own hiccup.
+- **Two layers.** The judge is semantic and needs zero setup. For hard, runnable
+  checks you can also seal a `contract` of deterministic gates (shell exit codes,
+  run from their *committed* version so a tampered gate is inert) — the judge
+  rides on top.
+
+## Why
+
+Frontier agents confabulate: they confidently report "done," "tests pass,"
+"implemented X" when it isn't true — most often in long sessions where they've
+drifted from ground truth. It isn't rare (one 2026 study found ~11% of "solved"
+SWE-bench issues are actually wrong) and it's exactly what forces you to babysit a
+loop. A model can't reliably catch its *own* confabulation — the grader and the
+generator share the blind spot. An external, fresh, cross-vendor check can.
+veritaserum makes that check automatic on your existing harness, with a telemetry
+trail — so "done" means done, and you can let the loop run.
+
 ## Install from source
 ```
 pnpm install && pnpm build && npm link   # puts `veritaserum` and `veritaserum-mcp` on PATH
