@@ -224,3 +224,64 @@ build-intent), never a `/command` the user must learn.
   auto-logged. The layer's own use generates its eval data.
 - Kill conditions pre-registered per phase; false-pass ≫ false-block >
   missed-but-honestly-labeled.
+
+## 14. Review outcomes (plan-eng-review 2026-07-07, Fable + codex/gpt-5.5 cross-model)
+
+Two independent reviews (this session + a codex outside-voice pass) converged on the
+same top risks. Decisions taken:
+
+- **[R1] Enforcement is TIERED, and the claim must be too.** Ship a harness capability
+  matrix: `hard-block` (goose Stop) / `soft-block` (opencode veto) / `advisory` /
+  `unsupported` (codex today). "The agent cannot say done" is promised ONLY for
+  hard-block adapters; others get an explicit degraded mode + a weaker user-facing
+  claim. Fixes the #1 risk (over-claimed uniformity) both models named.
+- **[R2] Grader integrity = pristine-git + hostile-build sandbox.** Gates commit at
+  seed; verify runs them from their committed version (`git checkout <commit> -- <gate
+  paths>`), against working-tree code-under-test — tamper is inert AND detected (a diff
+  on a gate path is a gaming signal). NOT sufficient alone: gate execution is treated as
+  hostile — external trusted `plumb` binary, clean env, fixed PATH, command + writable-
+  dir allowlists — because the executor can stage the world (`package.json`, fixtures,
+  PATH) it can't edit directly.
+- **[R3] Ship-gate trigger uses explicit lifecycle states, not inferred prose.**
+  Contract state ∈ {`working`, `ready_for_review`, `done`, `ship`}. Expensive gates key
+  off state transitions + strong proxies (final turn after edits, no pending tool calls,
+  attempted commit/push), never prose alone. `plumb check --full` is a REQUIRED
+  pre-push/CI gate, not merely a backstop.
+- **[R4] Split the contract API:** `contract_seed` / `contract_ratchet` /
+  `contract_amend|retire`. Adapters may auto-SUGGEST the op; the op is always recorded
+  explicitly; retirements/contradictions/requirement-changes need confirmation or a high
+  confidence threshold. Reverses the earlier "one auto-detecting tool" call — silent
+  auto-detect can weaken the contract (monotonicity violation).
+- **[R5] Symptoms are a data-loss-prevention problem, not a principle.** Per-gate-type
+  symptom schemas with redaction rules + max granularity; adversarial tests where the
+  executor tries to infer hidden gates from symptoms; gates that can't emit a useful
+  symptom without leaking the test are marked `coarse-failure-only` / `human-visible-only`.
+- **[R6] Contract governance against rot.** Each gate carries scope, branch/product
+  version, rationale, last-seen-failure, cost tier, flake rate. Ratchets are append-only
+  in AUDIT HISTORY, not necessarily always-active in enforcement; a retirement workflow
+  exists. Prevents stale/contradictory gates blocking forever.
+- **[R7] Sequencing risk accepted, watched.** The oracle layer (the true differentiator
+  vs the LOOPS.md commodity) is P4/last; P0-P3 risk shipping "LOOPS.md as a plugin."
+  Mitigation: pull a minimal oracle case (the anchor pattern) into P0 so the MVP is
+  differentiated, not just enforced.
+
+## GSTACK REVIEW REPORT
+
+| Run | Reviewer | Status | Findings |
+|---|---|---|---|
+| 1 | Fable (in-session) | complete | 5 ranked (P1×2, P2×2, P3-bundle) + Step-0 scope clean |
+| 2 | codex / gpt-5.5 (outside voice) | complete | 7 ranked; single-biggest-risk = enforcement portability |
+
+Cross-model convergence on: enforcement tiering (both #1), grader integrity, ship-gate
+trigger, contract-open fragility. Codex-unique adds absorbed: symptoms-leak-solutions
+(R5), contract-rot governance (R6), environment-sandbox strengthening of R2.
+
+VERDICT: **design sound, claim over-scoped.** The architecture is right; the promise
+("can't say done") must be scoped to hard-block harnesses, and four boundaries the doc
+asserted (grader integrity, ship trigger, symptom leakage, contract governance) need to
+be *designed*, not stated. All folded into §14 as P0/P1 requirements. Proceed to build
+with R1-R6 as gating requirements; R7 as a watch-item.
+
+**UNRESOLVED DECISIONS:**
+- R4 (split contract API) reverses an earlier "one tool" decision — recommended and
+  recorded, but flagged for owner ratification before P0.
