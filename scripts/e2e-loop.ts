@@ -61,7 +61,7 @@ try {
     `You are working in the current directory. Build this:\n${goal}\n\n` +
     `Done conditions:\n${spec}\n\n` +
     `Create an executable ./reverse (reads its first arg, prints the reversal to stdout) ` +
-    `and a test. Do NOT read, run, or modify anything under .ser/ (that is the grader). ` +
+    `and a test. Do NOT read, run, or modify anything under .veritaserum/ (that is the grader). ` +
     `Make ./reverse executable.`;
   const b = await execa("codex", ["exec", "-s", "workspace-write", buildPrompt], {
     cwd: dir,

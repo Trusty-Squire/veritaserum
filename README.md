@@ -1,21 +1,41 @@
-# ser
+# veritaserum
 
-A portable ground-truth layer for coding agents. ser turns a goal into checkable
-"done" conditions, refuses to let an agent end a turn on a false claim, and remembers
-your corrections — riding the harness's existing hooks. See [DESIGN.md](./DESIGN.md).
+The truth serum for confabulating coding agents. A portable ground-truth layer:
+veritaserum turns a goal into checkable "done" conditions, refuses to let an agent
+end a turn on a false claim, and remembers your corrections — riding the harness's
+existing hooks. The command is `veritaserum`.
+See [DESIGN.md](https://github.com/Trusty-Squire/veritaserum/blob/main/DESIGN.md).
 
 **It runs free.** Authoring uses your `claude` subscription; the cross-vendor judge uses
 `codex`↔`claude`; nothing metered unless you opt into OpenRouter.
 
-## Install
+## Quick start — the sentinel
+
+One command wires veritaserum into your agent as a **confabulation sentinel**: on
+every turn-end, a fresh cross-vendor judge checks the agent's "done" claim against
+the actual repo state and flags anything unsupported ("claims tests pass but nothing
+ran", "claims implemented X but the diff is empty").
+
 ```
-pnpm install && pnpm build && npm link      # puts `ser` and `ser-mcp` on PATH
+npx veritaserum install claude-code   # also: goose, codex   (--global for ~/.claude)
+export VS_ADVISORY=1                  # week 1: watch + log, never block
+# ...work normally...
+veritaserum telemetry                 # catches, would-blocks, false-flags, by harness
+unset VS_ADVISORY                    # then turn on real blocking
+```
+
+Judge-primary, no contract setup needed. **Fail-open**: no judge / LLM error /
+unparseable reply never blocks — only an explicit contradiction does.
+
+## Install from source
+```
+pnpm install && pnpm build && npm link   # puts `veritaserum` and `veritaserum-mcp` on PATH
 ```
 
 ## Use it as an MCP harness (the ground-truth layer)
 Register the stdio server with any MCP host (Claude Code, Codex, …):
 ```json
-{ "mcpServers": { "ser": { "command": "ser-mcp" } } }
+{ "mcpServers": { "veritaserum": { "command": "veritaserum-mcp" } } }
 ```
 Tools (the split API, DESIGN §4):
 
@@ -31,20 +51,23 @@ MCP is pull-only, so it is **not** the enforcement path — for hard-block enfor
 wire the CLI into the harness Stop hook (below).
 
 ## Use it as an enforcement hook (hard-block)
-`ser hook-stop` blocks a turn iff the agent claimed done while a gate is red (honest
-incompleteness passes). `ser hook-prompt` ratchets a correction. Adapters bundle these:
+`veritaserum hook-stop` blocks a turn iff the agent claimed done while a gate is red
+(honest incompleteness passes). `veritaserum hook-prompt` ratchets a correction.
+Adapters bundle these:
 - **Claude Code** (`adapters/claude-code`) — hard-block today
 - **Codex** (`adapters/codex`) — hard-block today
 - **goose** (`adapters/goose`) — hard-block once aaif-goose/goose#10296 merges
 
-One `ser hook-stop` binary serves all three; the CLI normalizes each harness's payload.
+One `veritaserum hook-stop` binary serves all three; the CLI normalizes each harness's payload.
 
 ## CLI
 ```
-ser seed <goal>        author + seal a contract (Knight)
-ser verify [--full]    run gates from pristine graders; exit 1 on a false "done"
-ser ratchet <text>     append a gate from a correction (monotonic)
-ser amend --retire --match <s> --as <s> [--confirm]   the only weakening path
+veritaserum install <claude-code|goose|codex> [--global]   wire the sentinel into a harness
+veritaserum telemetry     catches / would-blocks / by harness — the in-the-wild measurement
+veritaserum seed <goal>   author + seal a contract (Knight)
+veritaserum verify [--full]   run gates from pristine graders; exit 1 on a false "done"
+veritaserum ratchet <text>    append a gate from a correction (monotonic)
+veritaserum amend --retire --match <s> --as <s> [--confirm]   the only weakening path
 ```
 
 ## Guarantees

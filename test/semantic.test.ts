@@ -43,15 +43,15 @@ describe("LlmKnight", () => {
         JSON.stringify({
           thesis: "t",
           gates: [
-            { type: "command", run: "sh .ser/gates/c.sh", gatePaths: [".ser/gates/c.sh"], provenance: "floor: x", graderFiles: [{ path: ".ser/gates/c.sh", content: "test -f out\n" }] },
+            { type: "command", run: "sh .veritaserum/gates/c.sh", gatePaths: [".veritaserum/gates/c.sh"], provenance: "floor: x", graderFiles: [{ path: ".veritaserum/gates/c.sh", content: "test -f out\n" }] },
           ],
         }),
       ),
     );
     const r = await knight.seed("goal");
     expect(r.gates).toHaveLength(1);
-    expect(r.gates[0]!.run).toBe("sh .ser/gates/c.sh");
-    expect(r.files[0]!.path).toBe(".ser/gates/c.sh");
+    expect(r.gates[0]!.run).toBe("sh .veritaserum/gates/c.sh");
+    expect(r.files[0]!.path).toBe(".veritaserum/gates/c.sh");
   });
 
   it("throws on non-JSON / invalid output (never a silently-bad contract)", async () => {

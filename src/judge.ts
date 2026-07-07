@@ -67,7 +67,7 @@ export class MockKnight implements Knight {
   constructor(private readonly artifact = "answer.txt") {}
 
   async seed(goal: string): Promise<SeedResult> {
-    const graderPath = ".ser/gates/floor.sh";
+    const graderPath = ".veritaserum/gates/floor.sh";
     const grader = [
       "#!/usr/bin/env sh",
       "# floor gate (MockKnight): the build must produce a non-empty output artifact.",

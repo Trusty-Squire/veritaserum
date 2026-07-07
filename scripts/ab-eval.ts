@@ -94,7 +94,7 @@ async function run() {
     .join("\n");
   await rm(seedDir, { recursive: true, force: true });
 
-  const IGNORE = "Do NOT read, run, or modify anything under .ser/ (that is the grader).";
+  const IGNORE = "Do NOT read, run, or modify anything under .veritaserum/ (that is the grader).";
 
   // 2. OFF arm — build from the goal only.
   const off = await newRepo();

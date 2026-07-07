@@ -1,0 +1,91 @@
+name: Release
+
+# Publishes `veritaserum` to npm + cuts a GitHub release when the `version` in
+# package.json is bumped on main. Source of truth: package.json `version`.
+#   - stable  (e.g. 0.2.0)      → npm dist-tag `latest`
+#   - prerelease (0.2.0-rc.1)   → npm dist-tag `next`, GitHub prerelease
+# Idempotent: if tag v<version> already exists the job is a no-op, so re-pushing
+# main without a bump does NOT republish.
+#
+# Requires repo secret NPM_TOKEN (npm automation token with publish rights).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "adapters/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/release.yml"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write # create tags + releases
+  id-token: write # npm provenance (sigstore)
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need tags to check idempotency
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+
+      # Re-run the full gate inside the publish graph — don't trust out-of-band CI.
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: pnpm test
+
+      - name: Read version + decide
+        id: read
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag v$VERSION already exists — nothing to publish."
+          else
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "$VERSION" == *-* ]]; then
+            echo "dist_tag=next"     >> "$GITHUB_OUTPUT"
+            echo "prerelease=true"   >> "$GITHUB_OUTPUT"
+          else
+            echo "dist_tag=latest"   >> "$GITHUB_OUTPUT"
+            echo "prerelease=false"  >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to npm
+        if: steps.read.outputs.tag_exists == 'false'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public --tag ${{ steps.read.outputs.dist_tag }}
+
+      - name: Tag + GitHub release
+        if: steps.read.outputs.tag_exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          V="v${{ steps.read.outputs.version }}"
+          git tag "$V"
+          git push origin "$V"
+          if [[ "${{ steps.read.outputs.prerelease }}" == "true" ]]; then
+            gh release create "$V" --title "$V" --generate-notes --prerelease
+          else
+            gh release create "$V" --title "$V" --generate-notes
+          fi

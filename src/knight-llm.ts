@@ -39,7 +39,7 @@ export class KnightError extends Error {}
 const SYSTEM =
   "You are the Knight: you design a verification contract for a coding goal. Emit gates " +
   "that are OBJECTIVELY checkable. Prefer `command` gates (a shell command, exit 0 = pass) " +
-  "with a committed grader script under .ser/gates/. Use a `semantic` gate (a `capture` " +
+  "with a committed grader script under .veritaserum/gates/. Use a `semantic` gate (a `capture` " +
   "command whose output is evidence + a `claim` to judge) only when no exit-code check fits. " +
   "Use a `checklist` gate ONLY for claims no automated check can settle (honest abstain). " +
   "Never write gates that grade themselves trivially (e.g. `exit 0`). Keep it small and load-bearing.";
@@ -49,8 +49,8 @@ function prompt(goal: string): string {
     `GOAL:\n${goal}\n\n` +
     `Reply with ONLY compact JSON, no prose:\n` +
     `{"thesis":"<goal restated>","gates":[` +
-    `{"type":"command","run":"sh .ser/gates/<name>.sh","gatePaths":[".ser/gates/<name>.sh"],` +
-    `"provenance":"<why this gate, floor rationale>","graderFiles":[{"path":".ser/gates/<name>.sh","content":"<shell>"}]}` +
+    `{"type":"command","run":"sh .veritaserum/gates/<name>.sh","gatePaths":[".veritaserum/gates/<name>.sh"],` +
+    `"provenance":"<why this gate, floor rationale>","graderFiles":[{"path":".veritaserum/gates/<name>.sh","content":"<shell>"}]}` +
     `]}\n` +
     `Rules: command gates MUST list their grader script in gatePaths AND graderFiles. ` +
     `semantic gates use {"type":"semantic","capture":"<shell>","claim":"<what must hold>",...} ` +

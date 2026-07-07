@@ -27,9 +27,9 @@ const newCommandGate = JSON.stringify({
   kind: "new",
   gate: {
     type: "command",
-    run: "sh .ser/gates/nonempty.sh",
-    gatePaths: [".ser/gates/nonempty.sh"],
-    graderFiles: [{ path: ".ser/gates/nonempty.sh", content: "test -s output.txt\n" }],
+    run: "sh .veritaserum/gates/nonempty.sh",
+    gatePaths: [".veritaserum/gates/nonempty.sh"],
+    graderFiles: [{ path: ".veritaserum/gates/nonempty.sh", content: "test -s output.txt\n" }],
   },
   describeBack: "Added: output.txt must be non-empty.",
 });
@@ -40,12 +40,12 @@ describe("LLM transcriber + grader-bearing ratchet reseal", () => {
     const t = makeLlmTranscriber(new MockLlmClient("claude", () => newCommandGate));
     const r = await ratchetComplaint(dir, "output.txt must not be empty", t);
     expect(r.action).toBe("added");
-    expect(r.newGraderPaths).toContain(".ser/gates/nonempty.sh");
+    expect(r.newGraderPaths).toContain(".veritaserum/gates/nonempty.sh");
     await commitRatchet(dir, r);
 
     // the new gate is active + its grader is sealed at contractCommit
     const c = await loadContract(dir);
-    expect(activeGates(c).some((g) => g.run === "sh .ser/gates/nonempty.sh")).toBe(true);
+    expect(activeGates(c).some((g) => g.run === "sh .veritaserum/gates/nonempty.sh")).toBe(true);
 
     // verify now runs the new gate: no output.txt → blocked
     let v = await verify(dir);
@@ -57,11 +57,11 @@ describe("LLM transcriber + grader-bearing ratchet reseal", () => {
     expect(v.blocked).toBe(false);
 
     // tamper the new grader to always-pass; pristine committed grader still runs
-    await writeFile(join(dir, ".ser/gates/nonempty.sh"), "exit 0\n");
+    await writeFile(join(dir, ".veritaserum/gates/nonempty.sh"), "exit 0\n");
     await writeFile(join(dir, "output.txt"), ""); // make it empty again (broken)
     v = await verify(dir);
     expect(v.blocked).toBe(true); // pristine grader catches it despite the tamper
-    expect(v.tamper.some((tf) => tf.path === ".ser/gates/nonempty.sh")).toBe(true);
+    expect(v.tamper.some((tf) => tf.path === ".veritaserum/gates/nonempty.sh")).toBe(true);
   });
 
   it("falls back to a checklist gate when the model returns junk (never drops the correction)", async () => {

@@ -26,7 +26,7 @@ describe("seed → verify", () => {
     const c = await loadContract(dir);
     expect(c.contractCommit).toMatch(/^[0-9a-f]{40}$/);
     expect(activeGates(c)).toHaveLength(1);
-    expect(activeGates(c)[0]!.gatePaths).toContain(".ser/gates/floor.sh");
+    expect(activeGates(c)[0]!.gatePaths).toContain(".veritaserum/gates/floor.sh");
   });
 
   it("verify passes when the output artifact exists", async () => {
@@ -45,7 +45,7 @@ describe("seed → verify", () => {
 
   it("tampering the grader to always-pass does NOT let a broken build pass", async () => {
     const dir = await seeded(null); // broken: no artifact
-    await write(dir, ".ser/gates/floor.sh", "exit 0\n"); // tamper: soften grader
+    await write(dir, ".veritaserum/gates/floor.sh", "exit 0\n"); // tamper: soften grader
     const r = await verify(dir);
     expect(r.blocked).toBe(true); // pristine grader still fails
     expect(r.tamper.map((t) => t.kind)).toContain("edited");

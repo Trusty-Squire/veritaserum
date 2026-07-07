@@ -20,7 +20,7 @@ await execa("git", ["commit", "--allow-empty", "-q", "-m", "init"], { cwd: dir }
 const transport = new StdioClientTransport({
   command: "node",
   args: [serverPath],
-  env: { ...process.env, SER_MOCK_KNIGHT: "1" } as Record<string, string>,
+  env: { ...process.env, VS_MOCK_KNIGHT: "1" } as Record<string, string>,
 });
 const client = new Client({ name: "smoke", version: "1" });
 await client.connect(transport);

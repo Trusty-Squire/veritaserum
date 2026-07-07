@@ -36,7 +36,7 @@ const SYSTEM =
   "route it. Return kind: 'new' (a genuinely new regression check), 'duplicate' (an active " +
   "gate already covers it), 'contradicts' (conflicts with an active gate — name it), or " +
   "'feature' (new scope, not a regression → route to intake, no gate). Prefer a 'command' " +
-  "gate (shell, exit 0 = pass) with a committed grader script under .ser/gates/; use " +
+  "gate (shell, exit 0 = pass) with a committed grader script under .veritaserum/gates/; use " +
   "'semantic' (capture + claim, judged) when no exit-code fits; 'checklist' only when no " +
   "automated check is possible. Never author a trivially-passing gate.";
 
@@ -48,8 +48,8 @@ export function makeLlmTranscriber(client: LlmClient): ComplaintTranscriber {
     const prompt =
       `Active gates:\n${active || "(none)"}\n\nComplaint:\n${complaint}\n\n` +
       `Reply with ONLY compact JSON:\n` +
-      `{"kind":"new","gate":{"type":"command","run":"sh .ser/gates/<name>.sh","gatePaths":[".ser/gates/<name>.sh"],` +
-      `"graderFiles":[{"path":".ser/gates/<name>.sh","content":"<shell>"}]},"describeBack":"<one line for the user>"}`;
+      `{"kind":"new","gate":{"type":"command","run":"sh .veritaserum/gates/<name>.sh","gatePaths":[".veritaserum/gates/<name>.sh"],` +
+      `"graderFiles":[{"path":".veritaserum/gates/<name>.sh","content":"<shell>"}]},"describeBack":"<one line for the user>"}`;
     try {
       const raw = await client.complete({ system: SYSTEM, prompt, timeoutMs: 120_000 });
       const m = raw.match(/\{[\s\S]*\}/);

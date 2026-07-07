@@ -1,0 +1,44 @@
+name: CI
+
+# Runs on every push/PR: secret scan, typecheck, production build, and the
+# hermetic test suite (vitest with MockLlmClient — zero network). Mirrors the
+# local success contract so CI red always means real new breakage.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # Dependency-free credential gate — fast, always green-or-real-red.
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: tools/secret-scan.sh
+
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0 # matches the pnpm-lock.yaml (lockfileVersion 6.0)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (tsc --noEmit)
+        run: pnpm typecheck
+
+      # Production emit path (tsc -p tsconfig.build.json). typecheck runs
+      # --noEmit and test runs vitest — neither exercises the real build, so a
+      # build-only break would otherwise pass both and only surface at publish.
+      - name: Build (production)
+        run: pnpm build
+
+      - name: Test (hermetic vitest — no network, MockLlmClient)
+        run: pnpm test

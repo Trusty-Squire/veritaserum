@@ -3,3 +3,10 @@ dist/
 *.log
 .DS_Store
 projects/
+# experiment outputs (regenerable model-response logs)
+eval/**/results*.jsonl
+# machine-resolved adapter configs + backups
+*.local.json
+*.local.toml
+*.vs-bak
+.veritaserum/

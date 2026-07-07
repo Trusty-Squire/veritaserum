@@ -7,7 +7,7 @@ import { tempRepo } from "./helpers.js";
 
 // Hermetic: MockKnight (command floor gate only → no LLM judge call).
 beforeAll(() => {
-  process.env.SER_MOCK_KNIGHT = "1";
+  process.env.VS_MOCK_KNIGHT = "1";
 });
 
 let cleanups: Array<() => Promise<void>> = [];

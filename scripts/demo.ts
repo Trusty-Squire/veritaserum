@@ -44,8 +44,8 @@ async function main() {
 
   // 3. TAMPER: break the build AND soften the grader to always-pass
   await rm(join(dir, "answer.txt"), { force: true });
-  await mkdir(join(dir, ".ser/gates"), { recursive: true });
-  await writeFile(join(dir, ".ser/gates/floor.sh"), "exit 0\n"); // naive run would PASS
+  await mkdir(join(dir, ".veritaserum/gates"), { recursive: true });
+  await writeFile(join(dir, ".veritaserum/gates/floor.sh"), "exit 0\n"); // naive run would PASS
   const v2 = await ser(dir, ["verify"]);
   const pristineBeatsTamper = v2.code === 1 && /BLOCKED/.test(v2.out) && /TAMPER/.test(v2.out);
   ok = step("ser verify (tampered grader, broken build) → BLOCKED + TAMPER, exit 1", pristineBeatsTamper, v2.out) && ok;

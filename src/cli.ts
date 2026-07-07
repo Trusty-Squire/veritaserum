@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * `ser` CLI (DESIGN §4) — the enforcement door a hook shells out to.
- *   ser seed <goal>                       seed a fresh contract (Knight)
- *   ser ratchet <complaint>               append a gate (monotonic)
- *   ser amend --retire --match <s> --as <s> [--confirm]   the only weakening path
- *   ser verify [--full]                   run gates from pristine graders; block on contradiction
+ * `veritaserum` CLI (DESIGN §4) — the enforcement door a hook shells out to.
+ *   veritaserum install <harness>              wire the sentinel into a harness
+ *   veritaserum seed <goal>                    seed a fresh contract (Knight)
+ *   veritaserum ratchet <complaint>            append a gate (monotonic)
+ *   veritaserum amend --retire --match <s> --as <s> [--confirm]   the only weakening path
+ *   veritaserum verify [--full]                run gates from pristine graders; block on contradiction
  *
  * Exit codes: verify blocked -> 1, verify green -> 0, errors -> 2.
  */
@@ -17,6 +18,21 @@ import { verify, NotSealedError } from "./verify.js";
 import { hookStop, hookPrompt } from "./hook.js";
 import { readLastAssistantMessage } from "./transcript.js";
 import { resolveKnight, resolveJudge, resolveTranscriber } from "./resolve.js";
+import { runSentinel } from "./sentinel.js";
+import { logFiring, readFirings, summarize } from "./telemetry.js";
+import type { Vendor } from "./llm.js";
+import { installTarget, detectHarnesses, isTarget, TARGETS } from "./install.js";
+import * as style from "./style.js";
+
+/** The executor vendor this hook is guarding (installer sets VS_EXECUTOR per harness). */
+function executorVendor(): Vendor | "unknown" {
+  const e = (process.env.VS_EXECUTOR || "").toLowerCase();
+  return e === "codex" || e === "claude" || e === "openrouter" ? e : "unknown";
+}
+/** Which harness fired us (installer sets VS_HARNESS). */
+function harnessName(): string {
+  return process.env.VS_HARNESS || "unknown";
+}
 
 /** Read the harness hook payload (JSON HookContext) from stdin. */
 async function readStdin(): Promise<string> {
@@ -149,24 +165,97 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
 
+    case "install": {
+      const target = positional(rest)[0];
+      const global = flag(rest, "global");
+      console.log(style.banner("veritaserum · install", "ground-truth sentinel for coding agents"));
+      console.log();
+      if (!target) {
+        console.log(`  usage: ${style.bold(`veritaserum install <${TARGETS.join("|")}>`)} ${style.dim("[--global]")}`);
+        const found = detectHarnesses();
+        console.log();
+        if (found.length) {
+          console.log(`  detected here: ${found.map((t) => style.cyan(t)).join(", ")}`);
+          console.log(style.step(`e.g. ${style.bold(`veritaserum install ${found[0]}`)}`));
+        } else {
+          console.log(style.dim("  no harness config found (~/.claude, ~/.config/goose, ~/.codex)"));
+        }
+        return 0;
+      }
+      if (!isTarget(target)) {
+        console.error(`  ${style.cross} unknown target ${style.bold(target)} — expected one of ${TARGETS.join(", ")}`);
+        return 2;
+      }
+      const res = await installTarget(target, { global });
+      for (const line of res.steps) console.log(line);
+      if (res.manual.length) {
+        console.log();
+        console.log(`  ${style.yellow("finish by hand:")}`);
+        for (const m of res.manual) console.log(`  ${m}`);
+      }
+      console.log();
+      console.log(style.divider());
+      console.log(style.ok(`${style.bold(target)} wired — veritaserum now watches every turn-end.`));
+      console.log(style.step(`week 1:  ${style.dim("export")} VS_ADVISORY=1   ${style.dim("# watch + log, never block")}`));
+      console.log(style.step(`read catches:  ${style.bold("veritaserum telemetry")}`));
+      console.log(style.step(`enable blocking later:  ${style.dim("unset")} VS_ADVISORY`));
+      return 0;
+    }
+
+    case "telemetry": {
+      console.log(summarize(readFirings()));
+      return 0;
+    }
+
     // --- harness hook entrypoints (Archetype A). Read JSON HookContext on stdin. ---
     case "hook-stop": {
       const p = parsePayload(await readStdin());
       const wd = payloadDir(p, dir);
+      const claim = claimMessage(p);
+      let block = false;
+      let reason = "";
+      let caught = "";
+      let verdict = "grounded";
+
+      // 1. Sentinel — judge-primary claim check. Works with NO contract (the
+      //    install-and-go default). Fresh cross-vendor judge; never throws.
       try {
-        const d = await hookStop(wd, claimMessage(p), { level: flag(rest, "full") ? "full" : "fast" });
-        if (d.block) {
-          // goose blocks on a stdout {"decision":"block"} payload; exit 0.
-          process.stdout.write(JSON.stringify({ decision: "block", reason: d.reason }) + "\n");
+        const s = await runSentinel(wd, claim, executorVendor());
+        verdict = s.verdict;
+        if (s.block) {
+          block = true;
+          caught = s.caught;
+          reason = `ser: your claim isn't supported by the repo state — ${s.caught}`;
         }
-        return 0;
       } catch (err) {
-        // Fail OPEN on our own error: ser blocks on contradiction, never on a ser
-        // bug (blocking the agent because our hook crashed would get ser disabled;
-        // goose treats an erroring hook as allow anyway).
-        console.error(`ser hook-stop (allowed, internal error): ${err instanceof Error ? err.message : String(err)}`);
-        return 0;
+        console.error(`ser sentinel (allowed, internal error): ${err instanceof Error ? err.message : String(err)}`);
       }
+
+      // 2. Contract gates — only if a sealed contract exists (adds the
+      //    deterministic layer under the judge). No contract => fail open.
+      try {
+        const d = await hookStop(wd, claim, { level: flag(rest, "full") ? "full" : "fast" });
+        if (d.block) {
+          block = true;
+          verdict = "blocked";
+          caught = caught || d.reason || "";
+          reason = reason ? `${reason}; ${d.reason}` : (d.reason ?? "");
+        }
+      } catch {
+        // NotSealedError (no contract) or a gate error: sentinel already ran; fail open.
+      }
+
+      // Advisory mode (VS_ADVISORY): record what ser WOULD have done, but never
+      // actually stop the agent. The safe default for a measurement week — you see
+      // the catch rate and false-block rate without the latency/disruption of blocking.
+      const advisory = process.env.VS_ADVISORY === "1" || process.env.VS_ADVISORY === "true";
+      logFiring({ harness: harnessName(), event: "stop", claim: claim.slice(0, 400), verdict, caught, blocked: block, advisory, dir: wd });
+
+      if (block && !advisory) {
+        // goose + Claude Code both block on a stdout {"decision":"block"} payload; exit 0.
+        process.stdout.write(JSON.stringify({ decision: "block", reason }) + "\n");
+      }
+      return 0;
     }
 
     case "hook-prompt": {
@@ -186,12 +275,12 @@ async function main(argv: string[]): Promise<number> {
     }
 
     default:
-      return usage("<seed|ratchet|amend|verify|hook-stop|hook-prompt>");
+      return usage("<install|seed|ratchet|amend|verify|telemetry|hook-stop|hook-prompt>");
   }
 }
 
 function usage(spec: string): number {
-  console.error(`usage: ser ${spec}`);
+  console.error(`usage: veritaserum ${spec}`);
   return 2;
 }
 
