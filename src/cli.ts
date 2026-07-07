@@ -34,8 +34,10 @@ import { makeSemanticJudge, type SemanticJudge } from "./judge-verdict.js";
 async function resolveKnight(): Promise<Knight> {
   if (process.env.SER_MOCK_KNIGHT) return new MockKnight();
   const vendors = await detectVendors();
-  const v = vendors[0];
-  if (!v) return new MockKnight();
+  if (!vendors.length) return new MockKnight();
+  // Authoring is not judging → no cross-vendor rule; prefer the faster generator.
+  // claude (-p) returns structured JSON in ~15s; codex exec is minutes-slow.
+  const v: Vendor = vendors.includes("claude") ? "claude" : vendors[0]!;
   return new LlmKnight(makeClient({ vendor: v, reason: "knight authoring", metered: false }));
 }
 

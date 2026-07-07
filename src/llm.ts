@@ -118,8 +118,11 @@ export class CodexCliClient implements LlmClient {
       "Answer only from the text provided.\n",
       req.prompt,
     ].join("\n");
+    // stdin: "ignore" — codex exec otherwise blocks "Reading additional input from
+    // stdin..." waiting for an EOF that a piped-but-unclosed stdin never sends.
     const r = await execa("codex", ["exec", "-s", "read-only", prompt], {
       reject: false,
+      stdin: "ignore",
       timeout: req.timeoutMs ?? 120_000,
     });
     return (r.stdout ?? "").trim();

@@ -19,7 +19,7 @@ if (!vendors.length) {
   console.log("no local subscription available — skipping (would use MockKnight).");
   process.exit(0);
 }
-const vendor = vendors[0]!;
+const vendor = vendors.includes("claude") ? "claude" : vendors[0]!;
 console.log(`knight vendor: ${vendor}\ngoal: ${goal}\n`);
 
 const dir = await mkdtemp(join(tmpdir(), "ser-knight-"));
