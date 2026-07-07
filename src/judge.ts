@@ -46,6 +46,8 @@ export interface Knight {
 export interface ComplaintTranscription {
   kind: "new" | "duplicate" | "contradicts" | "feature";
   instance?: GateInstance;
+  /** Grader files the new gate depends on (written + resealed on ratchet). */
+  files?: EmittedFile[];
   describeBack: string;
   contradictsGateId?: string;
   duplicateOfGateId?: string;

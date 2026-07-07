@@ -10,14 +10,13 @@
  */
 import { loadContract, activeGates } from "./contract.js";
 import { commitPaths } from "./git.js";
-import { mockTranscriber } from "./judge.js";
-import { ratchetComplaint, retireByProvenance } from "./ratchet.js";
+import { ratchetComplaint, retireByProvenance, commitRatchet } from "./ratchet.js";
 import { seed, SeedError } from "./seed.js";
 import { CONTRACT_FILENAME } from "./schema.js";
 import { verify, NotSealedError } from "./verify.js";
 import { hookStop, hookPrompt } from "./hook.js";
 import { readLastAssistantMessage } from "./transcript.js";
-import { resolveKnight, resolveJudge } from "./resolve.js";
+import { resolveKnight, resolveJudge, resolveTranscriber } from "./resolve.js";
 
 /** Read the harness hook payload (JSON HookContext) from stdin. */
 async function readStdin(): Promise<string> {
@@ -91,14 +90,14 @@ async function main(argv: string[]): Promise<number> {
     case "ratchet": {
       const complaint = positional(rest).join(" ").trim();
       if (!complaint) return usage("ratchet <complaint>");
-      const r = await ratchetComplaint(dir, complaint, mockTranscriber);
+      const r = await ratchetComplaint(dir, complaint, await resolveTranscriber());
       console.log(`${r.action}${r.gateId ? ` (${r.gateId})` : ""}: ${r.describeBack}`);
       if (r.action === "conflict-surfaced" && r.conflictWith) {
         console.log(`  conflicts with ${r.conflictWith.id} — resolve with \`ser amend --retire\``);
       }
-      // Persist the contract change (grader set unchanged for checklist gates, so
-      // contractCommit stays valid; grader-bearing ratchets reseal at P1).
-      await commitPaths(dir, [CONTRACT_FILENAME], `ser: ratchet — ${complaint.slice(0, 60)}`);
+      // Persist: commits contract.yaml (+ new grader files) and reseals contractCommit
+      // when the new gate brought graders (R2). No-op for conflict/boundary outcomes.
+      if (r.action === "added" || r.action === "repeat-recorded") await commitRatchet(dir, r);
       return 0;
     }
 
@@ -175,9 +174,9 @@ async function main(argv: string[]): Promise<number> {
       const wd = payloadDir(p, dir);
       const msg = promptMessage(p);
       try {
-        const r = await hookPrompt(wd, msg);
-        if (r.ratcheted && r.outcome) {
-          await commitPaths(wd, [CONTRACT_FILENAME], `ser: ratchet (correction) — ${msg.slice(0, 50)}`);
+        const r = await hookPrompt(wd, msg, { transcribe: await resolveTranscriber() });
+        if (r.ratcheted && r.outcome && (r.outcome.action === "added" || r.outcome.action === "repeat-recorded")) {
+          await commitRatchet(wd, r.outcome);
           console.error(`ser: ${r.outcome.action}${r.outcome.gateId ? ` (${r.outcome.gateId})` : ""}`);
         }
       } catch (err) {

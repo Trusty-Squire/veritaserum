@@ -4,9 +4,12 @@
  * the injected seam (judge.ts); this module is pure mechanics: dedupe,
  * contradiction surfacing, retirement, the repeat metric.
  */
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { activeGates, loadContract, nextGateId, saveContract } from "./contract.js";
+import { commitPaths } from "./git.js";
 import type { ComplaintTranscriber } from "./judge.js";
-import type { ContractGate } from "./schema.js";
+import { CONTRACT_FILENAME, type ContractGate } from "./schema.js";
 
 function normalize(run: string | null): string {
   return (run ?? "").replace(/\s+/g, " ").trim();
@@ -18,6 +21,8 @@ export interface RatchetOutcome {
   describeBack: string;
   /** conflict-surfaced: the user must choose retire-old vs drop-new; nothing is silently picked. */
   conflictWith?: ContractGate;
+  /** Grader files written for the new gate; the caller must reseal contractCommit. */
+  newGraderPaths?: string[];
 }
 
 /**
@@ -63,16 +68,47 @@ export async function ratchetComplaint(
     return { action: "repeat-recorded", gateId, describeBack: t.describeBack };
   }
 
+  // Write any grader files the new gate depends on (caller reseals contractCommit).
+  const newGraderPaths: string[] = [];
+  for (const f of t.files ?? []) {
+    const abs = join(dir, f.path);
+    await mkdir(dirname(abs), { recursive: true });
+    await writeFile(abs, f.content, "utf8");
+    newGraderPaths.push(f.path);
+  }
+
   const gate: ContractGate = {
     id: nextGateId(c),
     run: t.instance.run,
+    ...(t.instance.semantic ? { semantic: t.instance.semantic } : {}),
     ...(t.instance.checklist ? { checklist: t.instance.checklist } : {}),
     gatePaths: t.instance.gatePaths,
     lineage: t.instance.lineage,
   };
   c.gates.push(gate);
   await saveContract(dir, c);
-  return { action: "added", gateId: gate.id, describeBack: t.describeBack };
+  return {
+    action: "added",
+    gateId: gate.id,
+    describeBack: t.describeBack,
+    ...(newGraderPaths.length ? { newGraderPaths } : {}),
+  };
+}
+
+/**
+ * Persist a ratchet outcome to git. Commits contract.yaml (+ any new grader files);
+ * when the new gate brought grader files, re-seals contractCommit to that commit so
+ * pristine verify (R2) reads the freshly-sealed graders.
+ */
+export async function commitRatchet(dir: string, outcome: RatchetOutcome): Promise<void> {
+  const graders = outcome.newGraderPaths ?? [];
+  const sha = await commitPaths(dir, [CONTRACT_FILENAME, ...graders], `ser: ratchet — ${outcome.gateId ?? outcome.action}`);
+  if (graders.length) {
+    const c = await loadContract(dir);
+    c.contractCommit = sha;
+    await saveContract(dir, c);
+    await commitPaths(dir, [CONTRACT_FILENAME], "ser: reseal after ratchet");
+  }
 }
 
 /**

@@ -13,12 +13,11 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { loadContract, activeGates } from "./contract.js";
 import { commitPaths } from "./git.js";
-import { mockTranscriber } from "./judge.js";
-import { ratchetComplaint, retireByProvenance } from "./ratchet.js";
+import { ratchetComplaint, retireByProvenance, commitRatchet } from "./ratchet.js";
 import { seed } from "./seed.js";
 import { CONTRACT_FILENAME } from "./schema.js";
 import { verify } from "./verify.js";
-import { resolveKnight, resolveJudge } from "./resolve.js";
+import { resolveKnight, resolveJudge, resolveTranscriber } from "./resolve.js";
 
 function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
@@ -45,8 +44,8 @@ export function buildServer(): McpServer {
     { complaint: z.string().min(1), ...dirArg },
     async ({ complaint, dir }) => {
       const d = cwd(dir);
-      const r = await ratchetComplaint(d, complaint, mockTranscriber);
-      await commitPaths(d, [CONTRACT_FILENAME], `ser: ratchet — ${complaint.slice(0, 50)}`);
+      const r = await ratchetComplaint(d, complaint, await resolveTranscriber());
+      if (r.action === "added" || r.action === "repeat-recorded") await commitRatchet(d, r);
       return text(`${r.action}${r.gateId ? ` (${r.gateId})` : ""}: ${r.describeBack}`);
     },
   );
