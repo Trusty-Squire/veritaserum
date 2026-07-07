@@ -80,8 +80,20 @@ export async function verify(dir: string, deps: VerifyDeps = {}): Promise<Verify
     // Semantic gates: pristine capture → cross-vendor judge. No judge → abstain.
     for (const g of semanticGates) {
       const spec = g.semantic!;
+      // Visual gates need a multimodal judge (metered) — abstain to human until one
+      // is configured; a text judge cannot see a filmstrip.
+      if (spec.modality === "visual") {
+        out.push({ gateId: g.id, provenance: g.lineage.provenance, passed: false, abstained: true, symptom: "visual gate needs a multimodal judge — routed to human" });
+        continue;
+      }
+      // Assemble a structured, labeled evidence bundle (primary + extra steps).
       const cap = await runGate(spec.capture, dir, timeoutMs);
-      const evidence = `${cap.stdoutTail}\n${cap.stderrTail}`.trim();
+      const parts = [`## capture\n${`${cap.stdoutTail}\n${cap.stderrTail}`.trim()}`];
+      for (const step of spec.evidence) {
+        const r = await runGate(step.run, dir, timeoutMs);
+        parts.push(`## ${step.label}\n${`${r.stdoutTail}\n${r.stderrTail}`.trim()}`);
+      }
+      const evidence = parts.join("\n\n");
       if (!judge) {
         out.push({ gateId: g.id, provenance: g.lineage.provenance, passed: false, abstained: true, symptom: "no cross-vendor judge available — routed to human" });
         continue;

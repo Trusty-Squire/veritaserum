@@ -94,4 +94,55 @@ describe("semantic gate verify (cross-vendor judge)", () => {
     expect(r.blocked).toBe(false);
     expect(r.abstentions).toHaveLength(1);
   });
+
+  it("assembles a labeled multi-part evidence bundle for the judge", async () => {
+    const { dir, cleanup } = await tempRepo();
+    cleanups.push(cleanup);
+    const json = JSON.stringify({
+      thesis: "t",
+      gates: [
+        {
+          type: "semantic",
+          capture: "echo PRIMARY",
+          evidence: [{ label: "readme", run: "echo READMEBODY" }],
+          claim: "both sections present",
+          gatePaths: [],
+          provenance: "floor: x",
+          graderFiles: [],
+        },
+      ],
+    });
+    await seed(dir, "t", new LlmKnight(new MockLlmClient("claude", () => json)));
+    let seen = "";
+    const spyJudge = makeSemanticJudge(
+      new MockLlmClient("codex", (req) => {
+        seen = req.prompt;
+        return '{"ruling":"pass"}';
+      }),
+    );
+    await verify(dir, { judge: spyJudge });
+    expect(seen).toMatch(/## capture[\s\S]*PRIMARY/);
+    expect(seen).toMatch(/## readme[\s\S]*READMEBODY/);
+  });
+
+  it("a visual-modality gate abstains to human (no VLM judge yet)", async () => {
+    const { dir, cleanup } = await tempRepo();
+    cleanups.push(cleanup);
+    // hand-build a contract with a visual semantic gate via a Knight that emits one,
+    // then flip modality by seeding through the schema.
+    const json = JSON.stringify({
+      thesis: "t",
+      gates: [{ type: "semantic", capture: "echo x", claim: "looks right", gatePaths: [], provenance: "floor: visual", graderFiles: [] }],
+    });
+    await seed(dir, "t", new LlmKnight(new MockLlmClient("claude", () => json)));
+    // mutate the saved contract to visual modality
+    const { loadContract, saveContract } = await import("../src/contract.js");
+    const c = await loadContract(dir);
+    c.gates[0]!.semantic!.modality = "visual";
+    await saveContract(dir, c);
+    const judge = makeSemanticJudge(new MockLlmClient("codex", () => '{"ruling":"pass"}'));
+    const r = await verify(dir, { judge });
+    expect(r.abstentions).toHaveLength(1);
+    expect(r.abstentions[0]!.symptom).toMatch(/multimodal judge/);
+  });
 });

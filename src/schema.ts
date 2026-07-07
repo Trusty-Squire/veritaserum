@@ -31,8 +31,18 @@ export type GateLineage = z.infer<typeof GateLineageSchema>;
  */
 export const SemanticSpecSchema = z
   .object({
-    /** Shell command whose stdout/stderr is the evidence bundle (deterministic). */
+    /** Primary shell command whose stdout/stderr is evidence (deterministic). */
     capture: z.string().min(1),
+    /**
+     * Extra labeled capture steps, assembled into a structured evidence bundle
+     * (label + output) so the judge reasons over named sections rather than one
+     * blob. Richer evidence is the #1 judge-accuracy lever (visual filmstrips are
+     * the same shape — a `visual` modality + a multimodal judge — deferred while
+     * that judge is metered; text bundles are free).
+     */
+    evidence: z.array(z.object({ label: z.string().min(1), run: z.string().min(1) })).default([]),
+    /** Evidence modality. "visual" gates abstain to human until a VLM judge is configured. */
+    modality: z.enum(["text", "visual"]).default("text"),
     /** What must be true of the evidence (the thing the judge rules on). */
     claim: z.string().min(1),
   })

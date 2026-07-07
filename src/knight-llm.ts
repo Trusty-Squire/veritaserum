@@ -19,6 +19,7 @@ const KnightGateSchema = z
     run: z.string().min(1).optional(),
     capture: z.string().min(1).optional(),
     claim: z.string().min(1).optional(),
+    evidence: z.array(z.object({ label: z.string().min(1), run: z.string().min(1) })).default([]),
     checklist: z.string().min(1).optional(),
     gatePaths: z.array(z.string().min(1)).default([]),
     provenance: z.string().min(1),
@@ -52,7 +53,8 @@ function prompt(goal: string): string {
     `"provenance":"<why this gate, floor rationale>","graderFiles":[{"path":".ser/gates/<name>.sh","content":"<shell>"}]}` +
     `]}\n` +
     `Rules: command gates MUST list their grader script in gatePaths AND graderFiles. ` +
-    `semantic gates use {"type":"semantic","capture":"<shell>","claim":"<what must hold>",...}. ` +
+    `semantic gates use {"type":"semantic","capture":"<shell>","claim":"<what must hold>",...} ` +
+    `and may add "evidence":[{"label":"...","run":"<shell>"}] for extra labeled capture steps. ` +
     `checklist gates use {"type":"checklist","checklist":"<human item>","provenance":"..."}.`
   );
 }
@@ -71,7 +73,12 @@ function toInstance(g: z.infer<typeof KnightGateSchema>): GateInstance {
   }
   if (g.type === "semantic") {
     if (!g.capture || !g.claim) throw new KnightError("semantic gate missing capture/claim");
-    return { run: null, semantic: { capture: g.capture, claim: g.claim }, gatePaths: g.gatePaths, lineage };
+    return {
+      run: null,
+      semantic: { capture: g.capture, claim: g.claim, evidence: g.evidence, modality: "text" },
+      gatePaths: g.gatePaths,
+      lineage,
+    };
   }
   if (!g.checklist) throw new KnightError("checklist gate missing checklist");
   return { run: null, checklist: g.checklist, gatePaths: g.gatePaths, lineage };

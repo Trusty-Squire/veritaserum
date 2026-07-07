@@ -418,3 +418,24 @@ The mocks come out. Both run on the free local-subscription substrate (§17).
 
 45 hermetic vitest green (MockLlmClient for knight + judge). Live smokes free
 (`scripts/knight-smoke.ts`, `judge-smoke.ts`).
+
+## 19. P3 — A/B harness, MCP wrapper, evidence enrichment (2026-07-06)
+
+- **A/B (`scripts/ab-eval.ts`)**: one goal, two arms, IDENTICAL hidden oracle. OFF =
+  agent builds from the goal only → defects that ship under a bare "done". ON = agent
+  builds from goal + gate provenances, ser blocks a false done + feeds the symptom back
+  (K rounds). Measures defects-shipped and churn. Free (claude authors+judges, codex
+  builds). CAVEAT (owner's standing lesson, confirmed): trivial tractable goals TIE —
+  goal 0 (reverse) was off 0 / on 0. The wedge needs large, ill-defined, edge-uncertain
+  work; a rigorous A/B is a separate, larger experiment. Harness fix: one verify per ON
+  round drives both the block and the measurement (no double-judge nondeterminism).
+- **MCP wrapper (`src/mcp.ts`)**: pull-side tools contract_seed/ratchet/amend/verify/
+  status over the same engine (NOT the enforcement path — MCP is pull-only). Shared
+  resolveKnight/resolveJudge (`src/resolve.ts`). Hermetic SDK in-memory test.
+- **Evidence enrichment (`schema.ts`/`verify.ts`)**: semantic gates take extra labeled
+  `evidence` capture steps → a structured bundle for the judge (richer evidence = the
+  #1 judge-accuracy lever). `modality: "visual"` gates abstain to human until a
+  multimodal judge is configured — the VLM judge over filmstrips is the ONE metered
+  piece (OpenRouter multimodal), approval-gated by design; text capture is free.
+
+50 hermetic vitest green.
