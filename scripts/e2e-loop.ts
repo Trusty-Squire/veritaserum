@@ -76,10 +76,19 @@ try {
 
   // 4. claim done after build
   log(`\n=== 4. Agent claims done after building → ser verifies (real judge) ===`);
+  const { verify } = await import("../src/verify.js");
+  const vr = await verify(dir, { judge });
+  for (const g of activeGates(await loadContract(dir))) {
+    const kind = g.run ? "command" : g.semantic ? "semantic" : "checklist";
+    const fail = vr.failures.find((f) => f.gateId === g.id);
+    const abst = vr.abstentions.find((f) => f.gateId === g.id);
+    const status = fail ? `FAIL (${fail.symptom})` : abst ? `ABSTAIN→human (${abst.symptom})` : "PASS";
+    log(`  [${kind}] ${g.id}: ${status}`);
+  }
   const d2 = await hookStop(dir, "Done — implemented ./reverse and a test; abc reverses to cba.", { judge });
-  log(`block=${d2.block}`);
+  log(`\nhook decision: block=${d2.block}`);
   if (d2.reason) log(`reason:\n${d2.reason}`);
-  else log(`OK — the loop let the agent finish because reality agreed.`);
+  else log(`OK — the loop let the agent finish (no gate contradicts the claim).`);
 } finally {
   await rm(dir, { recursive: true, force: true });
 }
