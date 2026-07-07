@@ -68,15 +68,21 @@ jobs:
             echo "dist_tag=latest"   >> "$GITHUB_OUTPUT"
             echo "prerelease=false"  >> "$GITHUB_OUTPUT"
           fi
+          # No NPM_TOKEN configured yet → cleanly skip publishing (green, not red).
+          echo "has_token=${{ secrets.NPM_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Skip notice (no NPM_TOKEN)
+        if: steps.read.outputs.has_token != 'true'
+        run: echo "::notice::NPM_TOKEN not set — gate passed, publishing skipped. Add the secret to enable npm release."
 
       - name: Publish to npm
-        if: steps.read.outputs.tag_exists == 'false'
+        if: steps.read.outputs.tag_exists == 'false' && steps.read.outputs.has_token == 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --provenance --access public --tag ${{ steps.read.outputs.dist_tag }}
 
       - name: Tag + GitHub release
-        if: steps.read.outputs.tag_exists == 'false'
+        if: steps.read.outputs.tag_exists == 'false' && steps.read.outputs.has_token == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
