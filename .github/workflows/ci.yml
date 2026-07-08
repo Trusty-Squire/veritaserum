@@ -27,7 +27,7 @@ jobs:
           version: 8.15.0 # matches the pnpm-lock.yaml (lockfileVersion 6.0)
       - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24 # floor: node:sqlite (src/goose.ts) needs Node >=24 — see docs/DISTRIBUTION.md
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
@@ -42,3 +42,8 @@ jobs:
 
       - name: Test (hermetic vitest — no network, MockLlmClient)
         run: pnpm test
+
+      # Plugin manifest validation (SPEC §6.12): catches a version bump that
+      # forgets to sync .claude-plugin/plugin.json before it ships.
+      - name: Check plugin manifest (version sync)
+        run: pnpm check:plugin

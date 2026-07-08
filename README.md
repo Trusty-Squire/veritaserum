@@ -9,7 +9,25 @@ See [DESIGN.md](https://github.com/Trusty-Squire/veritaserum/blob/main/DESIGN.md
 **It runs free.** Authoring uses your `claude` subscription; the cross-vendor judge uses
 `codex`↔`claude`; nothing metered unless you opt into OpenRouter.
 
+## v3 (current)
+
+One mechanism: when a turn ends, an async **case-law auditor** — a fresh model from a
+different family than the executor — checks the load-bearing claims in what the agent
+just said against the only two sources of truth: read-only git probes computed now, and
+the harness's own record of what ran. A claim that needed an oracle that doesn't exist
+gets one **demanded**, and that demand persists as **case law** (`veritaserum.law.yaml`,
+git-tracked) — a standing, mechanically re-checked expectation from then on. No upfront
+contract, no claim regexes, no phase detection. See [SPEC.md](./SPEC.md).
+
+It proves out on the cheapest executor first — **goose + local ollama models**
+(`qwen2.5:3b`), the ollama testbed where confabulation reproduces overnight — before
+shipping to **Claude Code as the final target**, as a plugin (hooks + MCP + a skill, one
+manifest; see [docs/DISTRIBUTION.md](./docs/DISTRIBUTION.md)).
+
 ## Quick start — the sentinel
+
+_The section below documents the v1 synchronous judge-primary mechanism, kept for
+existing installs; v3's case-law auditor (above) is async and needs no contract setup._
 
 One command wires veritaserum into your agent as a **confabulation sentinel**: on
 every turn-end, a fresh cross-vendor judge checks the agent's "done" claim against
@@ -112,7 +130,7 @@ veritaserum amend --retire --match <s> --as <s> [--confirm]   the only weakening
 ```
 pnpm test        # hermetic vitest (MockLlmClient — no network)
 pnpm typecheck
-pnpm demo        # R2 proof · pnpm tsx scripts/{judge,knight,e2e-loop,mcp-smoke}.ts
+pnpm demo        # R2 proof · pnpm tsx scripts/{knight,mcp}-smoke.ts
 ```
 
 Status: P0–P3 complete. Knight/Judge/Transcriber are LLM-backed on free local
