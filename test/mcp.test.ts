@@ -34,7 +34,7 @@ describe("ser MCP server", () => {
     const client = await connect();
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
-    expect(names).toEqual(["contract_amend", "contract_ratchet", "contract_seed", "contract_status", "contract_verify"]);
+    expect(names).toEqual(["contract_amend", "contract_propose", "contract_ratchet", "contract_seal", "contract_seed", "contract_status", "contract_verify"]);
   });
 
   it("seed → status → verify(pass) → verify(block) → ratchet over MCP", async () => {

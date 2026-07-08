@@ -13,11 +13,18 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { loadContract, activeGates } from "./contract.js";
 import { commitPaths } from "./git.js";
+import type { Vendor } from "./llm.js";
+import { propose, sealProposal, ProposedGateSchema, MAX_ROUNDS } from "./propose.js";
 import { ratchetComplaint, retireByProvenance, commitRatchet } from "./ratchet.js";
 import { seed } from "./seed.js";
 import { CONTRACT_FILENAME } from "./schema.js";
 import { verify } from "./verify.js";
 import { resolveKnight, resolveJudge, resolveTranscriber } from "./resolve.js";
+
+function executorVendor(): Vendor | "unknown" {
+  const e = (process.env.VS_EXECUTOR || "").toLowerCase();
+  return e === "codex" || e === "claude" || e === "openrouter" ? e : "unknown";
+}
 
 function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
@@ -35,6 +42,41 @@ export function buildServer(): McpServer {
     async ({ goal, dir }) => {
       const out = await seed(cwd(dir), goal, await resolveKnight());
       return text(`sealed ${out.gates} gate(s), ${out.files.length} grader file(s); contractCommit ${out.contractCommit.slice(0, 10)}`);
+    },
+  );
+
+  server.tool(
+    "contract_propose",
+    `Propose verification gates for a goal (the Knight's challenge). Each gate carries its claimed rung on the epistemic ladder (analytic > oracle > held-out > self-consistency > unverifiable); a cross-vendor Knight grades every gate and returns verdicts + counter-demands. Only the top three rungs can bind. Research known-answer cases for the domain BEFORE proposing. Max ${MAX_ROUNDS} rounds, then seal what was accepted.`,
+    { goal: z.string().min(1), gates: z.array(ProposedGateSchema).min(1), ...dirArg },
+    async ({ goal, gates, dir }) => {
+      const r = await propose(cwd(dir), goal, gates, executorVendor());
+      const lines = r.gates.map(
+        (g, i) => `${i}. ${g.graded.verdict.toUpperCase()} [${g.graded.rung}] ${g.description} — ${g.graded.reason}`,
+      );
+      const next =
+        r.accepted > 0
+          ? `ask the human to approve, then contract_seal with their approval sentence verbatim`
+          : r.roundsLeft > 0
+            ? `revise and re-propose (${r.roundsLeft} round(s) left)`
+            : `rounds exhausted — contract_seal (sealing with zero gates records that no oracle was found)`;
+      return text(
+        [`round ${r.round}/${MAX_ROUNDS}: ${r.accepted}/${r.gates.length} accepted`, ...lines, ...(r.demand ? [`DEMAND: ${r.demand}`] : []), `next: ${next}`].join("\n"),
+      );
+    },
+  );
+
+  server.tool(
+    "contract_seal",
+    "Seal the ACCEPTED gates from the current negotiation into contract.yaml. Call ONLY after the human explicitly approves; pass their approval sentence verbatim — it is recorded as every gate's provenance (source: user-word). Sealing with zero accepted gates records the no-oracle state explicitly.",
+    { approval: z.string().min(1).describe("the human's approval sentence, verbatim"), ...dirArg },
+    async ({ approval, dir }) => {
+      const r = await sealProposal(cwd(dir), approval);
+      return text(
+        r.noOracle
+          ? `sealed with NO gates — no oracle was found for this goal; completion claims stay unverifiable and are recorded as such. contractCommit ${r.contractCommit.slice(0, 10)}`
+          : `sealed ${r.gates} negotiated gate(s); contractCommit ${r.contractCommit.slice(0, 10)}`,
+      );
     },
   );
 

@@ -1,0 +1,62 @@
+/**
+ * `veritaserum install goose` (Lane D1 task item 4): the v1 branch only ever
+ * resolved a hooks.local.json for a human to copy by hand. v3 installs the
+ * rebuilt plugin (adapters/goose/{hooks,scripts}) straight into the real goose
+ * plugin directory — user scope by default, project scope with `--project`.
+ * The claude-code branch is untouched (no coverage change here).
+ */
+import { describe, it, expect, afterEach } from "vitest";
+import { mkdtemp, rm, readFile, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { installTarget } from "../src/install.js";
+
+let cleanups: Array<() => Promise<void>> = [];
+afterEach(async () => {
+  await Promise.all(cleanups.map((c) => c()));
+  cleanups = [];
+  delete process.env.HOME;
+});
+
+async function withHome(): Promise<string> {
+  const home = await mkdtemp(join(tmpdir(), "vs-install-home-"));
+  cleanups.push(() => rm(home, { recursive: true, force: true }));
+  process.env.HOME = home;
+  return home;
+}
+
+describe("installTarget(\"goose\") — rebuilt plugin install (SPEC §3 goose adapter)", () => {
+  it("user scope (default): copies hooks/hooks.json + scripts/vs-stop.sh into ~/.agents/plugins/veritaserum/, script chmod +x", async () => {
+    const home = await withHome();
+    const res = await installTarget("goose", {});
+
+    const dest = join(home, ".agents", "plugins", "veritaserum");
+    const hooksJson = await readFile(join(dest, "hooks", "hooks.json"), "utf8");
+    expect(JSON.parse(hooksJson).hooks.Stop).toBeDefined();
+
+    const scriptPath = join(dest, "scripts", "vs-stop.sh");
+    const st = await stat(scriptPath);
+    expect(st.mode & 0o111).not.toBe(0); // executable bits set
+
+    expect(res.steps.some((l) => l.includes("hooks.json"))).toBe(true);
+    expect(res.steps.some((l) => l.includes("vs-stop.sh"))).toBe(true);
+    expect(res.manual.some((l) => l.includes("user scope"))).toBe(true);
+  });
+
+  it("--project: installs into <cwd>/.agents/plugins/veritaserum/ instead", async () => {
+    await withHome();
+    const projectDir = await mkdtemp(join(tmpdir(), "vs-install-project-"));
+    cleanups.push(() => rm(projectDir, { recursive: true, force: true }));
+    const originalCwd = process.cwd();
+    process.chdir(projectDir);
+    try {
+      const res = await installTarget("goose", { project: true });
+      const dest = join(projectDir, ".agents", "plugins", "veritaserum");
+      await stat(join(dest, "hooks", "hooks.json")); // throws if missing
+      await stat(join(dest, "scripts", "vs-stop.sh"));
+      expect(res.manual.some((l) => l.includes("project scope"))).toBe(true);
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+});

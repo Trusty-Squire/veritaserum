@@ -18,7 +18,7 @@ export const GateLineageSchema = z
     params: z.record(z.unknown()).default({}),
     /** The human sentence (user-word), floor rationale, or escape justification. */
     provenance: z.string().min(1),
-    source: z.enum(["user-word", "floor", "escape"]),
+    source: z.enum(["user-word", "floor", "escape", "evaluator-demand"]),
     retired: z.boolean().default(false),
   })
   .strict();

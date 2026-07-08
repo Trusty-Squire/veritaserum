@@ -17,7 +17,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export type Vendor = "codex" | "claude" | "openrouter";
+export type Vendor = "codex" | "claude" | "ollama" | "openrouter";
 
 export interface LlmRequest {
   system?: string;
@@ -33,7 +33,7 @@ export interface LlmClient {
 // Availability — is a local subscription usable right now (binary + auth)?
 // ---------------------------------------------------------------------------
 
-async function onPath(bin: string): Promise<boolean> {
+export async function onPath(bin: string): Promise<boolean> {
   const r = await execa("sh", ["-c", `command -v ${bin}`], { reject: false });
   return r.exitCode === 0;
 }
@@ -140,6 +140,37 @@ export class ClaudeCliClient implements LlmClient {
   }
 }
 
+/**
+ * ollama — local HTTP, no auth, no metered spend. Used both as a testbed EXECUTOR
+ * (goose + qwen2.5:3b/llama3.2:1b, SPEC §3) and, via VS_AUDITOR="ollama:<model>",
+ * as a pre-gathered-tier auditor. Plain fetch; no new deps.
+ */
+export class OllamaClient implements LlmClient {
+  readonly vendor = "ollama" as const;
+  constructor(
+    readonly model: string,
+    private readonly baseUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434",
+  ) {}
+  async complete(req: LlmRequest): Promise<string> {
+    const res = await fetch(`${this.baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: this.model,
+        stream: false,
+        messages: [
+          ...(req.system ? [{ role: "system", content: req.system }] : []),
+          { role: "user", content: req.prompt },
+        ],
+      }),
+      signal: req.timeoutMs ? AbortSignal.timeout(req.timeoutMs) : undefined,
+    });
+    if (!res.ok) throw new Error(`ollama ${res.status}: ${await res.text()}`);
+    const data = (await res.json()) as { message?: { content?: string } };
+    return (data.message?.content ?? "").trim();
+  }
+}
+
 /** OpenRouter — metered. Constructed only when the user opts in; never auto-selected. */
 export class OpenRouterClient implements LlmClient {
   readonly vendor = "openrouter" as const;
@@ -166,16 +197,28 @@ export class OpenRouterClient implements LlmClient {
   }
 }
 
-export function makeClient(sel: JudgeSelection, openrouter?: { apiKey: string; model: string; baseUrl?: string }): LlmClient {
+export function makeClient(
+  sel: JudgeSelection,
+  openrouter?: { apiKey: string; model: string; baseUrl?: string },
+  ollama?: { model: string; baseUrl?: string },
+): LlmClient {
   switch (sel.vendor) {
     case "codex":
       return new CodexCliClient();
     case "claude":
       return new ClaudeCliClient();
+    case "ollama":
+      if (!ollama) throw new Error("ollama selected but no model provided");
+      return new OllamaClient(ollama.model, ollama.baseUrl);
     case "openrouter":
       if (!openrouter) throw new Error("OpenRouter selected but no apiKey/model provided");
       return new OpenRouterClient(openrouter.model, openrouter.apiKey, openrouter.baseUrl);
   }
+}
+
+/** OPENROUTER_API_KEY, or undefined when unset (the glm/openrouter auditor path is opt-in). */
+export function openrouterApiKey(): string | undefined {
+  return process.env.OPENROUTER_API_KEY || undefined;
 }
 
 /** Test double: deterministic, no process/network. */

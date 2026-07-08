@@ -1,17 +1,6 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { execa } from "execa";
-import { resolve } from "node:path";
+import { describe, it, expect } from "vitest";
 import { join } from "node:path";
-import { writeFile } from "node:fs/promises";
-import { tempRepo, write } from "./helpers.js";
-import { seed } from "../src/seed.js";
 import { readLastAssistantMessage } from "../src/transcript.js";
-
-let cleanups: Array<() => Promise<void>> = [];
-afterEach(async () => {
-  await Promise.all(cleanups.map((c) => c()));
-  cleanups = [];
-});
 
 describe("Claude Code transcript reader", () => {
   it("extracts the last assistant text from a JSONL transcript", () => {
@@ -32,24 +21,7 @@ describe("Claude Code transcript reader", () => {
   });
 });
 
-describe("CLI hook-stop via Claude Code transcript payload", () => {
-  const CLI = resolve(import.meta.dirname, "../src/cli.ts");
-  const RUNNER = resolve(import.meta.dirname, "../node_modules/.bin/tsx");
-
-  it("blocks a false done-claim delivered via transcript_path + cwd", async () => {
-    const { dir, cleanup } = await tempRepo();
-    cleanups.push(cleanup);
-    await seed(dir, "toy: produce answer.txt");
-    // broken build (no answer.txt). CC-style transcript with a done claim.
-    const tpath = join(dir, "transcript.jsonl");
-    await writeFile(
-      tpath,
-      JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Done — shipped it." }] } }) + "\n",
-    );
-    const payload = { hook_event_name: "Stop", transcript_path: tpath, cwd: dir };
-    const r = await execa(RUNNER, [CLI, "hook-stop"], { cwd: dir, input: JSON.stringify(payload), reject: false });
-    expect(r.exitCode).toBe(0);
-    const parsed = JSON.parse(r.stdout.trim());
-    expect(parsed.decision).toBe("block");
-  });
-});
+// v3 (SPEC §2): the CLI's `hook-stop` no longer reads a claim out of the
+// transcript at all — the sync path only stats the transcript for byte-size
+// growth (the "nothing to audit" probe) and never emits a synchronous
+// {"decision":"block"}. See test/sync-path.test.ts for the CC-payload coverage.

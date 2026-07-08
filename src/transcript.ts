@@ -1,9 +1,8 @@
 /**
- * Read the last assistant message from a harness transcript. Claude Code hands
- * the Stop hook a `transcript_path` (JSONL) instead of the message inline; codex
- * and post-#9968 goose pass the message directly, so this is only used when a
- * path is supplied. Tolerant: unknown/renamed shapes degrade to "" (→ no claim →
- * no block), never throw into the hook path.
+ * Read a harness transcript (Claude Code's Stop-hook `transcript_path`, JSONL).
+ * Tolerant throughout: unknown/renamed shapes degrade to "" / empty, never throw
+ * — a transcript-shape change can't take down the sync path or the async audit
+ * job (R8).
  */
 import { readFileSync, existsSync } from "node:fs";
 
@@ -44,6 +43,90 @@ export function readLastAssistantMessage(path: string): string {
       if (text) return text;
     }
     return "";
+  } catch {
+    return "";
+  }
+}
+
+/** Same lookup as `readLastAssistantMessage`, but for the human's own last
+ *  message — the async audit job's "the user's request" (SPEC §2 step 1). */
+export function readLastUserMessage(path: string): string {
+  try {
+    if (!existsSync(path)) return "";
+    const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      let obj: unknown;
+      try {
+        obj = JSON.parse(lines[i] as string);
+      } catch {
+        continue;
+      }
+      if (!obj || typeof obj !== "object") continue;
+      const o = obj as Record<string, unknown>;
+      const role = o.role ?? (o.message as Record<string, unknown> | undefined)?.role ?? o.type;
+      if (role !== "user") continue;
+      const content = (o.message as Record<string, unknown> | undefined)?.content ?? o.content;
+      const text = textFromContent(content);
+      if (text) return text;
+    }
+    return "";
+  } catch {
+    return "";
+  }
+}
+
+interface TranscriptPart {
+  type?: string;
+  text?: string;
+  name?: string;
+  input?: unknown;
+  content?: unknown;
+  [key: string]: unknown;
+}
+
+function toolLine(part: TranscriptPart): string | null {
+  if (part.type === "tool_use") return `> ${part.name ?? "?"} ${JSON.stringify(part.input ?? {})}`;
+  if (part.type === "tool_result") {
+    const text = typeof part.content === "string" ? part.content : textFromContent(part.content) || JSON.stringify(part.content ?? {});
+    return `< ${text.slice(0, 2000)}`;
+  }
+  return null;
+}
+
+const RECEIPTS_TAIL_CAP_BYTES = 256 * 1024;
+
+/**
+ * Last ~256KB of tool_use/tool_result activity in a Claude Code transcript
+ * (JSONL), formatted compactly — the "harness's own record" receipt tail
+ * (SPEC R1/§2 step 1/3) for a Claude Code turn, the same role goose's
+ * `readGooseSession().receiptsTail` plays for a goose turn. "" when there's
+ * no tool activity or the file is missing/garbage — never throws.
+ */
+export function readReceiptsTail(path: string, capBytes: number = RECEIPTS_TAIL_CAP_BYTES): string {
+  try {
+    if (!existsSync(path)) return "";
+    const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
+    const out: string[] = [];
+    for (const line of lines) {
+      let obj: unknown;
+      try {
+        obj = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (!obj || typeof obj !== "object") continue;
+      const o = obj as Record<string, unknown>;
+      const content = (o.message as Record<string, unknown> | undefined)?.content ?? o.content;
+      if (!Array.isArray(content)) continue;
+      for (const part of content as TranscriptPart[]) {
+        const line2 = part && typeof part === "object" ? toolLine(part) : null;
+        if (line2) out.push(line2);
+      }
+    }
+    if (!out.length) return "";
+    let tail = out.join("\n");
+    if (tail.length > capBytes) tail = tail.slice(tail.length - capBytes);
+    return tail;
   } catch {
     return "";
   }

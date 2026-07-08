@@ -27,7 +27,7 @@
     "git-hooks"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=24"
   },
   "publishConfig": {
     "access": "public"
@@ -39,6 +39,9 @@
   "files": [
     "dist",
     "adapters",
+    ".claude-plugin",
+    ".mcp.json",
+    "skills",
     "README.md",
     "LICENSE"
   ],
@@ -46,8 +49,10 @@
     "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js dist/mcp.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "check:plugin": "tsx scripts/check-plugin.ts",
     "ser": "tsx src/cli.ts",
     "demo": "tsx scripts/demo.ts",
+    "eval:fixtures": "tsx eval/run-fixtures.ts",
     "mcp": "tsx src/mcp.ts",
     "prepublishOnly": "npm run build"
   },

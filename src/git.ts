@@ -2,6 +2,7 @@
  * Git helpers for R2 pristine-git integrity. All read-only except `commitPaths`.
  * execa, never string-concatenated commands.
  */
+import { createHash } from "node:crypto";
 import { execa } from "execa";
 
 export class GitError extends Error {
@@ -46,6 +47,19 @@ export async function workingDiffersFromCommit(cwd: string, commit: string, path
   // --quiet exits 1 when there is a diff, 0 when identical.
   const r = await git(cwd, ["diff", "--quiet", commit, "--", path]);
   return r.exitCode !== 0;
+}
+
+/**
+ * Combined hash of `git status --porcelain` + `git diff HEAD` — a cheap proxy
+ * (two git calls, <50ms budget) for "has anything in the tree changed since
+ * we last looked," tracked or not. `git diff HEAD` alone is blind to untracked
+ * files, which is exactly the shape of a "wrote a new module" turn — the
+ * porcelain status closes that gap.
+ */
+export async function currentTreeHash(cwd: string): Promise<string> {
+  const status = await git(cwd, ["status", "--porcelain"]);
+  const diff = await git(cwd, ["diff", "HEAD"]);
+  return createHash("sha256").update(status.stdout).update("\0").update(diff.stdout).digest("hex");
 }
 
 /** Stage + commit the given paths; returns the new commit sha. */

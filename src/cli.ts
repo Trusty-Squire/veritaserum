@@ -1,34 +1,32 @@
 #!/usr/bin/env node
 /**
  * `veritaserum` CLI (DESIGN §4) — the enforcement door a hook shells out to.
- *   veritaserum install <harness>              wire the sentinel into a harness
+ *   veritaserum install <harness>              wire veritaserum's sync path into a harness
+ *   veritaserum doctor                        which auditor rule fired and why (SPEC §2)
  *   veritaserum seed <goal>                    seed a fresh contract (Knight)
  *   veritaserum ratchet <complaint>            append a gate (monotonic)
  *   veritaserum amend --retire --match <s> --as <s> [--confirm]   the only weakening path
+ *   veritaserum retire <law-id> "<reason>"      retire a standing case-law entry
  *   veritaserum verify [--full]                run gates from pristine graders; block on contradiction
  *
  * Exit codes: verify blocked -> 1, verify green -> 0, errors -> 2.
  */
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { loadContract, activeGates } from "./contract.js";
-import { commitPaths } from "./git.js";
+import { commitPaths, currentTreeHash } from "./git.js";
 import { ratchetComplaint, retireByProvenance, commitRatchet } from "./ratchet.js";
+import { loadLaw, retireLaw, runnableChecks, LAW_FILENAME } from "./law.js";
 import { seed, SeedError } from "./seed.js";
 import { CONTRACT_FILENAME } from "./schema.js";
 import { verify, NotSealedError } from "./verify.js";
-import { hookStop, hookPrompt } from "./hook.js";
-import { readLastAssistantMessage } from "./transcript.js";
-import { resolveKnight, resolveJudge, resolveTranscriber } from "./resolve.js";
-import { runSentinel } from "./sentinel.js";
+import { resolveKnight, resolveJudge, resolveTranscriber, doctorReport } from "./resolve.js";
+import { enqueue, queueRoot, lawCheckMarkerPath, takePendingFeedback, type AuditJob } from "./audit-runner.js";
+import { hasToolActivitySince, defaultGooseSessionsDb } from "./goose.js";
 import { logFiring, readFirings, summarize } from "./telemetry.js";
-import type { Vendor } from "./llm.js";
 import { installTarget, detectHarnesses, isTarget, TARGETS } from "./install.js";
 import * as style from "./style.js";
 
-/** The executor vendor this hook is guarding (installer sets VS_EXECUTOR per harness). */
-function executorVendor(): Vendor | "unknown" {
-  const e = (process.env.VS_EXECUTOR || "").toLowerCase();
-  return e === "codex" || e === "claude" || e === "openrouter" ? e : "unknown";
-}
 /** Which harness fired us (installer sets VS_HARNESS). */
 function harnessName(): string {
   return process.env.VS_HARNESS || "unknown";
@@ -42,15 +40,16 @@ async function readStdin(): Promise<string> {
 }
 
 interface HookPayload {
-  // goose / codex: assistant claim inline; goose UserPromptSubmit: `message`.
-  last_assistant_message?: string;
-  message?: string;
-  // Claude Code: Stop hands a transcript path; UserPromptSubmit hands `prompt`.
-  transcript_path?: string;
-  prompt?: string;
-  // repo dir: goose(post-PR) `working_dir`; Claude Code `cwd`.
+  // goose Stop: {event, session_id, working_dir} — deliberately no message
+  // content (SPEC §3): the final message + receipts are read from goose's own
+  // sessions.db (./goose.js), keyed by session_id, never from an ephemeral hook field.
+  event?: string;
+  session_id?: string;
   working_dir?: string;
+  // Claude Code Stop: {transcript_path, cwd, stop_hook_active}.
+  transcript_path?: string;
   cwd?: string;
+  stop_hook_active?: boolean;
 }
 function parsePayload(raw: string): HookPayload {
   try {
@@ -64,16 +63,10 @@ function parsePayload(raw: string): HookPayload {
 function payloadDir(p: HookPayload, fallback: string): string {
   return p.working_dir || p.cwd || fallback;
 }
-/** The agent's completion-claim text, across harnesses (inline or via transcript). */
-function claimMessage(p: HookPayload): string {
-  if (p.last_assistant_message) return p.last_assistant_message;
-  if (p.message) return p.message;
-  if (p.transcript_path) return readLastAssistantMessage(p.transcript_path);
-  return "";
-}
-/** The human's message, across harnesses. */
-function promptMessage(p: HookPayload): string {
-  return p.prompt || p.message || "";
+/** goose carries its own session_id; Claude Code doesn't, so the transcript
+ *  path stands in (stable per session, unique enough for the audit queue key). */
+function sessionIdOf(p: HookPayload, fallback: string): string {
+  return p.session_id || p.transcript_path || fallback;
 }
 
 function flag(args: string[], name: string): boolean {
@@ -87,6 +80,88 @@ function opt(args: string[], name: string): string | undefined {
 function positional(args: string[]): string[] {
   const cut = args.findIndex((a) => a.startsWith("--"));
   return (cut === -1 ? args : args.slice(0, cut)).filter((a) => a.length > 0);
+}
+
+// --- v3 sync path (SPEC §2 "the mechanism") ---------------------------------
+// Deterministic, no LLM, no claim regex (R2). Everything here is best-effort:
+// a marker read/write failure just means we re-check next turn (safe), never
+// a reason to skip the actual audit dispatch.
+
+/** ~/.veritaserum/queue/<repo-key>/last-audit.json — "has anything happened
+ *  since we last looked" watermark, shared by both harness shapes. */
+interface LastAudit {
+  /** epoch ms of the last turn-end that found new activity. */
+  ts: number;
+  /** Claude Code: transcript byte-size last seen, per transcript path (goose
+   *  is queried directly against sessions.db instead — see hasNewToolActivity). */
+  ccTranscriptSize?: Record<string, number>;
+}
+function lastAuditPath(qdir: string): string {
+  return join(qdir, "last-audit.json");
+}
+function readLastAudit(qdir: string): LastAudit {
+  try {
+    return JSON.parse(readFileSync(lastAuditPath(qdir), "utf8")) as LastAudit;
+  } catch {
+    return { ts: 0 };
+  }
+}
+function writeLastAudit(qdir: string, next: LastAudit): void {
+  try {
+    mkdirSync(qdir, { recursive: true });
+    writeFileSync(lastAuditPath(qdir), JSON.stringify(next), "utf8");
+  } catch {
+    /* best-effort marker */
+  }
+}
+
+/**
+ * Sync step 1 (SPEC §2): has there been tool activity since the last audit?
+ * goose: a real query against sessions.db (session_id + timestamp — the harness's
+ * own record, R1). Claude Code: transcript byte-size growth stands in for "tail" at
+ * the ~0ms budget — cheap and sufficient (no reason to parse JSONL just to answer
+ * yes/no). Unknown payload shape → nothing to audit (fail toward silence, R8-adjacent).
+ */
+function hasNewToolActivity(p: HookPayload, marker: LastAudit): boolean {
+  if (p.session_id) {
+    const dbPath = process.env.VS_GOOSE_SESSIONS_DB || defaultGooseSessionsDb();
+    return hasToolActivitySince(dbPath, p.session_id, marker.ts);
+  }
+  if (p.transcript_path) {
+    try {
+      const size = statSync(p.transcript_path).size;
+      const prev = marker.ccTranscriptSize?.[p.transcript_path] ?? 0;
+      return size > prev;
+    } catch {
+      return false; // missing/unreadable transcript — nothing to audit
+    }
+  }
+  return false;
+}
+
+/**
+ * Sync step 2 (SPEC R7): standing law exists and the tree hasn't been
+ * confirmed green at its current state — print ONE terse line, never a
+ * block. The marker (src/audit-runner.ts's lawCheckMarkerPath) is the tree
+ * hash at the last GREEN mechanical run of every runnable check
+ * (src/run-audit.ts writes it after a passing async audit) — this is
+ * precise, not a once-per-hash print dedupe: the line fires on every due
+ * turn until an actual green run clears it, and again the moment the tree
+ * next moves.
+ */
+async function printLawStateLineIfDue(dir: string): Promise<void> {
+  const { law } = await loadLaw(dir);
+  const runnable = runnableChecks(law);
+  if (runnable.length === 0) return;
+  const hash = await currentTreeHash(dir);
+  let lastGreen = "";
+  try {
+    lastGreen = readFileSync(lawCheckMarkerPath(dir), "utf8").trim();
+  } catch {
+    /* no green run recorded yet for this repo */
+  }
+  if (lastGreen === hash) return;
+  console.log(`veritaserum: ${runnable.length} standing check(s) unverified against current tree`);
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -140,6 +215,20 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
 
+    case "retire": {
+      const lawId = rest[0];
+      const reason = rest.slice(1).join(" ").trim();
+      if (!lawId || !reason) return usage('retire <law-id> "<reason>"');
+      const ok = await retireLaw(dir, lawId, reason);
+      if (!ok) {
+        console.log(`no active law entry "${lawId}" to retire`);
+        return 0;
+      }
+      await commitPaths(dir, [LAW_FILENAME], `ser: retire law ${lawId} (${reason})`);
+      console.log(`retired ${lawId}: ${reason} (recorded, not deleted)`);
+      return 0;
+    }
+
     case "verify": {
       const level = flag(rest, "full") ? "full" : "fast";
       const judge = await resolveJudge();
@@ -168,6 +257,7 @@ async function main(argv: string[]): Promise<number> {
     case "install": {
       const target = positional(rest)[0];
       const global = flag(rest, "global");
+      const project = flag(rest, "project");
       console.log(style.banner("veritaserum · install", "ground-truth sentinel for coding agents"));
       console.log();
       if (!target) {
@@ -186,7 +276,7 @@ async function main(argv: string[]): Promise<number> {
         console.error(`  ${style.cross} unknown target ${style.bold(target)} — expected one of ${TARGETS.join(", ")}`);
         return 2;
       }
-      const res = await installTarget(target, { global });
+      const res = await installTarget(target, { global, project });
       for (const line of res.steps) console.log(line);
       if (res.manual.length) {
         console.log();
@@ -207,75 +297,123 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
 
-    // --- harness hook entrypoints (Archetype A). Read JSON HookContext on stdin. ---
-    case "hook-stop": {
-      const p = parsePayload(await readStdin());
-      const wd = payloadDir(p, dir);
-      const claim = claimMessage(p);
-      let block = false;
-      let reason = "";
-      let caught = "";
-      let verdict = "grounded";
-
-      // 1. Sentinel — judge-primary claim check. Works with NO contract (the
-      //    install-and-go default). Fresh cross-vendor judge; never throws.
-      try {
-        const s = await runSentinel(wd, claim, executorVendor());
-        verdict = s.verdict;
-        if (s.block) {
-          block = true;
-          caught = s.caught;
-          reason = `ser: your claim isn't supported by the repo state — ${s.caught}`;
-        }
-      } catch (err) {
-        console.error(`ser sentinel (allowed, internal error): ${err instanceof Error ? err.message : String(err)}`);
+    case "doctor": {
+      const executor = process.env.VS_EXECUTOR || "unknown";
+      const r = await doctorReport(executor);
+      console.log(style.banner("veritaserum · doctor", "auditor resolution (SPEC §2)"));
+      console.log();
+      console.log(`  executor: ${style.bold(r.executor)} (family: ${r.family})`);
+      console.log();
+      console.log(`  candidates:`);
+      for (const c of r.candidates) {
+        const mark = c.ok ? style.ok(c.vendor) : style.cross + " " + c.vendor;
+        const fired = c.firedRule ? style.dim(` — fired: ${c.firedRule}`) : "";
+        console.log(`    ${mark}: ${c.detail}${fired}`);
       }
-
-      // 2. Contract gates — only if a sealed contract exists (adds the
-      //    deterministic layer under the judge). No contract => fail open.
-      try {
-        const d = await hookStop(wd, claim, { level: flag(rest, "full") ? "full" : "fast" });
-        if (d.block) {
-          block = true;
-          verdict = "blocked";
-          caught = caught || d.reason || "";
-          reason = reason ? `${reason}; ${d.reason}` : (d.reason ?? "");
-        }
-      } catch {
-        // NotSealedError (no contract) or a gate error: sentinel already ran; fail open.
+      console.log();
+      console.log(`  chosen: ${style.bold(`${r.chosen.vendor}${r.chosen.model ? `:${r.chosen.model}` : ""}`)} (tier: ${r.chosen.tier}${r.chosen.sameFamily ? ", same-family" : ""})`);
+      console.log(`  rule: ${r.chosen.rule}`);
+      console.log();
+      if (r.chosen.tier === "absent") {
+        console.log(style.step("no auditor available — mechanical standing-law checks still run (R8); no LLM audit."));
+        console.log(style.step("upgrade: install codex or claude on PATH, or set OPENROUTER_API_KEY / VS_AUDITOR_METERED=<vendor:model>."));
+      } else if (r.chosen.sameFamily) {
+        console.log(style.step(`upgrade: install a cross-family CLI (${r.chosen.vendor === "codex" ? "claude" : "codex"}) to drop the same-family warning.`));
+      } else if (r.chosen.tier === "pre-gathered") {
+        console.log(style.step("upgrade: install codex or claude on PATH for an agentic auditor (own read-only probes, not pre-gathered evidence)."));
+      } else {
+        console.log(style.step("agentic, cross-family — no upgrade needed."));
       }
-
-      // Advisory mode (VS_ADVISORY): record what ser WOULD have done, but never
-      // actually stop the agent. The safe default for a measurement week — you see
-      // the catch rate and false-block rate without the latency/disruption of blocking.
-      const advisory = process.env.VS_ADVISORY === "1" || process.env.VS_ADVISORY === "true";
-      logFiring({ harness: harnessName(), event: "stop", claim: claim.slice(0, 400), verdict, caught, blocked: block, advisory, dir: wd });
-
-      if (block && !advisory) {
-        // goose + Claude Code both block on a stdout {"decision":"block"} payload; exit 0.
-        process.stdout.write(JSON.stringify({ decision: "block", reason }) + "\n");
-      }
+      console.log(style.step("override any rule with VS_AUDITOR=<vendor[:model]>."));
       return 0;
     }
 
-    case "hook-prompt": {
-      const p = parsePayload(await readStdin());
-      const wd = payloadDir(p, dir);
-      const msg = promptMessage(p);
+    // --- harness hook entrypoints (Archetype A). Read JSON HookContext on stdin. ---
+    case "hook-stop": {
+      // v3 sync path (SPEC §2 "the mechanism"): deterministic, no LLM, no claim
+      // regex (R2 — claim identification is the async auditor's judgment only).
       try {
-        const r = await hookPrompt(wd, msg, { transcribe: await resolveTranscriber() });
-        if (r.ratcheted && r.outcome && (r.outcome.action === "added" || r.outcome.action === "repeat-recorded")) {
-          await commitRatchet(wd, r.outcome);
-          console.error(`ser: ${r.outcome.action}${r.outcome.gateId ? ` (${r.outcome.gateId})` : ""}`);
+        const p = parsePayload(await readStdin());
+        const wd = payloadDir(p, dir);
+        const qdir = queueRoot(wd);
+        const marker = readLastAudit(qdir);
+
+        // a. Nothing-to-audit: no tool activity since the last audit marker → PASS, ~0ms.
+        if (!hasNewToolActivity(p, marker)) return 0;
+
+        // b. Standing-law state line (R7): terse, best-effort, never blocks even
+        //    on its own internal failure (a corrupt law file shouldn't cancel c).
+        try {
+          await printLawStateLineIfDue(wd);
+        } catch {
+          /* advisory only */
         }
+
+        // c. Enqueue the async audit job; dispatch is fire-and-forget (audit-runner.js
+        //    owns lockfile serialization + LIVE-supersede/TESTBED-drain scheduling).
+        const job: AuditJob = {
+          dir: wd,
+          sessionId: sessionIdOf(p, wd),
+          turnRef: String(Date.now()),
+          mode: process.env.VS_AUDIT_MODE === "testbed" ? "testbed" : "live",
+          ...(p.transcript_path ? { transcriptPath: p.transcript_path } : {}),
+        };
+        enqueue(wd, job);
+
+        const next: LastAudit = { ts: Date.now(), ccTranscriptSize: marker.ccTranscriptSize };
+        if (p.transcript_path) {
+          try {
+            next.ccTranscriptSize = { ...next.ccTranscriptSize, [p.transcript_path]: statSync(p.transcript_path).size };
+          } catch {
+            /* best-effort */
+          }
+        }
+        writeLastAudit(qdir, next);
+        return 0;
       } catch (err) {
-        console.error(`ser hook-prompt (skipped, internal error): ${err instanceof Error ? err.message : String(err)}`);
+        // d. R8: any internal error → exit 0, never surface to (or stall) the executor.
+        logFiring({
+          harness: harnessName(),
+          event: "stop",
+          claim: "",
+          verdict: "error",
+          caught: err instanceof Error ? err.message : String(err),
+          blocked: false,
+          dir,
+        });
+        return 0;
       }
-      return 0; // never blocks the human's prompt
+    }
+
+    case "hook-prompt": {
+      // v3 feedback channel (SPEC §2 "Feedback channels", R7): the ONLY
+      // injection door — stdout at UserPromptSubmit becomes the harness's
+      // additionalContext. Never a prompt-time challenge (SPEC §4: the
+      // Knight's challenge only fires inside a live contract negotiation).
+      // Terse, sharp, non-stale (<24h), printed once then cleared. Never
+      // blocks (R8): any internal error just means no line this turn.
+      try {
+        const p = parsePayload(await readStdin());
+        const wd = payloadDir(p, dir);
+        const line = takePendingFeedback(wd);
+        if (line) console.log(line);
+        return 0;
+      } catch (err) {
+        logFiring({
+          harness: harnessName(),
+          event: "prompt",
+          claim: "",
+          verdict: "error",
+          caught: err instanceof Error ? err.message : String(err),
+          blocked: false,
+          dir,
+        });
+        return 0;
+      }
     }
 
     default:
-      return usage("<install|seed|ratchet|amend|verify|telemetry|hook-stop|hook-prompt>");
+      return usage("<install|doctor|seed|ratchet|amend|retire|verify|telemetry|hook-stop|hook-prompt>");
   }
 }
 
