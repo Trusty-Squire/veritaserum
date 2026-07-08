@@ -1,6 +1,6 @@
 {
   "name": "veritaserum",
-  "version": "0.2.0-rc.1",
+  "version": "0.2.0-rc.2",
   "type": "module",
   "description": "A portable ground-truth layer for coding agents — the truth serum for confabulating agents",
   "license": "MIT",

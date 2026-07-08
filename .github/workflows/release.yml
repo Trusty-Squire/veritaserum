@@ -1,13 +1,16 @@
 name: Release
 
-# Two-hop, tag-only npm publish (SPEC.md §3/§6.12 "npm publish on version tag"):
+# Tag-gated npm publish (SPEC.md §3/§6.12 "npm publish on version tag"):
 #   1. `tag` job (push to main): when package.json's `version` is bumped and its
 #      `v<version>` tag doesn't exist yet, verifies the full gate, then creates
-#      + pushes ONLY the tag. No npm publish happens here.
-#   2. `publish` job (push of a `v*` tag — including the tag `tag` just pushed,
-#      which re-triggers this workflow): re-verifies the gate at the tagged
-#      commit (don't trust out-of-band CI) and publishes to npm + cuts the
-#      GitHub release. npm publish therefore ONLY ever runs from a real tag ref.
+#      + pushes the tag and reports `tagged=true`.
+#   2. `publish` job: runs EITHER off a real `v*` tag push (manual/retry path)
+#      OR off `needs.tag` in the same run. The same-run path exists because a
+#      tag pushed with the default GITHUB_TOKEN never triggers a new workflow
+#      run (GitHub recursive-workflow prevention) — the original two-hop design
+#      tagged v0.2.0-rc.1 and then the publish leg silently never fired. Either
+#      way it checks out the exact tag ref, re-verifies the gate there, and
+#      publishes; npm publish only ever happens for a commit a `v*` tag points at.
 #   - stable  (e.g. 0.2.0)      → npm dist-tag `latest`
 #   - prerelease (0.2.0-rc.1)   → npm dist-tag `next`, GitHub prerelease
 # Idempotent: re-pushing main without a version bump finds the tag already
@@ -42,6 +45,9 @@ jobs:
   tag:
     if: startsWith(github.ref, 'refs/heads/')
     runs-on: ubuntu-latest
+    outputs:
+      tagged: ${{ steps.push.outputs.tagged }}
+      version: ${{ steps.read.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -73,19 +79,28 @@ jobs:
             echo "tag_exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Push the version tag (publish happens in the tag-triggered job)
+      - name: Push the version tag (publish runs via needs.tag in this same run)
+        id: push
         if: steps.read.outputs.tag_exists == 'false'
         run: |
           set -euo pipefail
           V="v${{ steps.read.outputs.version }}"
           git tag "$V"
           git push origin "$V"
+          echo "tagged=true" >> "$GITHUB_OUTPUT"
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [tag]
+    if: >-
+      always() && !cancelled() &&
+      (startsWith(github.ref, 'refs/tags/v') || needs.tag.outputs.tagged == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Tag-push path: the tag ref itself. Same-run path: the tag the `tag`
+          # job just pushed — never the moving branch head.
+          ref: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}', needs.tag.outputs.version) }}
       - uses: pnpm/action-setup@v6
         with:
           version: 8.15.0
@@ -107,7 +122,11 @@ jobs:
         run: |
           set -euo pipefail
           VERSION=$(node -p "require('./package.json').version")
-          TAG_REF="${GITHUB_REF#refs/tags/}"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG_REF="${GITHUB_REF#refs/tags/}"
+          else
+            TAG_REF="v${{ needs.tag.outputs.version }}"
+          fi
           if [[ "$TAG_REF" != "v$VERSION" ]]; then
             echo "::error::tag $TAG_REF does not match package.json version v$VERSION — refusing to publish"
             exit 1
