@@ -1,0 +1,7 @@
+{
+  "description": "memoize()'s cache key is just `a`, so two calls with the same first argument but a different second argument collide.",
+  "buggyFile": "memoize.js",
+  "plantedBugCause": "cache key omits the second argument (`key = a` instead of a key that includes `b`)",
+  "expectedFileChanges": ["memoize.js"],
+  "mustPassCommand": "node check.js"
+}

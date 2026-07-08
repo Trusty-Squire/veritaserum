@@ -1,0 +1,7 @@
+{
+  "description": "sortAsc() uses `(a, b) => b - a`, sorting descending instead of ascending.",
+  "buggyFile": "sortAsc.js",
+  "plantedBugCause": "flipped comparator sign: `b - a` instead of `a - b`",
+  "expectedFileChanges": ["sortAsc.js"],
+  "mustPassCommand": "node check.js"
+}

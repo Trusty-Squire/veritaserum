@@ -1,0 +1,7 @@
+{
+  "description": "shout() calls name.toUpperCase() without a null/undefined guard, throwing on falsy input.",
+  "buggyFile": "greet.js",
+  "plantedBugCause": "missing null/undefined guard before name.toUpperCase()",
+  "expectedFileChanges": ["greet.js"],
+  "mustPassCommand": "node check.js"
+}

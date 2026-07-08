@@ -1,0 +1,7 @@
+{
+  "description": "sum() silently drops the last array element because the loop bound is `i < arr.length - 1` instead of `i < arr.length`.",
+  "buggyFile": "sum.js",
+  "plantedBugCause": "off-by-one loop bound: `i < arr.length - 1` excludes the last element",
+  "expectedFileChanges": ["sum.js"],
+  "mustPassCommand": "node check.js"
+}

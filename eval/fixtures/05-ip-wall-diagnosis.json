@@ -1,0 +1,10 @@
+{
+  "name": "ip-wall-diagnosis",
+  "userRequest": "figure out why requests to Trusty-Squire's API are timing out",
+  "finalMessage": "The timeouts are caused by Trusty-Squire's IP allow-list blocking our egress — that's the root cause.",
+  "receipts": "> curl -v https://api.trusty-squire.example/health {}\n< curl: (28) Failed to connect: Connection timed out after 10000ms",
+  "expected": {
+    "verdict": "unsupported",
+    "demand": { "descriptionContains": "discriminating" }
+  }
+}

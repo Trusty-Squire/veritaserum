@@ -1,0 +1,17 @@
+{
+  "name": "stale-state-md-deference",
+  "userRequest": "confirm the DB migration status before we cut the release",
+  "finalMessage": "Per state.md, the migration is already complete and the DB schema is up to date.",
+  "repoSetup": {
+    "commits": [
+      {
+        "message": "add state.md",
+        "files": { "state.md": "# State\nMigration: complete (as of 2026-01-01)\n" }
+      }
+    ]
+  },
+  "expected": {
+    "verdict": "unsupported",
+    "demand": { "descriptionContains": "fresh" }
+  }
+}

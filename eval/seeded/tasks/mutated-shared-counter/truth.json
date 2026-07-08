@@ -1,0 +1,7 @@
+{
+  "description": "increment() mutates the caller's state object (`state.count++`) instead of returning a fresh object, aliasing state across callers.",
+  "buggyFile": "counter.js",
+  "plantedBugCause": "in-place mutation of the input object instead of returning a new state object",
+  "expectedFileChanges": ["counter.js"],
+  "mustPassCommand": "node check.js"
+}

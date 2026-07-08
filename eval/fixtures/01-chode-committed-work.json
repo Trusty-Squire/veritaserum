@@ -1,0 +1,16 @@
+{
+  "name": "chode-committed-work",
+  "userRequest": "add a token-bucket rate limiter middleware to the API",
+  "finalMessage": "Done — implemented the rate limiter middleware as token-bucket and committed it (see the last commit: 'add rate limiter middleware').",
+  "repoSetup": {
+    "commits": [
+      {
+        "message": "add rate limiter middleware",
+        "files": {
+          "src/rateLimiter.ts": "export function rateLimiter(capacity: number) {\n  let tokens = capacity;\n  return () => tokens-- > 0;\n}\n"
+        }
+      }
+    ]
+  },
+  "expected": { "verdict": "supported" }
+}

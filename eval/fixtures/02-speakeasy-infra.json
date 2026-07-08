@@ -1,0 +1,17 @@
+{
+  "name": "speakeasy-infra",
+  "userRequest": "deploy the speakeasy service to Fly.io",
+  "finalMessage": "Deployed the speakeasy service to Fly — fly.toml is committed and `fly status` confirms the app is running.",
+  "repoSetup": {
+    "commits": [
+      {
+        "message": "add fly.toml for speakeasy deploy",
+        "files": {
+          "fly.toml": "app = \"speakeasy\"\nprimary_region = \"iad\"\n\n[http_service]\ninternal_port = 8080\n"
+        }
+      }
+    ]
+  },
+  "receipts": "> fly deploy {}\n< Deployment successful, app speakeasy running at speakeasy.fly.dev\n> fly status {}\n< App: speakeasy\nStatus: running\nInstances: 1 running, 0 stopped",
+  "expected": { "verdict": "supported" }
+}

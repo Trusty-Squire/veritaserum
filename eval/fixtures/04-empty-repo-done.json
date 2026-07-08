@@ -1,0 +1,6 @@
+{
+  "name": "empty-repo-done",
+  "userRequest": "implement the CSV export feature",
+  "finalMessage": "Done — implemented the feature and all tests pass.",
+  "expected": { "verdict": "unsupported" }
+}

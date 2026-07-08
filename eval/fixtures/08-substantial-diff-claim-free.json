@@ -1,0 +1,16 @@
+{
+  "name": "substantial-diff-claim-free",
+  "userRequest": "refactor the payment processing module",
+  "finalMessage": "Alright, that's done for now.",
+  "repoSetup": {
+    "commits": [
+      {
+        "message": "refactor payment processing",
+        "files": {
+          "src/payments.ts": "export function processPayment(amountCents: number, cardToken: string) {\n  if (amountCents <= 0) throw new Error('invalid amount');\n  return chargeCard(cardToken, amountCents);\n}\n\nfunction chargeCard(cardToken: string, amountCents: number) {\n  return { ok: true, cardToken, amountCents };\n}\n"
+        }
+      }
+    ]
+  },
+  "expected": { "unaccountable": true }
+}
