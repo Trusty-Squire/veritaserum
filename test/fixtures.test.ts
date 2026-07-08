@@ -200,8 +200,9 @@ describe("replay fixtures (SPEC §6.1) — 8 scenarios through the real pipeline
       expect(v.error).toBeUndefined();
 
       if (f.expected.verdict) {
+        const wantV = Array.isArray(f.expected.verdict) ? f.expected.verdict : [f.expected.verdict];
         expect(v.claims.length).toBeGreaterThan(0);
-        expect(v.claims.some((c) => c.verdict === f.expected.verdict)).toBe(true);
+        expect(v.claims.some((c) => wantV.includes(c.verdict))).toBe(true);
       }
       if (f.expected.unaccountable) {
         expect(v.unaccountable).toBe(true);
@@ -209,10 +210,12 @@ describe("replay fixtures (SPEC §6.1) — 8 scenarios through the real pipeline
       }
       if (f.expected.demand) {
         expect(v.demands.length).toBeGreaterThan(0);
-        if (f.expected.demand.rung) expect(v.demands.some((d) => d.rung === f.expected.demand!.rung)).toBe(true);
+        const wantR = f.expected.demand.rung === undefined ? undefined : Array.isArray(f.expected.demand.rung) ? f.expected.demand.rung : [f.expected.demand.rung];
+        if (wantR) expect(v.demands.some((d) => wantR.includes(d.rung))).toBe(true);
         if (f.expected.demand.descriptionContains) {
-          const needle = f.expected.demand.descriptionContains.toLowerCase();
-          expect(v.demands.some((d) => d.description.toLowerCase().includes(needle))).toBe(true);
+          const dc = f.expected.demand.descriptionContains;
+          const needles = (Array.isArray(dc) ? dc : [dc]).map((s) => s.toLowerCase());
+          expect(v.demands.some((d) => needles.some((n) => d.description.toLowerCase().includes(n)))).toBe(true);
         }
         // Demand -> case law: the pipeline actually appended it (SPEC §2 step 6).
         expect(existsSync(join(dir, "veritaserum.law.yaml"))).toBe(true);

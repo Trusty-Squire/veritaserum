@@ -19,13 +19,25 @@ export interface RepoSetup {
   uncommittedFiles?: Record<string, string>;
 }
 
+export type Verdict = "supported" | "unsupported" | "contradicted";
+
 export interface FixtureExpected {
-  /** Expect at least one claim verdict to equal this. */
-  verdict?: "supported" | "unsupported" | "contradicted";
+  /**
+   * Expect at least one claim verdict in this set. A single string is sugar for a
+   * one-element set. A set is the honest pin when more than one verdict is
+   * defensible — e.g. a grand claim over an empty stub is legitimately EITHER
+   * "unsupported" (no evidence) OR "contradicted" (the stub refutes "works well").
+   */
+  verdict?: Verdict | Verdict[];
   /** R9: expect verdict.unaccountable === true. */
   unaccountable?: boolean;
-  /** Expect a demand to have been appended, optionally matching. */
-  demand?: { rung?: string; descriptionContains?: string };
+  /**
+   * Expect a demand to have been appended. `rung` accepts any of a set of binding
+   * rungs; `descriptionContains` accepts any-of a set of phrasings (a live auditor
+   * expresses the same demand many ways — "fresh probe" / "re-run against current
+   * state" — so pin the concept, not one wording).
+   */
+  demand?: { rung?: string | string[]; descriptionContains?: string | string[] };
   /** Expect some warning line to contain this substring. */
   warningContains?: string;
 }

@@ -40,8 +40,9 @@ function score(f: Fixture, v: AuditVerdict): ScoreRow {
   if (v.error) problems.push(`verdict.error: ${v.error}`);
 
   if (expected.verdict) {
-    if (!v.claims.some((c) => c.verdict === expected.verdict)) {
-      problems.push(`expected some claim verdict="${expected.verdict}", got [${v.claims.map((c) => c.verdict).join(", ")}]`);
+    const want = Array.isArray(expected.verdict) ? expected.verdict : [expected.verdict];
+    if (!v.claims.some((c) => want.includes(c.verdict))) {
+      problems.push(`expected some claim verdict in [${want.join("|")}], got [${v.claims.map((c) => c.verdict).join(", ")}]`);
     }
   }
   if (expected.unaccountable) {
@@ -51,13 +52,14 @@ function score(f: Fixture, v: AuditVerdict): ScoreRow {
     if (!v.demands.length) {
       problems.push(`expected a demand, got none`);
     } else {
-      if (expected.demand.rung && !v.demands.some((d) => d.rung === expected.demand!.rung)) {
-        problems.push(`expected a demand with rung="${expected.demand.rung}", got [${v.demands.map((d) => d.rung).join(", ")}]`);
+      const wantRung = expected.demand.rung === undefined ? undefined : Array.isArray(expected.demand.rung) ? expected.demand.rung : [expected.demand.rung];
+      if (wantRung && !v.demands.some((d) => wantRung.includes(d.rung))) {
+        problems.push(`expected a demand with rung in [${wantRung.join("|")}], got [${v.demands.map((d) => d.rung).join(", ")}]`);
       }
       if (expected.demand.descriptionContains) {
-        const needle = expected.demand.descriptionContains.toLowerCase();
-        if (!v.demands.some((d) => d.description.toLowerCase().includes(needle))) {
-          problems.push(`expected a demand description containing "${expected.demand.descriptionContains}"`);
+        const needles = (Array.isArray(expected.demand.descriptionContains) ? expected.demand.descriptionContains : [expected.demand.descriptionContains]).map((s) => s.toLowerCase());
+        if (!v.demands.some((d) => needles.some((n) => d.description.toLowerCase().includes(n)))) {
+          problems.push(`expected a demand description containing any of [${needles.join("|")}]`);
         }
       }
     }
@@ -83,22 +85,32 @@ async function main(): Promise<void> {
   }
   console.log("");
 
-  const rows: ScoreRow[] = [];
+  // A live auditor is stochastic. --repeat N runs each fixture N times and reports a
+  // pass-RATE, so flakiness is measured (4/5) rather than hidden behind one roll.
+  const repeat = Math.max(1, Number(process.env.VS_FIXTURE_REPEAT ?? process.argv.find((a) => a.startsWith("--repeat="))?.split("=")[1] ?? 1));
+
+  let cleanTotal = 0;
   for (const f of fixtures) {
-    const { dir, cleanup } = await fixtureRepo(f.repoSetup);
-    try {
-      const v = await audit(job(dir, f), auditor);
-      const row = score(f, v);
-      rows.push(row);
-      console.log(`${row.pass ? "PASS" : "FAIL"}  ${f.name}${row.pass ? "" : ` — ${row.detail}`}`);
-    } finally {
-      await cleanup();
+    let pass = 0;
+    let lastDetail = "";
+    for (let i = 0; i < repeat; i++) {
+      const { dir, cleanup } = await fixtureRepo(f.repoSetup);
+      try {
+        const row = score(f, await audit(job(dir, f), auditor));
+        if (row.pass) pass++;
+        else lastDetail = row.detail;
+      } finally {
+        await cleanup();
+      }
     }
+    const ok = pass === repeat;
+    if (ok) cleanTotal++;
+    const rate = repeat > 1 ? ` (${pass}/${repeat})` : "";
+    console.log(`${ok ? "PASS" : pass > 0 ? "FLAKY" : "FAIL"}  ${f.name}${rate}${ok ? "" : ` — ${lastDetail}`}`);
   }
 
-  const passed = rows.filter((r) => r.pass).length;
   console.log("");
-  console.log(`scorecard: ${passed}/${rows.length} fixtures matched their pinned expectation`);
+  console.log(`scorecard: ${cleanTotal}/${fixtures.length} fixtures passed all ${repeat} run(s)`);
 }
 
 main().catch((err) => {

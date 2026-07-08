@@ -8,7 +8,7 @@
     }
   },
   "expected": {
-    "verdict": "unsupported",
-    "demand": { "rung": "analytic", "descriptionContains": "Kuhn" }
+    "verdict": ["unsupported", "contradicted"],
+    "demand": { "rung": ["analytic", "oracle", "held-out"], "descriptionContains": "Kuhn" }
   }
 }

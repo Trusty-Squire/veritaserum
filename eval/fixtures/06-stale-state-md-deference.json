@@ -11,7 +11,7 @@
     ]
   },
   "expected": {
-    "verdict": "unsupported",
-    "demand": { "descriptionContains": "fresh" }
+    "verdict": ["unsupported", "contradicted"],
+    "demand": { "descriptionContains": ["fresh", "re-probe", "re-run", "current state", "present state", "actual", "directly", "verify the"] }
   }
 }

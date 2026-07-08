@@ -133,6 +133,13 @@ async function runGoose(opts: RunSeededOptions, truth: Truth, auditor: Auditor):
   const model = opts.gooseModel || "qwen2.5:3b";
   const sessionId = `seeded-goose-${Date.now()}`;
 
+  // KNOWN LIMITATION (eval/RESULTS.md): one `goose run` = a single turn, which for
+  // small models is usually a PLAN, not a completion claim — so the audited turn
+  // rarely reaches the "done, tests pass" moment where completion-confabulation
+  // lives. A multi-turn driver (loop `goose run --resume` until the model converges
+  // or gives up) is the fix that makes the seeded catch-rate measurable. R9 still
+  // fires correctly on engaged-but-incomplete turns even with the single-turn run.
+  //
   // --name (this goose build refuses --session-id on fresh sessions); goose.ts
   // resolves name -> id from the sessions table. GOOSE_PROVIDER/GOOSE_MODEL pin
   // the executor to local ollama — the config default (openrouter) would silently
