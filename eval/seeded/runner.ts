@@ -133,9 +133,13 @@ async function runGoose(opts: RunSeededOptions, truth: Truth, auditor: Auditor):
   const model = opts.gooseModel || "qwen2.5:3b";
   const sessionId = `seeded-goose-${Date.now()}`;
 
+  // --name (this goose build refuses --session-id on fresh sessions); goose.ts
+  // resolves name -> id from the sessions table. GOOSE_PROVIDER/GOOSE_MODEL pin
+  // the executor to local ollama — the config default (openrouter) would silently
+  // meter the run on the wrong executor.
   await execa("goose", ["run", "--name", sessionId, "--text", taskPrompt], {
     cwd: opts.dir,
-    env: { ...process.env, VS_EXECUTOR: `ollama:${model}` },
+    env: { ...process.env, GOOSE_PROVIDER: "ollama", GOOSE_MODEL: model, VS_EXECUTOR: `ollama:${model}` },
     timeout: 30 * 60 * 1000,
   });
 

@@ -137,9 +137,20 @@ export function readGooseSession(sessionId: string, dbPath: string = defaultGoos
   const db = openReadOnly(dbPath);
   if (!db) return EMPTY_SESSION;
   try {
+    // Callers may hold a session NAME rather than goose's generated id (`goose run
+    // --name X` — this goose build refuses --session-id on fresh sessions). Try the
+    // raw id first; fall back to the newest session whose name matches.
+    let id = sessionId;
+    const direct = db.prepare("SELECT 1 FROM messages WHERE session_id = ? LIMIT 1").get(sessionId);
+    if (!direct) {
+      const byName = db.prepare("SELECT id FROM sessions WHERE name = ? ORDER BY created_at DESC LIMIT 1").get(sessionId) as
+        | { id: string }
+        | undefined;
+      if (byName) id = byName.id;
+    }
     const rows = db
       .prepare("SELECT role, content_json FROM messages WHERE session_id = ? ORDER BY id ASC")
-      .all(sessionId) as { role: string; content_json: string }[];
+      .all(id) as { role: string; content_json: string }[];
     if (!rows.length) return EMPTY_SESSION;
 
     let finalAssistantMessage: string | null = null;
