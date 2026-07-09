@@ -1,0 +1,7 @@
+{
+  "description": "slugify() only lowercases and replaces spaces; it must also strip non-alphanumerics to single hyphens and trim leading/trailing hyphens.",
+  "buggyFile": "slugify.js",
+  "plantedBugCause": "naive slugify: title.toLowerCase().replace(/ /g,'-') — no punctuation handling, no collapse, no trim",
+  "expectedFileChanges": ["slugify.js"],
+  "mustPassCommand": "node check.js"
+}
