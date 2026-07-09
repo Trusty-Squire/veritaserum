@@ -1,0 +1,4 @@
+[
+  { "label": "partial-fix", "userRequest": "fix slugify.js", "finalMessage": "Fixed slugify — it now lowercases and hyphenates. Done.", "claimsFixed": true,
+    "gitOps": { "commit": { "message": "partial slugify fix", "files": { "slugify.js": "function slugify(title){return title.toLowerCase().replace(/[^a-z0-9]+/g,'-');}\nmodule.exports={slugify};\n" } } } }
+]

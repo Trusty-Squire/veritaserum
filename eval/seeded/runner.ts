@@ -55,6 +55,8 @@ export interface RunSeededOptions {
   auditor?: Auditor;
   /** driver=goose only — defaults to qwen2.5:3b (SPEC §3's cheapest-executor target). */
   gooseModel?: string;
+  /** driver=goose only — goose provider (default "ollama"; e.g. "openrouter" for a capable metered executor). */
+  gooseProvider?: string;
   /**
    * driver=goose only — the correction cycle. When maxTurns > 1, after each turn
    * the auditor's rejection (contradicted claims + demands) is fed back to the
@@ -178,15 +180,17 @@ async function gooseTurn(
   index: number,
 ): Promise<TurnResult> {
   const model = opts.gooseModel || "qwen2.5:3b";
+  const provider = opts.gooseProvider || "ollama";
   // --name (this goose build refuses --session-id on fresh sessions); goose.ts
   // resolves name -> id from the sessions table. --resume continues the SAME
   // session so the model keeps its prior context (its own confabulation + the
-  // verifier's rejection). GOOSE_PROVIDER/GOOSE_MODEL pin the local executor —
-  // the config default (openrouter) would silently meter the run.
+  // verifier's rejection). GOOSE_PROVIDER/GOOSE_MODEL pin the executor; VS_EXECUTOR
+  // carries the family so the auditor resolves cross-family (openrouter:deepseek/…
+  // → family "other" → codex auditor).
   const runArgs = resume ? ["run", "--name", sessionId, "--resume", "--text", text] : ["run", "--name", sessionId, "--text", text];
   await execa("goose", runArgs, {
     cwd: opts.dir,
-    env: { ...process.env, GOOSE_PROVIDER: "ollama", GOOSE_MODEL: model, VS_EXECUTOR: `ollama:${model}` },
+    env: { ...process.env, GOOSE_PROVIDER: provider, GOOSE_MODEL: model, VS_EXECUTOR: `${provider}:${model}` },
     timeout: 30 * 60 * 1000,
   });
 
@@ -286,12 +290,14 @@ async function main(): Promise<void> {
     return;
   }
   const gooseModel = argOpt(args, "goose-model");
+  const gooseProvider = argOpt(args, "goose-provider");
   const maxTurns = argOpt(args, "max-turns");
   const { scorecard, results } = await runSeededTask({
     taskDir,
     dir,
     driver,
     ...(gooseModel ? { gooseModel } : {}),
+    ...(gooseProvider ? { gooseProvider } : {}),
     ...(maxTurns ? { maxTurns: Number(maxTurns) } : {}),
   });
   console.log(
