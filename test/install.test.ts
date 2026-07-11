@@ -16,6 +16,35 @@ afterEach(async () => {
   await Promise.all(cleanups.map((c) => c()));
   cleanups = [];
   delete process.env.HOME;
+  delete process.env.VS_ADVISORY;
+});
+
+describe("advisory harness installs", () => {
+  it("persists advisory mode in the Claude Code hook command", async () => {
+    const home = await withHome();
+    process.env.VS_ADVISORY = "1";
+    const cwd = process.cwd();
+    process.chdir(home);
+    try {
+      await installTarget("claude-code", {});
+      await installTarget("claude-code", {});
+      const settings = JSON.parse(await readFile(join(home, ".claude", "settings.json"), "utf8"));
+      expect(settings.hooks.Stop[0].hooks[0].command).toContain("VS_ADVISORY=1");
+      expect(settings.hooks.Stop).toHaveLength(1);
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
+  it("merges an advisory Stop hook into Codex's live hooks.json", async () => {
+    const home = await withHome();
+    process.env.VS_ADVISORY = "1";
+    const res = await installTarget("codex", {});
+    const settings = JSON.parse(await readFile(join(home, ".codex", "hooks.json"), "utf8"));
+    expect(settings.hooks.Stop[0].hooks[0].command).toContain("VS_ADVISORY=1");
+    expect(settings.hooks.Stop[0].hooks[0].command).toContain("hook-stop");
+    expect(res.primaryFile).toBe(join(home, ".codex", "hooks.json"));
+  });
 });
 
 async function withHome(): Promise<string> {

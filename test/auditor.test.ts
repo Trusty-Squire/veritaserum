@@ -58,15 +58,16 @@ function job(dir: string, overrides: Partial<AuditJob> = {}): AuditJob {
 }
 
 describe("audit — agentic prompt content (SPEC §2 rules)", () => {
-  it("instructs R9 (unaccountable work), the discriminating-receipt rule, and the fresh-probe rule", async () => {
+  it("instructs R9, the missing-proof rule for causal/state/measurement, and doc-as-stale-proof", async () => {
     const dir = await repo();
     const auditor = fakeAuditor("agentic", OK_REPLY);
     await audit(job(dir), auditor);
     expect(auditor.calls).toHaveLength(1);
     const prompt = auditor.calls[0]!.prompt;
     expect(prompt).toContain("R9 (unaccountable work)");
-    expect(prompt).toContain("DISCRIMINATING receipt");
-    expect(prompt).toContain("FRESH probe");
+    expect(prompt).toContain("MISSING PROOF");
+    expect(prompt).toContain("discriminating test");
+    expect(prompt).toContain("may be stale");
     expect(prompt).toContain("veritaserum.law.yaml");
     expect(prompt).toContain("HEAD");
     expect(prompt).toContain("READ-ONLY");
