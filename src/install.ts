@@ -63,17 +63,35 @@ function mcpInvocation(): string[] {
  */
 async function registerMcpClaudeCode(global: boolean, steps: string[], manual: string[]): Promise<void> {
   const server = mcpInvocation();
-  const scope = global ? "user" : "project";
-  // Be AUTHORITATIVE: drop any stale/broken entry first (e.g. a plugin-templated
-  // ${CLAUDE_PLUGIN_ROOT} one that won't launch outside a plugin), so the install always
-  // leaves a resolvable, launchable server rather than skipping on "already exists".
-  await execa("claude", ["mcp", "remove", "--scope", scope, "veritaserum"], { reject: false });
-  const res = await execa("claude", ["mcp", "add", "--scope", scope, "veritaserum", "--", ...server], { reject: false });
+  if (!global) {
+    // Project scope = a plain `.mcp.json` in cwd. Write it DIRECTLY (like the codex adapter
+    // writes hooks.json) so registration never depends on the `claude` binary being invocable
+    // from the installer's subprocess — that dependency was the "finish by hand" fallback.
+    const p = join(process.cwd(), ".mcp.json");
+    let cfg: { mcpServers?: Record<string, unknown> } = {};
+    if (existsSync(p)) {
+      try {
+        cfg = JSON.parse(readFileSync(p, "utf8"));
+      } catch {
+        cfg = {};
+      }
+      copyFileSync(p, `${p}.vs-bak`);
+    }
+    cfg.mcpServers = { ...(cfg.mcpServers ?? {}), veritaserum: { command: server[0], args: server.slice(1) } };
+    writeFileSync(p, JSON.stringify(cfg, null, 2) + "\n");
+    steps.push(s.ok(`registered MCP server veritaserum → ${s.dim(p)}`));
+    steps.push(s.step(`approve it once: run ${s.bold("claude")} and accept the veritaserum MCP server`));
+    return;
+  }
+  // User scope lives in ~/.claude.json which the CLI owns — prefer it, fall back to a manual
+  // line. No `--scope` flag: some `claude` versions reject it ("unknown action --scope").
+  await execa("claude", ["mcp", "remove", "veritaserum"], { reject: false });
+  const res = await execa("claude", ["mcp", "add", "veritaserum", "--", ...server], { reject: false });
   if (res.exitCode === 0) {
     steps.push(s.ok(`registered MCP server veritaserum → ${s.dim(server.join(" "))}`));
     steps.push(s.step(`approve it once: run ${s.bold("claude")} and accept the veritaserum MCP server`));
   } else {
-    manual.push(`register the MCP server yourself: claude mcp add --scope ${scope} veritaserum -- ${server.join(" ")}`);
+    manual.push(`register the MCP server: claude mcp add veritaserum -- ${server.join(" ")}`);
   }
 }
 
