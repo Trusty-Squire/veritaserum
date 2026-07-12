@@ -25,7 +25,7 @@ import { enqueue, queueRoot, lawCheckMarkerPath, takePendingFeedback, type Audit
 import { hasToolActivitySince, readGooseSession, defaultGooseSessionsDb } from "./goose.js";
 import { audit, type AuditJob as AuditContentJob } from "./auditor.js";
 import { logFiring, readFirings, summarize } from "./telemetry.js";
-import { installTarget, detectHarnesses, isTarget, TARGETS } from "./install.js";
+import { installTarget, detectHarnesses, isTarget, TARGETS, SEAL_RULE } from "./install.js";
 import * as style from "./style.js";
 
 /** Which harness fired us (installer sets VS_HARNESS). */
@@ -536,8 +536,21 @@ async function main(argv: string[]): Promise<number> {
       }
     }
 
+    case "hook-seal-reminder": {
+      // SessionStart(compact): a long session's context is rewritten at compaction,
+      // so re-inject the plan→build seal rule to survive instruction decay. stdout
+      // becomes additionalContext. Never blocks (R8).
+      try {
+        await readStdin();
+        console.log(`veritaserum: ${SEAL_RULE}`);
+      } catch {
+        /* fail open — no reminder this compaction */
+      }
+      return 0;
+    }
+
     default:
-      return usage("<install|doctor|seed|ratchet|amend|retire|verify|telemetry|hook-stop|hook-stop-goose-block|hook-prompt>");
+      return usage("<install|doctor|seed|ratchet|amend|retire|verify|telemetry|hook-stop|hook-stop-goose-block|hook-prompt|hook-seal-reminder>");
   }
 }
 

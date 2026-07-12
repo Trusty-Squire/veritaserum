@@ -39,7 +39,7 @@ function cliInvocation(): string {
   return "veritaserum";
 }
 
-function hookCommand(target: Target, sub: "hook-stop" | "hook-prompt" = "hook-stop"): string {
+function hookCommand(target: Target, sub: "hook-stop" | "hook-prompt" | "hook-seal-reminder" = "hook-stop"): string {
   const advisory = process.env.VS_ADVISORY === "1" ? "VS_ADVISORY=1 " : "";
   return `${advisory}VS_EXECUTOR=${VENDOR[target]} VS_HARNESS=${target} ${cliInvocation()} ${sub}`;
 }
@@ -64,14 +64,16 @@ function mcpInvocation(): string[] {
 async function registerMcpClaudeCode(global: boolean, steps: string[], manual: string[]): Promise<void> {
   const server = mcpInvocation();
   const scope = global ? "user" : "project";
+  // Be AUTHORITATIVE: drop any stale/broken entry first (e.g. a plugin-templated
+  // ${CLAUDE_PLUGIN_ROOT} one that won't launch outside a plugin), so the install always
+  // leaves a resolvable, launchable server rather than skipping on "already exists".
+  await execa("claude", ["mcp", "remove", "--scope", scope, "veritaserum"], { reject: false });
   const res = await execa("claude", ["mcp", "add", "--scope", scope, "veritaserum", "--", ...server], { reject: false });
-  const out = `${res.stdout ?? ""}${res.stderr ?? ""}`;
   if (res.exitCode === 0) {
-    steps.push(s.ok(`registered MCP server veritaserum (claude mcp add --scope ${scope})`));
-  } else if (/already exists/i.test(out)) {
-    steps.push(s.ok("MCP server already registered — no change"));
+    steps.push(s.ok(`registered MCP server veritaserum → ${s.dim(server.join(" "))}`));
+    steps.push(s.step(`approve it once: run ${s.bold("claude")} and accept the veritaserum MCP server`));
   } else {
-    manual.push(`register the MCP server yourself: claude mcp add veritaserum -- ${server.join(" ")}`);
+    manual.push(`register the MCP server yourself: claude mcp add --scope ${scope} veritaserum -- ${server.join(" ")}`);
   }
 }
 
@@ -106,19 +108,19 @@ interface HookEntry {
   command: string;
 }
 interface HookGroup {
+  matcher?: string;
   hooks?: HookEntry[];
 }
+type HookEvent = "Stop" | "UserPromptSubmit" | "SessionStart";
 interface Settings {
-  hooks?: { Stop?: HookGroup[]; UserPromptSubmit?: HookGroup[] } & Record<string, unknown>;
+  hooks?: Partial<Record<HookEvent, HookGroup[]>> & Record<string, unknown>;
   [k: string]: unknown;
 }
 
-/** Merge one command hook into settings.hooks[event], idempotently. Returns true when added. */
-function mergeHook(settings: Settings, event: "Stop" | "UserPromptSubmit", cmd: string): boolean {
-  const hooks = (settings.hooks && typeof settings.hooks === "object" ? settings.hooks : {}) as {
-    Stop?: HookGroup[];
-    UserPromptSubmit?: HookGroup[];
-  };
+/** Merge one command hook into settings.hooks[event], idempotently. Returns true when added.
+ *  `matcher` scopes SessionStart hooks (e.g. "compact"). */
+function mergeHook(settings: Settings, event: HookEvent, cmd: string, matcher?: string): boolean {
+  const hooks = (settings.hooks && typeof settings.hooks === "object" ? settings.hooks : {}) as Partial<Record<HookEvent, HookGroup[]>>;
   const groups = Array.isArray(hooks[event]) ? hooks[event]! : [];
   if (groups.some((g) => Array.isArray(g.hooks) && g.hooks.some((h) => h.command === cmd))) return false;
   const harness = cmd.match(/\bVS_HARNESS=([^\s]+)/)?.[1];
@@ -136,11 +138,20 @@ function mergeHook(settings: Settings, event: "Stop" | "UserPromptSubmit", cmd: 
       }
     }
   }
-  groups.push({ hooks: [{ type: "command", command: cmd }] });
+  groups.push({ ...(matcher ? { matcher } : {}), hooks: [{ type: "command", command: cmd }] });
   hooks[event] = groups;
   settings.hooks = hooks;
   return true;
 }
+
+/** The plan→build seal rule — one source for both the CLAUDE.md entry and the
+ *  compaction-boundary re-arm (a long session's context gets rewritten at compaction,
+ *  so the rule is re-injected there to survive instruction decay). */
+export const SEAL_RULE =
+  "Before writing implementation code for a task, seal a verification contract: call the " +
+  "veritaserum MCP tool `contract_propose` with the settled spec, then `contract_seal`. Do it " +
+  "ONCE, at the plan→build transition (when the plan is settled and you are about to build), " +
+  "not during earlier planning.";
 
 async function installClaudeCode(hookCmd: string, global: boolean): Promise<InstallResult> {
   const file = global ? join(homedir(), ".claude", "settings.json") : join(process.cwd(), ".claude", "settings.json");
@@ -168,12 +179,22 @@ async function installClaudeCode(hookCmd: string, global: boolean): Promise<Inst
 
   const addedStop = mergeHook(settings, "Stop", hookCmd);
   const addedPrompt = mergeHook(settings, "UserPromptSubmit", hookCommand("claude-code", "hook-prompt"));
-  if (addedStop || addedPrompt) {
+  const addedSeal = mergeHook(settings, "SessionStart", hookCommand("claude-code", "hook-seal-reminder"), "compact");
+  if (addedStop || addedPrompt || addedSeal) {
     writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
-    const added = [addedStop && "Stop", addedPrompt && "UserPromptSubmit"].filter(Boolean).join(" + ");
+    const added = [addedStop && "Stop", addedPrompt && "UserPromptSubmit", addedSeal && "SessionStart(compact)"].filter(Boolean).join(" + ");
     steps.push(s.ok(`added ${added} hook(s) to ${s.dim(file)}`));
   } else {
     steps.push(s.ok(`already installed — no change to ${s.dim(file)}`));
+  }
+
+  // The plan→build seal rule as a standing CLAUDE.md instruction (the compaction hook re-arms it).
+  const claudeMd = global ? join(homedir(), ".claude", "CLAUDE.md") : join(process.cwd(), "CLAUDE.md");
+  const block = `\n<!-- veritaserum:seal-rule -->\n${SEAL_RULE}\n`;
+  const existing = existsSync(claudeMd) ? readFileSync(claudeMd, "utf8") : "";
+  if (!existing.includes("veritaserum:seal-rule")) {
+    writeFileSync(claudeMd, existing + block);
+    steps.push(s.ok(`added seal rule to ${s.dim(claudeMd)}`));
   }
 
   const manual: string[] = [];

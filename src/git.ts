@@ -25,6 +25,17 @@ export async function isRepo(cwd: string): Promise<boolean> {
   return r.exitCode === 0 && r.stdout.trim() === "true";
 }
 
+/** Make `cwd` a git repo if it isn't already — R2 grader integrity needs git, and a
+ *  fresh task work dir often isn't a repo yet. Idempotent; a no-op inside an existing repo. */
+export async function ensureRepo(cwd: string): Promise<boolean> {
+  if (await isRepo(cwd)) return false;
+  if ((await git(cwd, ["init", "-q"])).exitCode !== 0) throw new GitError("git init failed", cwd);
+  await git(cwd, ["config", "user.email", "veritaserum@local"]);
+  await git(cwd, ["config", "user.name", "veritaserum"]);
+  await git(cwd, ["commit", "-q", "--allow-empty", "-m", "ser: init for contract integrity"]);
+  return true;
+}
+
 export async function currentCommit(cwd: string): Promise<string> {
   const r = await git(cwd, ["rev-parse", "HEAD"]);
   if (r.exitCode !== 0) throw new GitError("no HEAD commit (empty repo?)");

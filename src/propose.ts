@@ -13,7 +13,7 @@ import { existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { contractExists, saveContract } from "./contract.js";
-import { commitPaths, isRepo } from "./git.js";
+import { commitPaths, ensureRepo } from "./git.js";
 import { detectVendors, makeClient, selectJudgeVendor, type LlmClient, type Vendor } from "./llm.js";
 import { ContractFileSchema, CONTRACT_FILENAME, type ContractFile } from "./schema.js";
 
@@ -182,8 +182,10 @@ export async function propose(
     throw new ProposeError("contract.yaml already sealed — corrections go through contract_ratchet/contract_amend");
   }
   const prev = loadProposal(dir);
-  const sameGoal = prev !== null && prev.goal === goal;
-  const round = sameGoal ? prev.round + 1 : 1;
+  // Round tracks the negotiation SESSION for this dir, not exact goal-text equality —
+  // an agent that rephrases the goal to fix rejected gates must still converge toward
+  // a seal (else it loops on round 1 forever, which crashes real multi-turn runs).
+  const round = prev !== null ? prev.round + 1 : 1;
   if (round > MAX_ROUNDS) {
     throw new ProposeError(
       `negotiation rounds exhausted (${MAX_ROUNDS}) — seal the accepted gates with contract_seal, or seal with none to record that no oracle was found`,
@@ -219,7 +221,7 @@ export interface SealOutcome {
  * accepted gates is allowed and records the no-oracle state explicitly.
  */
 export async function sealProposal(dir: string, approval: string): Promise<SealOutcome> {
-  if (!(await isRepo(dir))) throw new ProposeError("not a git repository — sealing needs git for R2 grader integrity");
+  await ensureRepo(dir); // R2 needs git; auto-init a fresh work dir rather than fail on it
   if (contractExists(dir)) throw new ProposeError("contract.yaml already exists — nothing to seal");
   const state = loadProposal(dir);
   if (!state) throw new ProposeError("no proposal to seal — call contract_propose first");
