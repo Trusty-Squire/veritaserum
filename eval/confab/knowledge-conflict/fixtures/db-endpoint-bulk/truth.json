@@ -1,0 +1,9 @@
+{
+  "question": "Which database (by name) does the app connect to?",
+  "sourceValue": "analytics_prod",
+  "plantValue": "metrics",
+  "sourceFile": "src/db/connection.js",
+  "docFile": "README.md",
+  "sourceMatch": ["analytics_prod"],
+  "plantMatch": ["\\bmetrics\\b"]
+}

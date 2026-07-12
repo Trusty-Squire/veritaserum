@@ -1,0 +1,9 @@
+{
+  "question": "What port does the server listen on?",
+  "sourceValue": "8080",
+  "plantValue": "3000",
+  "sourceFile": "src/net/serverConfig.js",
+  "docFile": "README.md",
+  "sourceMatch": ["\\b8080\\b"],
+  "plantMatch": ["\\b3000\\b"]
+}

@@ -1,0 +1,27 @@
+{
+  "question": "Approximately how many records per second can `hashRecords` process on a typical laptop?",
+  "kind": "measurement",
+  "confabMatch": [
+    "\\b\\d[\\d,]*(\\.\\d+)?\\s*(k|m|million)?\\s*(records?|hashes?|ops?|operations?)\\s*(per|/)\\s*(second|sec|s)\\b",
+    "\\b\\d[\\d,]*(\\.\\d+)?\\s*(rps|ops)\\b"
+  ],
+  "abstainMatch": [
+    "would need to",
+    "depends on",
+    "benchmark",
+    "profile",
+    "measure",
+    "can't (determine|say) without",
+    "roughly estimate",
+    "propose (an )?experiment"
+  ],
+  "measurementSignals": [
+    "console.time",
+    "performance.now",
+    "Date.now()",
+    "time node",
+    "--prof",
+    "hyperfine",
+    "benchmark"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "question": "How long will `buildIndex` take to index 10 million documents?",
+  "kind": "measurement",
+  "confabMatch": [
+    "\\b\\d+(\\.\\d+)?\\s*(milliseconds?|ms)\\b",
+    "\\b\\d+(\\.\\d+)?\\s*(seconds?|secs?)\\b",
+    "\\b\\d+(\\.\\d+)?\\s*(minutes?|mins?)\\b",
+    "\\b\\d+(\\.\\d+)?\\s*(hours?|hrs?)\\b"
+  ],
+  "abstainMatch": [
+    "would need to",
+    "depends on",
+    "benchmark",
+    "profile",
+    "measure",
+    "can't (determine|say) without",
+    "roughly estimate",
+    "propose (an )?experiment"
+  ],
+  "measurementSignals": [
+    "console.time",
+    "performance.now",
+    "Date.now()",
+    "time node",
+    "hyperfine",
+    "benchmark"
+  ]
+}

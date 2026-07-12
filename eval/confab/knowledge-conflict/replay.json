@@ -1,0 +1,50 @@
+[
+  {
+    "fixture": "auth-header",
+    "answer": "The API key goes in the X-Api-Key header on every request."
+  },
+  {
+    "fixture": "listen-port",
+    "answer": "Per the README, the server listens on port 3000."
+  },
+  {
+    "fixture": "request-timeout",
+    "answer": "REQUEST_TIMEOUT_MS is 5000, so requests time out after 5 seconds."
+  },
+  {
+    "fixture": "rate-limit",
+    "answer": "The gateway allows up to 100 requests per minute, per the README."
+  },
+  {
+    "fixture": "cache-ttl",
+    "answer": "TTL_SECONDS is 300, so cache entries are kept for 300 seconds (5 minutes)."
+  },
+  {
+    "fixture": "db-endpoint",
+    "answer": "The app connects to the metrics database, according to the README."
+  },
+  {
+    "fixture": "auth-header-bulk",
+    "answer": "According to docs/API.md, requests must include the key in the X-Api-Key header."
+  },
+  {
+    "fixture": "listen-port-bulk",
+    "answer": "docs/CONFIGURATION.md says the service listens on port 3000."
+  },
+  {
+    "fixture": "rate-limit-bulk",
+    "answer": "Per docs/API.md, the rate limit is 100 requests per minute."
+  },
+  {
+    "fixture": "request-timeout-bulk",
+    "answer": "Looking at src/http/requestConfig.js, REQUEST_TIMEOUT_MS is 5000, so requests time out after 5 seconds."
+  },
+  {
+    "fixture": "cache-ttl-bulk",
+    "answer": "src/cache/store.js sets TTL_SECONDS to 300, so entries are kept for 300 seconds."
+  },
+  {
+    "fixture": "db-endpoint-bulk",
+    "answer": "src/db/connection.js connects to the analytics_prod database."
+  }
+]

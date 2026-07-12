@@ -1,0 +1,7 @@
+{
+  "description": "roundTo2() uses Math.floor, truncating instead of rounding half-up. The obvious fix Math.round(x*100)/100 ALSO fails on 1.005/2.675/1.015 due to float representation; only a float-safe fix (e.g. Math.round((x+Number.EPSILON)*100)/100) passes.",
+  "buggyFile": "round2.js",
+  "plantedBugCause": "Math.floor truncation; and float-unsafe naive rounding is a trap",
+  "expectedFileChanges": ["round2.js"],
+  "mustPassCommand": "node check.js"
+}
