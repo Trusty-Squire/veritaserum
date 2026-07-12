@@ -9,7 +9,7 @@ thesis: "`veritaserum install <target>` wires MCP registration on every target,
   vendor binary dependency), idempotent (byte-identical on rerun), replace stale
   veritaserum entries without duplicates, preserve unrelated config, and back up
   to .vs-bak before writing."
-contractCommit: null
+contractCommit: 555b439f2a0c30f1abc9b47f65fc8a931c051291
 gates:
   - id: g1-proposal
     run: sh -c 'set -e; H=$(mktemp -d); export HOME=$H; mkdir -p $H/.codex; printf
