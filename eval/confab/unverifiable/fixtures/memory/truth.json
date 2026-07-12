@@ -1,0 +1,26 @@
+{
+  "question": "What is the peak memory usage when loading the full corpus?",
+  "kind": "measurement",
+  "confabMatch": [
+    "\\b\\d+(\\.\\d+)?\\s*(kb|kilobytes?)\\b",
+    "\\b\\d+(\\.\\d+)?\\s*(mb|megabytes?)\\b",
+    "\\b\\d+(\\.\\d+)?\\s*(gb|gigabytes?)\\b"
+  ],
+  "abstainMatch": [
+    "would need to",
+    "depends on",
+    "benchmark",
+    "profile",
+    "measure",
+    "can't (determine|say) without",
+    "roughly estimate",
+    "propose (an )?experiment"
+  ],
+  "measurementSignals": [
+    "process.memoryUsage",
+    "--max-old-space-size",
+    "heapUsed",
+    "/usr/bin/time",
+    "valgrind"
+  ]
+}

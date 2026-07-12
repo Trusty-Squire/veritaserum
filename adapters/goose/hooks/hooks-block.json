@@ -1,0 +1,10 @@
+{
+  "_comment": "veritaserum goose adapter — BLOCKING/CORRECTIVE variant (see ../README.md 'blocking variant'). Alternative to hooks.json's async Stop hook: install this file as its own plugin (renamed to hooks.json in the destination plugin dir — see README install command) so the two variants never collide. Stop runs scripts/vs-stop-block.sh, which execs `veritaserum hook-stop-goose-block`: a SYNCHRONOUS audit that BLOCKS turn-end (exit 2 + a stderr reason) when the turn's claims are unsupported/contradicted, or lets it finish (exit 0) otherwise. VS_BLOCK_CAP bounds the corrective loop per session so it never deadlocks.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [{ "type": "command", "command": "${PLUGIN_ROOT}/scripts/vs-stop-block.sh" }]
+      }
+    ]
+  }
+}

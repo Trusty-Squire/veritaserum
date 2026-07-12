@@ -84,11 +84,22 @@ interface TranscriptPart {
   [key: string]: unknown;
 }
 
+/** Clip a long tool result keeping BOTH ends — biased to the tail, because a
+ *  verification receipt (a test summary, an exit line, a build result) lives at
+ *  the END of the output. A head-only slice systematically drops the one thing
+ *  the mechanical tier reads: `npm test` → "Tests 215 passed" is the last line. */
+function clipResult(text: string, cap = 2000): string {
+  if (text.length <= cap) return text;
+  const head = Math.floor(cap * 0.35);
+  const tail = cap - head;
+  return `${text.slice(0, head)} …[${text.length - cap} chars elided]… ${text.slice(-tail)}`;
+}
+
 function toolLine(part: TranscriptPart): string | null {
   if (part.type === "tool_use") return `> ${part.name ?? "?"} ${JSON.stringify(part.input ?? {})}`;
   if (part.type === "tool_result") {
     const text = typeof part.content === "string" ? part.content : textFromContent(part.content) || JSON.stringify(part.content ?? {});
-    return `< ${text.slice(0, 2000)}`;
+    return `< ${clipResult(text)}`;
   }
   return null;
 }

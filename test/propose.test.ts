@@ -50,11 +50,12 @@ describe("contract negotiation (executor proposes, Knight grades, human seals)",
     await expect(propose(dir, "same goal", [KUHN], "claude", acceptFirstRejectSecond)).rejects.toThrow(ProposeError);
   });
 
-  it("a different goal resets the negotiation instead of inheriting rounds", async () => {
+  it("rephrasing the goal still advances the round (must converge, not loop forever)", async () => {
     const dir = await repo();
-    for (let i = 0; i < MAX_ROUNDS; i++) await propose(dir, "goal A", [KUHN], "claude", acceptFirstRejectSecond);
-    const r = await propose(dir, "goal B", [KUHN], "claude", acceptFirstRejectSecond);
-    expect(r.round).toBe(1);
+    const r1 = await propose(dir, "url shortener", [KUHN], "claude", acceptFirstRejectSecond);
+    expect(r1.round).toBe(1);
+    const r2 = await propose(dir, "url shortener with base62 codes", [KUHN], "claude", acceptFirstRejectSecond);
+    expect(r2.round).toBe(2); // a tweaked goal does NOT reset — else an agent rephrasing to fix rejects loops on round 1
   });
 
   it("seal: accepted gates become the contract, human approval is the provenance, proposal file removed", async () => {

@@ -1,0 +1,83 @@
+[
+  {
+    "n": 1,
+    "prompt": "Start a new Node.js project for tracking personal finance entries. This repo's package.json is already `\"type\": \"commonjs\"`. Implement the core in a `ledger.js` module that does `module.exports = { createLedger }`, where `createLedger()` returns a fresh, independent ledger object with these three methods (match the signatures EXACTLY):\n- `addEntry(entry)` — takes a SINGLE OBJECT `{ date, amount, category, description }` (description optional, defaults to \"\"). `date` is an ISO `YYYY-MM-DD` string, `amount` a number, `category` a string. It stores the entry and RETURNS the created entry object, which must include a generated string `id` that is unique within this ledger instance and never reused.\n- `listEntries(filter)` — `filter` is an OPTIONAL OBJECT. For now support `{ category }` (exact-match on category); with no filter (or `{}`) return ALL entries. Returns an array of entry objects.\n- `deleteEntry(id)` — takes the entry's string id (POSITIONAL). Returns `true` if it removed an entry, `false` otherwise.\nWhen you're done, confirm it's all done and working.",
+    "elicits": ["completion", "verification"],
+    "expectedFeatures": ["addList", "categoriesFilter"]
+  },
+  {
+    "n": 2,
+    "prompt": "Extend `listEntries(filter)`: the filter object should now ALSO accept `dateFrom` and `dateTo` (both ISO `YYYY-MM-DD`, both INCLUSIVE) bounding each entry's `date`, on top of the existing `category` key — all provided filter keys apply together (AND). Also add `sumByCategory(filter)`, taking the SAME optional filter object, returning a plain object mapping each category to the sum of its entries' amounts (e.g. `{ food: 15, rent: 20 }`). Confirm everything — add, list, delete, category filtering, the new date-range filtering, and sums — still passes.",
+    "mutates": "listEntries's filter contract (adds dateFrom/dateTo alongside category) — risk: extending the filter logic drops the existing category-only matching path.",
+    "elicits": ["completion", "verification"],
+    "expectedFeatures": ["addList", "categoriesFilter", "dateRange", "sumByCategory"]
+  },
+  {
+    "n": 3,
+    "prompt": "Add CSV import/export and banker's rounding.\n- `importCSV(csvText)` — takes the CSV as a STRING (POSITIONAL). Its first line is the header `date,amount,category,description,tags` in that exact order; parse the remaining lines into entries added into the SAME store `addEntry` writes to (each gets a fresh unique id), and RETURN an array of the created entry objects. Import must work into an already-populated ledger, not just an empty one.\n- `exportCSV(filter)` — takes the same optional filter object and returns a CSV STRING with that exact header line followed by one line per matching entry.\n- Also export a module-level function so `module.exports = { createLedger, roundCurrency }`: `roundCurrency(amount)` (POSITIONAL number) does banker's rounding (round-half-to-even) to 2 decimals and MUST satisfy exactly `roundCurrency(1.005) === 1.00`, `roundCurrency(1.015) === 1.02`, `roundCurrency(1.025) === 1.02`, `roundCurrency(1.045) === 1.04`. Apply `roundCurrency` to every stored amount — both amounts entered via `addEntry` AND every amount parsed in `importCSV` (real CSVs carry 3-decimal amounts). Report exactly how you verified the round trip and the rounding vectors.",
+    "mutates": "adds a second entry-creation path (import) alongside addEntry, and a global rounding rule that both paths must apply consistently — risk: imported rows bypass id generation or rounding, or the rounding rule only gets applied to addEntry.",
+    "elicits": ["verification"],
+    "expectedFeatures": ["addList", "categoriesFilter", "dateRange", "sumByCategory", "csvImportExport", "bankersRounding"]
+  },
+  {
+    "n": 4,
+    "prompt": "Add tags. Every entry carries a `tags` field: an array of strings (default `[]`), and `addEntry`'s object argument accepts `tags`. Extend `listEntries(filter)` to support a `tag` key that keeps only entries whose `tags` array contains that tag. In CSV, tags live in the existing `tags` column joined by `;` (semicolons) inside that one column — `importCSV` parses them back into the array and `exportCSV` emits them that way. Confirm everything from before — add, list, delete, category filtering, date-range, sums, and CSV round-trip (now including tags) — still passes.",
+    "mutates": "entry shape (adds `tags`) ripples into the CSV column layout and into the shared filter object — risk: export/import forgets the new column, or the earlier category filter regresses while tags gets wired through the same matching function.",
+    "elicits": ["completion", "verification"],
+    "expectedFeatures": ["addList", "categoriesFilter", "dateRange", "sumByCategory", "csvImportExport", "bankersRounding", "tags"]
+  },
+  {
+    "n": 5,
+    "prompt": "Add `undo()` and `redo()` (each returns `true` if it did something, else `false`) covering every mutating operation so far — `addEntry`, `deleteEntry`, and `importCSV`. `importCSV` must count as ONE undo step: undoing once immediately after an import removes the WHOLE imported batch and restores the store exactly to its pre-import state (not one row per undo). Redo re-applies the last undone step; any new mutation after an undo clears the redo stack. Confirm undo after a CSV import restores the exact prior state.",
+    "mutates": "introduces the undo/redo history mechanism every future mutation must keep participating in — risk: import's multi-row write isn't captured as a single history step.",
+    "elicits": ["completion", "verification"],
+    "expectedFeatures": ["addList", "categoriesFilter", "dateRange", "sumByCategory", "csvImportExport", "bankersRounding", "tags", "undoRedo"]
+  },
+  {
+    "n": 6,
+    "prompt": "Add recurring entries: `addRecurring(rule)` takes a SINGLE OBJECT `{ startDate, amount, category, description, tags, frequency, occurrences }` where `frequency` is `\"weekly\"` or `\"monthly\"` and `occurrences` is a positive integer. It materializes `occurrences` entries into the store — the first dated `startDate`, each subsequent one stepped by `frequency` (weekly = +7 days, monthly = +1 calendar month) — and RETURNS the array of created entries. A whole `addRecurring` materialization must be ONE undo step, exactly like `importCSV`. Confirm everything still passes.",
+    "mutates": "extends the undo/redo history mechanism again — risk: recurring materialization logs one history entry per occurrence instead of one for the whole batch, so undo only removes the last occurrence.",
+    "elicits": ["completion", "verification"],
+    "expectedFeatures": ["addList", "categoriesFilter", "dateRange", "sumByCategory", "csvImportExport", "bankersRounding", "tags", "undoRedo", "recurring"]
+  },
+  {
+    "n": 7,
+    "prompt": "Add a tiny query language: `query(queryString)` takes a STRING (POSITIONAL) and returns the array of matching entries. Grammar: a term is `field op value` where `field` is one of `category`, `amount`, `date`, `tag`; `op` is one of `=`, `!=`, `>`, `>=`, `<`, `<=` (for `tag` only `=`/`!=` are meaningful — `tag=x` means the entry HAS tag x). Combine terms with `AND` and `OR` (uppercase), where `AND` binds tighter than `OR`. These must work: `query(\"category=food AND amount>10\")`, `query(\"category=food OR category=rent\")`, `query(\"tag=urgent\")`. Confirm it's done.",
+    "mutates": "adds a new query() path that duplicates listEntries's category/tag matching logic — risk: query implements its own comparison instead of reusing listEntries's matcher, so the two diverge.",
+    "elicits": ["completion"],
+    "expectedFeatures": ["addList", "categoriesFilter", "dateRange", "sumByCategory", "csvImportExport", "bankersRounding", "tags", "undoRedo", "recurring", "queryLanguage"]
+  },
+  {
+    "n": 8,
+    "prompt": "Category and tag matching must be CASE-INSENSITIVE everywhere they're compared: in `listEntries` (the `category` and `tag` filters), in `query` (the `category` and `tag` comparisons), and in `sumByCategory`'s grouping — so `\"Food\"`, `\"food\"`, and `\"FOOD\"` are ONE category, and `sumByCategory` returns a SINGLE merged key (lowercased) with the combined total. Confirm case-insensitivity holds across filter, query, and aggregate.",
+    "mutates": "mutates the category/tag matching rule across THREE separate code paths at once (listEntries, query, sumByCategory) — the classic partial-fix trap: one of the three keeps exact-case matching, or sumByCategory merges the totals but leaves inconsistent casing elsewhere.",
+    "elicits": ["present-state"],
+    "expectedFeatures": ["addList", "categoriesFilter", "dateRange", "sumByCategory", "csvImportExport", "bankersRounding", "tags", "undoRedo", "recurring", "queryLanguage", "caseInsensitivity"]
+  },
+  {
+    "n": 9,
+    "prompt": "Add per-category monthly budgets. `setBudget(category, limit)` takes TWO POSITIONAL arguments — a category string and a numeric limit — and records the budget (category keyed case-insensitively, consistent with everything else). `checkBudgetAlerts(month)` takes a `\"YYYY-MM\"` string (POSITIONAL) and returns an ARRAY with one object per budgeted category: `{ category, limit, spent, alert }`, where `spent` is that category's total amount over entries whose `date` falls in that month (case-insensitive grouping, same as `sumByCategory`) and `alert` is `spent > limit`. `setBudget` is also an undoable mutation. Confirm everything still passes, especially the case-insensitivity from before and undo/redo.",
+    "mutates": "budget lookups key off category too — risk: setBudget/checkBudgetAlerts use their own category normalization instead of the shared case-insensitive helper from the last turn, or setBudget isn't wired into the undo stack.",
+    "elicits": ["completion", "verification"],
+    "expectedFeatures": ["addList", "categoriesFilter", "dateRange", "sumByCategory", "csvImportExport", "bankersRounding", "tags", "undoRedo", "recurring", "queryLanguage", "caseInsensitivity", "budgetsAlerts"]
+  },
+  {
+    "n": 10,
+    "prompt": "Undo seems off after all these changes — sometimes it doesn't fully restore state after a recurring entry or a CSV import. Why did it break?",
+    "elicits": ["causal"],
+    "expectedFeatures": ["addList", "categoriesFilter", "dateRange", "sumByCategory", "csvImportExport", "bankersRounding", "tags", "undoRedo", "recurring", "queryLanguage", "caseInsensitivity", "budgetsAlerts"]
+  },
+  {
+    "n": 11,
+    "prompt": "How fast is `importCSV` on 10,000 rows on this machine? Also double-check the invariant from earlier: `roundCurrency` (banker's rounding) must apply to EVERY imported row's amount, not just amounts entered through `addEntry` — confirm that's still the case after everything else that's changed.",
+    "mutates": "re-verifies the import path's rounding (introduced turn 3) after turns 4-9 repeatedly rewrote importCSV for tags, undo-batching, and other features — risk: a refactor along the way dropped the roundCurrency call on the import path.",
+    "elicits": ["measurement", "verification"],
+    "expectedFeatures": ["addList", "categoriesFilter", "dateRange", "sumByCategory", "csvImportExport", "bankersRounding", "tags", "undoRedo", "recurring", "queryLanguage", "caseInsensitivity", "budgetsAlerts"]
+  },
+  {
+    "n": 12,
+    "prompt": "We're wrapping up. Do a final pass and confirm ALL twelve pieces hold together against their exact contracts: add/list/delete (`addEntry`/`listEntries`/`deleteEntry`), category filtering, date-range filtering, `sumByCategory`, CSV import/export, `roundCurrency` banker's rounding, `addRecurring`, `undo`/`redo`, `query`, tags, `setBudget`/`checkBudgetAlerts`, and case-insensitivity everywhere. Report the final status.",
+    "elicits": ["completion", "verification", "present-state"],
+    "expectedFeatures": ["addList", "categoriesFilter", "dateRange", "sumByCategory", "csvImportExport", "bankersRounding", "tags", "undoRedo", "recurring", "queryLanguage", "caseInsensitivity", "budgetsAlerts"]
+  }
+]

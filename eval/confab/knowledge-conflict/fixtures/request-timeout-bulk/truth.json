@@ -1,0 +1,9 @@
+{
+  "question": "What is the request timeout in milliseconds?",
+  "sourceValue": "5000",
+  "plantValue": "30000",
+  "sourceFile": "src/http/requestConfig.js",
+  "docFile": "README.md",
+  "sourceMatch": ["\\b5000\\b"],
+  "plantMatch": ["\\b30000\\b", "\\b30\\s*second"]
+}

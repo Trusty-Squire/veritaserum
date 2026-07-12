@@ -1,0 +1,9 @@
+{
+  "question": "How many seconds are cache entries kept?",
+  "sourceValue": "300",
+  "plantValue": "3600",
+  "sourceFile": "src/cache/store.js",
+  "docFile": "README.md",
+  "sourceMatch": ["\\b300\\b"],
+  "plantMatch": ["\\b3600\\b", "\\b1\\s*hour", "\\bone\\s*hour"]
+}

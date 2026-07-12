@@ -1,21 +1,24 @@
 /**
  * `veritaserum install <claude-code|goose|codex>` — the one-command Stop-hook
  * installer, npx-friendly. Wires `veritaserum hook-stop` (the confabulation
- * sentinel) into a harness so it fires on every turn-end, and (claude-code)
- * registers the MCP server via `claude mcp add`. Idempotent, backs up before
- * editing; direct file writes stay inside .claude/, ~/.claude/, or this
- * package's adapters/ — MCP registration is delegated to the claude CLI.
+ * sentinel) into a harness so it fires on every turn-end, and registers the
+ * MCP server (contract tools) on EVERY target — claude-code (.mcp.json),
+ * codex (~/.codex/config.toml), goose (~/.config/goose/config.yaml), cursor
+ * (.cursor/mcp.json; MCP only, no sentinel surface yet). All registration is
+ * a direct config write (no vendor binary dependency), idempotent, backed up
+ * to <file>.vs-bak before the first edit.
  */
 import { execa } from "execa";
+import { parseDocument, Document } from "yaml";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync, chmodSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as s from "./style.js";
 
-export const TARGETS = ["claude-code", "goose", "codex"] as const;
+export const TARGETS = ["claude-code", "goose", "codex", "cursor"] as const;
 export type Target = (typeof TARGETS)[number];
-const VENDOR: Record<Target, string> = { "claude-code": "claude", goose: "unknown", codex: "codex" };
+const VENDOR: Record<Target, string> = { "claude-code": "claude", goose: "unknown", codex: "codex", cursor: "cursor" };
 
 export function isTarget(x: string): x is Target {
   return (TARGETS as readonly string[]).includes(x);
@@ -39,8 +42,9 @@ function cliInvocation(): string {
   return "veritaserum";
 }
 
-function hookCommand(target: Target, sub: "hook-stop" | "hook-prompt" = "hook-stop"): string {
-  return `VS_EXECUTOR=${VENDOR[target]} VS_HARNESS=${target} ${cliInvocation()} ${sub}`;
+function hookCommand(target: Target, sub: "hook-stop" | "hook-prompt" | "hook-seal-reminder" = "hook-stop"): string {
+  const advisory = process.env.VS_ADVISORY === "1" ? "VS_ADVISORY=1 " : "";
+  return `${advisory}VS_EXECUTOR=${VENDOR[target]} VS_HARNESS=${target} ${cliInvocation()} ${sub}`;
 }
 
 /**
@@ -62,15 +66,35 @@ function mcpInvocation(): string[] {
  */
 async function registerMcpClaudeCode(global: boolean, steps: string[], manual: string[]): Promise<void> {
   const server = mcpInvocation();
-  const scope = global ? "user" : "project";
-  const res = await execa("claude", ["mcp", "add", "--scope", scope, "veritaserum", "--", ...server], { reject: false });
-  const out = `${res.stdout ?? ""}${res.stderr ?? ""}`;
+  if (!global) {
+    // Project scope = a plain `.mcp.json` in cwd. Write it DIRECTLY (like the codex adapter
+    // writes hooks.json) so registration never depends on the `claude` binary being invocable
+    // from the installer's subprocess — that dependency was the "finish by hand" fallback.
+    const p = join(process.cwd(), ".mcp.json");
+    let cfg: { mcpServers?: Record<string, unknown> } = {};
+    if (existsSync(p)) {
+      try {
+        cfg = JSON.parse(readFileSync(p, "utf8"));
+      } catch {
+        cfg = {};
+      }
+      copyFileSync(p, `${p}.vs-bak`);
+    }
+    cfg.mcpServers = { ...(cfg.mcpServers ?? {}), veritaserum: { command: server[0], args: server.slice(1) } };
+    writeFileSync(p, JSON.stringify(cfg, null, 2) + "\n");
+    steps.push(s.ok(`registered MCP server veritaserum → ${s.dim(p)}`));
+    steps.push(s.step(`approve it once: run ${s.bold("claude")} and accept the veritaserum MCP server`));
+    return;
+  }
+  // User scope lives in ~/.claude.json which the CLI owns — prefer it, fall back to a manual
+  // line. No `--scope` flag: some `claude` versions reject it ("unknown action --scope").
+  await execa("claude", ["mcp", "remove", "veritaserum"], { reject: false });
+  const res = await execa("claude", ["mcp", "add", "veritaserum", "--", ...server], { reject: false });
   if (res.exitCode === 0) {
-    steps.push(s.ok(`registered MCP server veritaserum (claude mcp add --scope ${scope})`));
-  } else if (/already exists/i.test(out)) {
-    steps.push(s.ok("MCP server already registered — no change"));
+    steps.push(s.ok(`registered MCP server veritaserum → ${s.dim(server.join(" "))}`));
+    steps.push(s.step(`approve it once: run ${s.bold("claude")} and accept the veritaserum MCP server`));
   } else {
-    manual.push(`register the MCP server yourself: claude mcp add veritaserum -- ${server.join(" ")}`);
+    manual.push(`register the MCP server: claude mcp add veritaserum -- ${server.join(" ")}`);
   }
 }
 
@@ -80,6 +104,7 @@ export function detectHarnesses(): Target[] {
   if (existsSync(join(homedir(), ".claude"))) found.push("claude-code");
   if (existsSync(join(homedir(), ".config", "goose"))) found.push("goose");
   if (existsSync(join(homedir(), ".codex"))) found.push("codex");
+  if (existsSync(join(homedir(), ".cursor"))) found.push("cursor");
   return found;
 }
 
@@ -95,6 +120,7 @@ export async function installTarget(target: Target, opts: { global?: boolean; pr
   const hookCmd = hookCommand(target);
   if (target === "claude-code") return installClaudeCode(hookCmd, opts.global === true);
   if (target === "goose") return installGoose(opts.project === true);
+  if (target === "cursor") return installCursor(opts.global === true);
   return installResolvedAdapter("codex", hookCmd);
 }
 
@@ -105,26 +131,50 @@ interface HookEntry {
   command: string;
 }
 interface HookGroup {
+  matcher?: string;
   hooks?: HookEntry[];
 }
+type HookEvent = "Stop" | "UserPromptSubmit" | "SessionStart";
 interface Settings {
-  hooks?: { Stop?: HookGroup[]; UserPromptSubmit?: HookGroup[] } & Record<string, unknown>;
+  hooks?: Partial<Record<HookEvent, HookGroup[]>> & Record<string, unknown>;
   [k: string]: unknown;
 }
 
-/** Merge one command hook into settings.hooks[event], idempotently. Returns true when added. */
-function mergeHook(settings: Settings, event: "Stop" | "UserPromptSubmit", cmd: string): boolean {
-  const hooks = (settings.hooks && typeof settings.hooks === "object" ? settings.hooks : {}) as {
-    Stop?: HookGroup[];
-    UserPromptSubmit?: HookGroup[];
-  };
+/** Merge one command hook into settings.hooks[event], idempotently. Returns true when added.
+ *  `matcher` scopes SessionStart hooks (e.g. "compact"). */
+function mergeHook(settings: Settings, event: HookEvent, cmd: string, matcher?: string): boolean {
+  const hooks = (settings.hooks && typeof settings.hooks === "object" ? settings.hooks : {}) as Partial<Record<HookEvent, HookGroup[]>>;
   const groups = Array.isArray(hooks[event]) ? hooks[event]! : [];
   if (groups.some((g) => Array.isArray(g.hooks) && g.hooks.some((h) => h.command === cmd))) return false;
-  groups.push({ hooks: [{ type: "command", command: cmd }] });
+  const harness = cmd.match(/\bVS_HARNESS=([^\s]+)/)?.[1];
+  const subcommand = cmd.trim().split(/\s+/).at(-1);
+  if (harness && subcommand) {
+    for (const group of groups) {
+      const existing = group.hooks?.find(
+        (hook) => hook.command.includes(`VS_HARNESS=${harness}`) && hook.command.trim().endsWith(` ${subcommand}`),
+      );
+      if (existing) {
+        existing.command = cmd;
+        hooks[event] = groups;
+        settings.hooks = hooks;
+        return true;
+      }
+    }
+  }
+  groups.push({ ...(matcher ? { matcher } : {}), hooks: [{ type: "command", command: cmd }] });
   hooks[event] = groups;
   settings.hooks = hooks;
   return true;
 }
+
+/** The plan→build seal rule — one source for both the CLAUDE.md entry and the
+ *  compaction-boundary re-arm (a long session's context gets rewritten at compaction,
+ *  so the rule is re-injected there to survive instruction decay). */
+export const SEAL_RULE =
+  "Before writing implementation code for a task, seal a verification contract: call the " +
+  "veritaserum MCP tool `contract_propose` with the settled spec, then `contract_seal`. Do it " +
+  "ONCE, at the plan→build transition (when the plan is settled and you are about to build), " +
+  "not during earlier planning.";
 
 async function installClaudeCode(hookCmd: string, global: boolean): Promise<InstallResult> {
   const file = global ? join(homedir(), ".claude", "settings.json") : join(process.cwd(), ".claude", "settings.json");
@@ -152,12 +202,22 @@ async function installClaudeCode(hookCmd: string, global: boolean): Promise<Inst
 
   const addedStop = mergeHook(settings, "Stop", hookCmd);
   const addedPrompt = mergeHook(settings, "UserPromptSubmit", hookCommand("claude-code", "hook-prompt"));
-  if (addedStop || addedPrompt) {
+  const addedSeal = mergeHook(settings, "SessionStart", hookCommand("claude-code", "hook-seal-reminder"), "compact");
+  if (addedStop || addedPrompt || addedSeal) {
     writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
-    const added = [addedStop && "Stop", addedPrompt && "UserPromptSubmit"].filter(Boolean).join(" + ");
+    const added = [addedStop && "Stop", addedPrompt && "UserPromptSubmit", addedSeal && "SessionStart(compact)"].filter(Boolean).join(" + ");
     steps.push(s.ok(`added ${added} hook(s) to ${s.dim(file)}`));
   } else {
     steps.push(s.ok(`already installed — no change to ${s.dim(file)}`));
+  }
+
+  // The plan→build seal rule as a standing CLAUDE.md instruction (the compaction hook re-arms it).
+  const claudeMd = global ? join(homedir(), ".claude", "CLAUDE.md") : join(process.cwd(), "CLAUDE.md");
+  const block = `\n<!-- veritaserum:seal-rule -->\n${SEAL_RULE}\n`;
+  const existing = existsSync(claudeMd) ? readFileSync(claudeMd, "utf8") : "";
+  if (!existing.includes("veritaserum:seal-rule")) {
+    writeFileSync(claudeMd, existing + block);
+    steps.push(s.ok(`added seal rule to ${s.dim(claudeMd)}`));
   }
 
   const manual: string[] = [];
@@ -203,6 +263,8 @@ function installGoose(project: boolean): InstallResult {
     steps.push(s.ok(`copied ${f} → ${s.dim(to)} (chmod +x)`));
   }
 
+  registerMcpGoose(steps);
+
   return {
     target: "goose",
     hookCmd: hookCommand("goose"),
@@ -220,29 +282,169 @@ function installGoose(project: boolean): InstallResult {
 //     manual completion (mirrors the shared adapter templates). -------------
 
 function installResolvedAdapter(target: "codex", hookCmd: string): InstallResult {
-  const adapterDir = join(pkgRoot(), "adapters", target);
   const steps: string[] = [];
+  const out = join(homedir(), ".codex", "hooks.json");
+  mkdirSync(dirname(out), { recursive: true });
 
-  const out = join(adapterDir, "config-snippet.local.toml");
-  const snippet =
-    `# veritaserum — resolved codex Stop hook (generated by \`veritaserum install codex\`).\n` +
-    `# Append to ~/.codex/config.toml (or a project .codex/config.toml), then grant\n` +
-    `# hook trust on first run (see adapters/codex/README.md).\n\n` +
-    `[[hooks.Stop]]\n` +
-    `type = "command"\n` +
-    `command = "${hookCmd}"\n`;
-  writeFileSync(out, snippet);
-  steps.push(s.ok(`resolved snippet → ${s.dim(out)}`));
+  let settings: Settings = {};
+  if (existsSync(out)) {
+    const raw = readFileSync(out, "utf8").trim();
+    if (raw) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (err) {
+        throw new Error(`${out} is not valid JSON — refusing to touch it (${err instanceof Error ? err.message : String(err)})`);
+      }
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        throw new Error(`${out} does not contain a JSON object — refusing to touch it`);
+      }
+      settings = parsed as Settings;
+    }
+    copyFileSync(out, `${out}.vs-bak`);
+    steps.push(s.ok(`backed up ${s.dim(out + ".vs-bak")}`));
+  }
+
+  const added = mergeHook(settings, "Stop", hookCmd);
+  if (added) {
+    writeFileSync(out, JSON.stringify(settings, null, 2) + "\n");
+    steps.push(s.ok(`added Stop hook to ${s.dim(out)}`));
+  } else {
+    steps.push(s.ok(`already installed — no change to ${s.dim(out)}`));
+  }
+  registerMcpCodex(steps);
   return {
     target,
     hookCmd,
     steps,
     primaryFile: out,
     manual: [
-      "codex config is version-specific and command hooks require interactive trust,",
-      "so nothing outside this package was edited. To finish:",
-      `  1. append ${s.dim(out)} to ~/.codex/config.toml`,
-      "  2. approve the hook when codex asks for hook trust on first run",
+      "approve the veritaserum hook when codex asks for hook trust on first run",
+    ],
+  };
+}
+
+// --- MCP registration for the non-claude targets. Same direct-write principle
+//     as registerMcpClaudeCode: never depend on the vendor binary being
+//     invocable from the installer's subprocess. ----------------------------
+
+/** Replace-or-append one `[header]` table in TOML text. Line-based (the span
+ *  runs from the header line to the line before the next `[` header) so every
+ *  byte outside the veritaserum table survives verbatim — a TOML round-trip
+ *  through a parser would drop the user's comments and formatting. */
+function upsertTomlTable(content: string, header: string, block: string): string {
+  const lines = content.split("\n");
+  const start = lines.findIndex((l) => l.trim() === header);
+  if (start !== -1) {
+    let end = start + 1;
+    while (end < lines.length && !lines[end]!.trim().startsWith("[")) end++;
+    lines.splice(start, end - start);
+  }
+  const rest = lines.join("\n").trimEnd();
+  return rest ? `${rest}\n\n${block}` : block;
+}
+
+/** Register the MCP server in ~/.codex/config.toml ([mcp_servers.veritaserum]).
+ *  JSON.stringify output is valid TOML basic-string syntax, so paths survive. */
+function registerMcpCodex(steps: string[]): void {
+  const server = mcpInvocation();
+  const p = join(homedir(), ".codex", "config.toml");
+  const t = (v: string) => JSON.stringify(v);
+  const block = `[mcp_servers.veritaserum]\ncommand = ${t(server[0]!)}\nargs = [${server.slice(1).map(t).join(", ")}]\n`;
+  const before = existsSync(p) ? readFileSync(p, "utf8") : "";
+  const after = upsertTomlTable(before, "[mcp_servers.veritaserum]", block);
+  if (after === before) {
+    steps.push(s.ok(`MCP server already registered — no change to ${s.dim(p)}`));
+    return;
+  }
+  if (before) copyFileSync(p, `${p}.vs-bak`);
+  writeFileSync(p, after);
+  steps.push(s.ok(`registered MCP server veritaserum → ${s.dim(p)}`));
+}
+
+/** Register the MCP server as a goose stdio extension in
+ *  ~/.config/goose/config.yaml. Uses the yaml Document API so the user's
+ *  comments and unrelated keys survive the edit; skips the write entirely
+ *  when the entry already matches (reruns stay byte-identical). */
+function registerMcpGoose(steps: string[]): void {
+  const server = mcpInvocation();
+  const p = join(homedir(), ".config", "goose", "config.yaml");
+  const desired = {
+    enabled: true,
+    type: "stdio",
+    name: "veritaserum",
+    cmd: server[0],
+    args: server.slice(1),
+    timeout: 300,
+    description: "veritaserum contract tools",
+  };
+  const before = existsSync(p) ? readFileSync(p, "utf8") : "";
+  let doc: Document;
+  if (before.trim()) {
+    doc = parseDocument(before);
+    const cur = doc.getIn(["extensions", "veritaserum"]);
+    const curJson = cur && typeof (cur as { toJSON?: () => unknown }).toJSON === "function" ? (cur as { toJSON: () => unknown }).toJSON() : cur;
+    if (JSON.stringify(curJson) === JSON.stringify(desired)) {
+      steps.push(s.ok(`MCP extension already registered — no change to ${s.dim(p)}`));
+      return;
+    }
+    doc.setIn(["extensions", "veritaserum"], doc.createNode(desired));
+  } else {
+    doc = new Document({ extensions: { veritaserum: desired } });
+  }
+  mkdirSync(dirname(p), { recursive: true });
+  if (before) copyFileSync(p, `${p}.vs-bak`);
+  writeFileSync(p, doc.toString());
+  steps.push(s.ok(`registered MCP extension veritaserum → ${s.dim(p)}`));
+}
+
+// --- cursor: MCP registration only — cursor has no veritaserum sentinel
+//     adapter yet, so the contract tools work but nothing intercepts a false
+//     "done" claim at turn-end. Config shape mirrors .mcp.json. -------------
+
+function installCursor(global: boolean): InstallResult {
+  const server = mcpInvocation();
+  const file = global ? join(homedir(), ".cursor", "mcp.json") : join(process.cwd(), ".cursor", "mcp.json");
+  const steps: string[] = [];
+  mkdirSync(dirname(file), { recursive: true });
+
+  let before = "";
+  let cfg: { mcpServers?: Record<string, unknown> } = {};
+  if (existsSync(file)) {
+    before = readFileSync(file, "utf8");
+    if (before.trim()) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(before);
+      } catch (err) {
+        throw new Error(`${file} is not valid JSON — refusing to touch it (${err instanceof Error ? err.message : String(err)})`);
+      }
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        throw new Error(`${file} does not contain a JSON object — refusing to touch it`);
+      }
+      cfg = parsed as { mcpServers?: Record<string, unknown> };
+    }
+  }
+  cfg.mcpServers = { ...(cfg.mcpServers ?? {}), veritaserum: { command: server[0], args: server.slice(1) } };
+  const after = JSON.stringify(cfg, null, 2) + "\n";
+  if (after === before) {
+    steps.push(s.ok(`already registered — no change to ${s.dim(file)}`));
+  } else {
+    if (before) {
+      copyFileSync(file, `${file}.vs-bak`);
+      steps.push(s.ok(`backed up ${s.dim(file + ".vs-bak")}`));
+    }
+    writeFileSync(file, after);
+    steps.push(s.ok(`registered MCP server veritaserum → ${s.dim(file)}`));
+  }
+  return {
+    target: "cursor",
+    hookCmd: "",
+    steps,
+    primaryFile: file,
+    manual: [
+      "cursor has no veritaserum sentinel adapter yet — this registers the contract MCP",
+      "tools only; nothing blocks a false \"done\" claim at turn-end in cursor.",
     ],
   };
 }

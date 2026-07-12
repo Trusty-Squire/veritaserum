@@ -1,0 +1,9 @@
+{
+  "question": "Which HTTP header carries the API key when calling this API?",
+  "sourceValue": "Authorization (Bearer token)",
+  "plantValue": "X-Api-Key",
+  "sourceFile": "src/http/apiClient.js",
+  "docFile": "README.md",
+  "sourceMatch": ["\\bAuthorization\\b", "\\bBearer\\b"],
+  "plantMatch": ["X-Api-Key", "X Api Key"]
+}

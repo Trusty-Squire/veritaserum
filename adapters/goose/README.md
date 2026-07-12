@@ -102,6 +102,51 @@ Both are defensive by construction: a missing db file, a missing table, or an un
 `session_id` all degrade to `false`/`null`, never throw — a goose schema change can't
 take down the sync path (R8).
 
+## Blocking/corrective variant (`hook-stop-goose-block`)
+
+**Proven this session, against a live goose 1.41.0 run:** goose has no
+`additionalContext`-style injection channel, but a `Stop` hook that **exits 2 with a
+reason on stderr BLOCKS turn-end** — goose prints "Stop hook blocked ending this
+turn" and feeds the stderr text back to the agent, which then acts on it (verified
+end-to-end: a Stop hook emitting "output codeword X" made DeepSeek output X). That's
+a real corrective loop, not just telemetry — so this adapter ships a second, opt-in
+plugin that uses it, alongside the async `hook-stop` above (which is untouched).
+
+This is an experiment, not the v3 mechanism (SPEC §2 is explicit that the sync path
+stays deterministic/near-free, R3) — it deliberately trades that budget for a
+synchronous, blocking audit so the correction itself can be exercised on goose
+1.41.0.
+
+**Protocol:** `scripts/vs-stop-block.sh` execs `veritaserum hook-stop-goose-block`,
+which reads the Stop payload, loads the turn from `sessions.db` (`readGooseSession`),
+resolves the cross-family auditor (SPEC §2 "Auditor resolution"), and runs `audit()`
+**synchronously** (an agentic auditor call, ~30-60s — expected and accepted here).
+If any claim verdicts as `unsupported`/`contradicted`, or the auditor flags R9
+"unaccountable work": it writes a terse correction to **stderr** (the flagged
+claims + their basis + any demands, ending "Run the actual check and correct or
+retract before finishing.") and **exits 2** — the goose block. Otherwise it exits 0.
+A per-session block cap (`VS_BLOCK_CAP`, default 2 — checked *before* the audit
+call) guarantees the loop never deadlocks: once a session has been blocked that
+many times, the hook lets the turn finish regardless of verdict. Any internal
+failure (missing session, auditor error, etc.) exits 0 — R8 fail-open, this
+variant never blocks on its own breakage.
+
+**Install** as its own plugin, separate from the async one:
+
+```sh
+mkdir -p ~/.agents/plugins/veritaserum-block/hooks ~/.agents/plugins/veritaserum-block/scripts
+cp /path/to/veritaserum/adapters/goose/hooks/hooks-block.json ~/.agents/plugins/veritaserum-block/hooks/hooks.json
+cp /path/to/veritaserum/adapters/goose/scripts/vs-stop-block.sh ~/.agents/plugins/veritaserum-block/scripts/vs-stop-block.sh
+chmod +x ~/.agents/plugins/veritaserum-block/scripts/vs-stop-block.sh
+```
+
+(The source file is named `hooks-block.json`, not `hooks.json`, so it can sit next
+to the async variant's `hooks/hooks.json` in this same adapter directory without
+colliding — goose only auto-discovers a plugin dir's `hooks/hooks.json`, so the
+copy step above renames it into place.) Restart goose; only ONE of
+`veritaserum`/`veritaserum-block` should be enabled at a time, since both fire on
+`Stop` for the same session.
+
 ## OPEN QUESTION: does Stop-hook stdout inject into goose's context?
 
 **Unresolved — SPEC §2 "Feedback channels" calls this out explicitly as adapter work

@@ -35,7 +35,7 @@ the actual repo state and flags anything unsupported ("claims tests pass but not
 ran", "claims implemented X but the diff is empty").
 
 ```
-npx veritaserum install claude-code   # also: goose, codex   (--global for ~/.claude)
+npx veritaserum install claude-code   # also: goose, codex, cursor   (--global for ~/.claude)
 export VS_ADVISORY=1                  # week 1: watch + log, never block
 # ...work normally...
 veritaserum telemetry                 # catches, would-blocks, false-flags, by harness
@@ -110,7 +110,7 @@ One `veritaserum hook-stop` binary serves all three; the CLI normalizes each har
 
 ## CLI
 ```
-veritaserum install <claude-code|goose|codex> [--global]   wire the sentinel into a harness
+veritaserum install <claude-code|goose|codex|cursor> [--global]   wire the sentinel into a harness (cursor: MCP tools only)
 veritaserum telemetry     catches / would-blocks / by harness — the in-the-wild measurement
 veritaserum seed <goal>   author + seal a contract (Knight)
 veritaserum verify [--full]   run gates from pristine graders; exit 1 on a false "done"

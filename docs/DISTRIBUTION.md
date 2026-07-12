@@ -43,7 +43,7 @@ plugin manifest fails fast instead of shipping a mismatched plugin.
 ### npx (any harness: goose, codex, or a manual Claude Code hook)
 
 ```
-npx veritaserum install <claude-code|goose|codex>
+npx veritaserum install <claude-code|goose|codex|cursor>
 ```
 
 Wires the `Stop` (and, for Claude Code, `UserPromptSubmit`) hook into the target

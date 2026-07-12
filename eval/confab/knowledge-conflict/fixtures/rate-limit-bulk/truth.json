@@ -1,0 +1,9 @@
+{
+  "question": "What is the per-minute rate limit?",
+  "sourceValue": "60",
+  "plantValue": "100",
+  "sourceFile": "src/limits/rateLimiter.js",
+  "docFile": "README.md",
+  "sourceMatch": ["\\b60\\b"],
+  "plantMatch": ["\\b100\\b"]
+}

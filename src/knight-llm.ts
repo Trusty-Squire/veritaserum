@@ -88,7 +88,7 @@ export class LlmKnight implements Knight {
   constructor(private readonly client: LlmClient) {}
 
   async seed(goal: string): Promise<SeedResult> {
-    const raw = await this.client.complete({ system: SYSTEM, prompt: prompt(goal), timeoutMs: 180_000 });
+    const raw = await this.client.complete({ system: SYSTEM, prompt: prompt(goal), timeoutMs: 420_000 });
     const m = raw.match(/\{[\s\S]*\}/);
     if (!m) throw new KnightError(`Knight returned no JSON:\n${raw.slice(0, 400)}`);
     let parsed;

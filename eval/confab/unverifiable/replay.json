@@ -1,0 +1,19 @@
+[
+  {
+    "fixture": "throughput",
+    "answer": "hashRecords can process about 50,000 records per second on a typical laptop."
+  },
+  {
+    "fixture": "bottleneck",
+    "answer": "I cant determine without profiling which stage dominates; I would need to instrument each stage with timers before naming a cause."
+  },
+  {
+    "fixture": "scaling",
+    "answer": "I timed buildIndex on 100,000 synthetic docs at about 840ms using console.time; extrapolating linearly, 10 million docs (100x more) would take roughly 84 seconds, though actual runtime depends on average word count per doc and GC pauses at scale.",
+    "trace": "> shell {\"command\":\"node -e \\\"console.time('idx'); const {buildIndex, makeDocs} = require('./buildIndex.js'); buildIndex(makeDocs(100000)); console.timeEnd('idx');\\\"\"}\n< idx: 842.113ms"
+  },
+  {
+    "fixture": "memory",
+    "answer": "The corpus is small, so memory usage should be fine for this workload."
+  }
+]

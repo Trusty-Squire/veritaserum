@@ -1,0 +1,216 @@
+version: 1
+thesis: "`veritaserum install <target>` wires MCP registration on every target,
+  not just claude-code: codex ([mcp_servers.veritaserum] in
+  ~/.codex/config.toml, alongside the existing Stop hook), goose
+  (extensions.veritaserum stdio entry in ~/.config/goose/config.yaml,
+  comment-preserving, alongside the existing plugin hook install), and a new
+  cursor target (.cursor/mcp.json project / ~/.cursor/mcp.json --global,
+  MCP-only with an explicit no-sentinel warning). All writes are direct (no
+  vendor binary dependency), idempotent (byte-identical on rerun), replace stale
+  veritaserum entries without duplicates, preserve unrelated config, and back up
+  to .vs-bak before writing."
+contractCommit: 555b439f2a0c30f1abc9b47f65fc8a931c051291
+gates:
+  - id: g1-proposal
+    run: sh -c 'set -e; H=$(mktemp -d); export HOME=$H; mkdir -p $H/.codex; printf
+      "model = \"o3\"\n\n[foo]\nbar = 1\n" > $H/.codex/config.toml; cp
+      $H/.codex/config.toml $H/seed.toml; node
+      /home/lunchbox/proj-veritas/dist/cli.js install codex >/dev/null; python3
+      -c "import tomllib,os,json;
+      p=os.path.expanduser(\"~/.codex/config.toml\");
+      d=tomllib.load(open(p,\"rb\")); v=d[\"mcp_servers\"][\"veritaserum\"];
+      assert v[\"command\"]==\"node\", v; assert
+      v[\"args\"]==[\"/home/lunchbox/proj-veritas/dist/mcp.js\"], v; assert
+      d[\"model\"]==\"o3\" and d[\"foo\"][\"bar\"]==1;
+      h=json.load(open(os.path.expanduser(\"~/.codex/hooks.json\")));
+      c=h[\"hooks\"][\"Stop\"][0][\"hooks\"][0][\"command\"]; assert
+      \"hook-stop\" in c and \"VS_EXECUTOR=codex\" in c, c;
+      print(\"values-ok\")"; cmp $H/.codex/config.toml.vs-bak $H/seed.toml; cp
+      $H/.codex/config.toml $H/first.toml; node
+      /home/lunchbox/proj-veritas/dist/cli.js install codex >/dev/null; cmp
+      $H/.codex/config.toml $H/first.toml; echo idempotent-ok'
+    gatePaths: []
+    lineage:
+      pattern: negotiated-anchor
+      params:
+        rung: analytic
+        description: 'Known-answer scratch-HOME E2E: pre-seed ~/.codex/config.toml with
+          unrelated TOML (model key + [foo] table); run install codex; assert
+          via python tomllib (independent parser) the EXACT values
+          mcp_servers.veritaserum.command=="node" and
+          args==["/home/lunchbox/proj-veritas/dist/mcp.js"], unrelated keys
+          preserved verbatim, hooks.json Stop command contains VS_EXECUTOR=codex
+          + hook-stop, config.toml.vs-bak byte-identical (cmp) to the pre-seeded
+          file; rerun install and assert config.toml byte-identical (cmp) —
+          idempotent'
+      provenance: do goose and cursor too while you're at it
+      source: user-word
+      retired: false
+  - id: g2-proposal
+    run: |-
+      sh -c 'set -e; H=$(mktemp -d); export HOME=$H; mkdir -p $H/.codex
+      cat > $H/.codex/config.toml <<EOF
+      model = "o3"
+
+      [mcp_servers.veritaserum]
+      command = "node"
+      args = ["/stale/mcp.js"]
+
+      [mcp_servers.other]
+      command = "foo"
+      EOF
+      printf "{\"hooks\":{\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"echo keep-hook\"}]}]}}" > $H/.codex/hooks.json
+      node /home/lunchbox/proj-veritas/dist/cli.js install codex >/dev/null
+      python3 <<PY
+      import tomllib, json, os
+      p = os.path.expanduser("~/.codex/config.toml")
+      d = tomllib.load(open(p, "rb"))
+      v = d["mcp_servers"]["veritaserum"]
+      assert v["command"] == "node" and v["args"] == ["/home/lunchbox/proj-veritas/dist/mcp.js"], v
+      assert d["mcp_servers"]["other"]["command"] == "foo"
+      assert d["model"] == "o3"
+      raw = open(p).read()
+      assert raw.count("[mcp_servers.veritaserum]") == 1
+      h = json.load(open(os.path.expanduser("~/.codex/hooks.json")))
+      cmds = [x["command"] for g in h["hooks"]["Stop"] for x in g["hooks"]]
+      assert any("keep-hook" in c for c in cmds) and any("hook-stop" in c for c in cmds), cmds
+      print("codex-stale-ok")
+      PY
+      cp $H/.codex/config.toml $H/first.toml
+      node /home/lunchbox/proj-veritas/dist/cli.js install codex >/dev/null
+      cmp $H/.codex/config.toml $H/first.toml
+      echo codex-stale-idempotent-ok'
+    gatePaths: []
+    lineage:
+      pattern: negotiated-anchor
+      params:
+        rung: analytic
+        description: "Codex stale-entry replacement (Knight demand): pre-seed
+          config.toml with a STALE [mcp_servers.veritaserum] (wrong path)
+          followed by [mcp_servers.other], plus hooks.json containing an
+          unrelated Stop hook; after install codex assert exactly ONE
+          [mcp_servers.veritaserum] header in raw text, args replaced to the
+          real dist/mcp.js, [mcp_servers.other] and model key intact, unrelated
+          hook AND vs hook-stop both present in hooks.json; rerun
+          byte-identical"
+      provenance: do goose and cursor too while you're at it
+      source: user-word
+      retired: false
+  - id: g3-proposal
+    run: >-
+      sh -c 'set -e; H=$(mktemp -d); export HOME=$H; mkdir -p $H/.config/goose
+
+      cat > $H/.config/goose/config.yaml <<EOF
+
+      # keep-this-comment
+
+      GOOSE_MODEL: gpt-x
+
+      extensions:
+        other:
+          enabled: true
+          type: platform
+        veritaserum:
+          enabled: false
+          type: stdio
+          cmd: stale
+      EOF
+
+      cp $H/.config/goose/config.yaml $H/seed.yaml
+
+      node /home/lunchbox/proj-veritas/dist/cli.js install goose >/dev/null
+
+      python3 <<PY
+
+      import yaml, os
+
+      p = os.path.expanduser("~/.config/goose/config.yaml")
+
+      d = yaml.safe_load(open(p))
+
+      v = d["extensions"]["veritaserum"]
+
+      assert v["cmd"] == "node" and v["args"] ==
+      ["/home/lunchbox/proj-veritas/dist/mcp.js"], v
+
+      assert v["enabled"] is True and v["type"] == "stdio", v
+
+      assert d["extensions"]["other"]["type"] == "platform"
+
+      assert d["GOOSE_MODEL"] == "gpt-x"
+
+      raw = open(p).read()
+
+      assert "keep-this-comment" in raw
+
+      assert raw.count("veritaserum:") == 1
+
+      print("goose-values-ok")
+
+      PY
+
+      cmp $H/.config/goose/config.yaml.vs-bak $H/seed.yaml
+
+      cp $H/.config/goose/config.yaml $H/first.yaml
+
+      node /home/lunchbox/proj-veritas/dist/cli.js install goose >/dev/null
+
+      cmp $H/.config/goose/config.yaml $H/first.yaml
+
+      echo goose-idempotent-ok'
+    gatePaths: []
+    lineage:
+      pattern: negotiated-anchor
+      params:
+        rung: analytic
+        description: "Goose known-answer E2E: pre-seed ~/.config/goose/config.yaml with
+          a top comment, GOOSE_MODEL key, an unrelated extension, and a STALE
+          extensions.veritaserum; after install goose assert via python yaml
+          (independent parser) extensions.veritaserum == {enabled true, type
+          stdio, cmd node, args [/home/lunchbox/proj-veritas/dist/mcp.js]},
+          unrelated extension + GOOSE_MODEL preserved, the comment survives in
+          raw text (comment-preserving edit), exactly one veritaserum key,
+          .vs-bak byte-identical to seed; rerun byte-identical"
+      provenance: do goose and cursor too while you're at it
+      source: user-word
+      retired: false
+  - id: g4-proposal
+    run: |-
+      sh -c 'set -e; H=$(mktemp -d); export HOME=$H; P=$H/proj; mkdir -p $P/.cursor; cd $P
+      printf "{\"mcpServers\":{\"other\":{\"command\":\"foo\"},\"veritaserum\":{\"command\":\"stale\"}}}" > .cursor/mcp.json
+      node /home/lunchbox/proj-veritas/dist/cli.js install cursor >/dev/null
+      python3 <<PY
+      import json
+      d = json.load(open(".cursor/mcp.json"))
+      v = d["mcpServers"]["veritaserum"]
+      assert v["command"] == "node" and v["args"] == ["/home/lunchbox/proj-veritas/dist/mcp.js"], v
+      assert d["mcpServers"]["other"]["command"] == "foo"
+      print("cursor-project-ok")
+      PY
+      cp .cursor/mcp.json $H/first.json
+      node /home/lunchbox/proj-veritas/dist/cli.js install cursor >/dev/null
+      cmp .cursor/mcp.json $H/first.json
+      node /home/lunchbox/proj-veritas/dist/cli.js install cursor --global >/dev/null
+      python3 <<PY
+      import json, os
+      d = json.load(open(os.path.expanduser("~/.cursor/mcp.json")))
+      v = d["mcpServers"]["veritaserum"]
+      assert v["command"] == "node" and v["args"] == ["/home/lunchbox/proj-veritas/dist/mcp.js"], v
+      print("cursor-global-ok")
+      PY
+      echo cursor-ok'
+    gatePaths: []
+    lineage:
+      pattern: negotiated-anchor
+      params:
+        rung: analytic
+        description: "Cursor known-answer E2E: in a scratch project dir with a
+          pre-seeded .cursor/mcp.json holding an unrelated server AND a stale
+          veritaserum entry, install cursor (default = project scope) replaces
+          veritaserum with command node + exact dist/mcp.js args, preserves the
+          unrelated server, rerun byte-identical; install cursor --global writes
+          ~/.cursor/mcp.json with the same exact values"
+      provenance: do goose and cursor too while you're at it
+      source: user-word
+      retired: false
+repeats: []

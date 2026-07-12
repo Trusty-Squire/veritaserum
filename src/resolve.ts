@@ -182,12 +182,13 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
       return {
         tier,
         vendor,
+        model,
         sameFamily,
         async invoke(prompt, dir, timeoutMs) {
           // Agentic: the auditor gathers its own evidence (git log/status/diff, law
           // from HEAD) inside a read-only sandbox — no "don't use tools" instruction,
           // unlike the v1 CodexCliClient judge (that reasons over given evidence only).
-          const r = await execa("codex", ["exec", "-s", "read-only", prompt], {
+          const r = await execa("codex", ["exec", "-s", "read-only", ...(model ? ["-m", model] : []), prompt], {
             cwd: dir,
             stdin: "ignore",
             reject: false,
@@ -203,9 +204,10 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
       return {
         tier,
         vendor,
+        model,
         sameFamily,
         async invoke(prompt, dir, timeoutMs) {
-          const r = await execa("claude", ["-p", prompt, "--allowedTools", CLAUDE_READONLY_TOOLS], {
+          const r = await execa("claude", ["-p", prompt, "--allowedTools", CLAUDE_READONLY_TOOLS, ...(model ? ["--model", model] : [])], {
             cwd: dir,
             reject: false,
             timeout: timeoutMs ?? 180_000,
