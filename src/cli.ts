@@ -300,7 +300,7 @@ async function main(argv: string[]): Promise<number> {
           console.log(`  detected here: ${found.map((t) => style.cyan(t)).join(", ")}`);
           console.log(style.step(`e.g. ${style.bold(`veritaserum install ${found[0]}`)}`));
         } else {
-          console.log(style.dim("  no harness config found (~/.claude, ~/.config/goose, ~/.codex)"));
+          console.log(style.dim("  no harness config found (~/.claude, ~/.config/goose, ~/.codex, ~/.cursor)"));
         }
         return 0;
       }
@@ -317,10 +317,14 @@ async function main(argv: string[]): Promise<number> {
       }
       console.log();
       console.log(style.divider());
-      console.log(style.ok(`${style.bold(target)} wired — veritaserum now watches every turn-end.`));
-      console.log(style.step(`week 1:  ${style.dim("export")} VS_ADVISORY=1   ${style.dim("# watch + log, never block")}`));
-      console.log(style.step(`read catches:  ${style.bold("veritaserum telemetry")}`));
-      console.log(style.step(`enable blocking later:  ${style.dim("unset")} VS_ADVISORY`));
+      if (target === "cursor") {
+        console.log(style.ok(`${style.bold(target)} wired — contract MCP tools registered (no turn-end sentinel yet).`));
+      } else {
+        console.log(style.ok(`${style.bold(target)} wired — veritaserum now watches every turn-end.`));
+        console.log(style.step(`week 1:  ${style.dim("export")} VS_ADVISORY=1   ${style.dim("# watch + log, never block")}`));
+        console.log(style.step(`read catches:  ${style.bold("veritaserum telemetry")}`));
+        console.log(style.step(`enable blocking later:  ${style.dim("unset")} VS_ADVISORY`));
+      }
       return 0;
     }
 
