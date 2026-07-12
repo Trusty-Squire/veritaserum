@@ -1,6 +1,6 @@
 {
   "name": "veritaserum",
-  "version": "0.2.0-rc.2",
+  "version": "0.2.0-rc.3",
   "description": "The case-law auditor: an async cross-family auditor checks load-bearing claims against git probes and the harness's own record, and demands persist as standing case law.",
   "author": {
     "name": "Trusty Squire"
