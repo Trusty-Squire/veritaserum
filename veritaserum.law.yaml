@@ -1,0 +1,61 @@
+version: 1
+thesis: ""
+contractCommit: null
+gates:
+  - id: law1-1
+    run: null
+    checklist: Run the project's full documented test suite and retain its output
+      and exit code.
+    gatePaths: []
+    lineage:
+      pattern: evaluator-demand
+      params:
+        rung: oracle
+        binding: true
+      provenance: "Run the project's full documented test suite and retain its output
+        and exit code. — origin claim: \"All tests passed.\""
+      source: evaluator-demand
+      retired: false
+  - id: law2-1
+    run: npm test
+    gatePaths: []
+    lineage:
+      pattern: evaluator-demand
+      params:
+        rung: oracle
+        binding: true
+      provenance: 'Capture a complete `npm test` receipt showing the final Vitest
+        summary and exit code 0. — origin claim: "All tests passed."'
+      source: evaluator-demand
+      retired: false
+  - id: law3-1
+    run: null
+    checklist: Run the project's full test suite and provide its command, output
+      summary, and zero exit code.
+    gatePaths: []
+    lineage:
+      pattern: evaluator-demand
+      params:
+        rung: oracle
+        binding: true
+      provenance: "Run the project's full test suite and provide its command, output
+        summary, and zero exit code. — origin claim: \"The full test suite was
+        run and all tests passed.\""
+      source: evaluator-demand
+      retired: false
+  - id: law4-1
+    run: null
+    checklist: Run the repository’s full test suite and capture its command, output
+      summary, and exit code.
+    gatePaths: []
+    lineage:
+      pattern: evaluator-demand
+      params:
+        rung: oracle
+        binding: true
+      provenance: 'Run the repository’s full test suite and capture its command,
+        output summary, and exit code. — origin claim: "All 216 tests pass; the
+        suite is green."'
+      source: evaluator-demand
+      retired: false
+repeats: []
