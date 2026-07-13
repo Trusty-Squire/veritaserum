@@ -154,3 +154,30 @@ describe("runQueue — lock", () => {
     expect(ran.sort()).toEqual(["t1", "t2"]); // both jobs still got processed by whichever runner held the lock
   });
 });
+
+describe("listPending hygiene — the drain must never consume non-job JSON (the silent-sentinel bug)", () => {
+  it("leaves the sync-path watermark and foreign JSON untouched while consuming real jobs", async () => {
+    const qdir = queueRoot(dir);
+    mkdirSync(join(qdir, "state"), { recursive: true });
+    queueJob(dir, job("s1", "t1", "live"));
+    // The exact file the drain used to eat: the sync-path watermark, plus an
+    // arbitrary foreign JSON. Neither matches the enqueue pattern.
+    writeFileSync(join(qdir, "last-audit.json"), JSON.stringify({ ts: 42 }));
+    writeFileSync(join(qdir, "state", "last-audit.json"), JSON.stringify({ ts: 77 }));
+    writeFileSync(join(qdir, "notes.json"), JSON.stringify({ foo: 1 }));
+    // Enqueue-pattern name but not a job shape: listed by filename, rejected by validation.
+    writeFileSync(join(qdir, "0000000000000-01__x__y.json"), JSON.stringify({ nope: true }));
+
+    const ran: string[] = [];
+    await runQueue(dir, async (j) => {
+      ran.push(j.turnRef);
+    });
+
+    expect(ran).toEqual(["t1"]);
+    expect(existsSync(join(qdir, "last-audit.json"))).toBe(true);
+    expect(existsSync(join(qdir, "state", "last-audit.json"))).toBe(true);
+    expect(existsSync(join(qdir, "notes.json"))).toBe(true);
+    expect(existsSync(join(qdir, "0000000000000-01__x__y.json"))).toBe(true);
+    expect(readdirSync(join(qdir, "dead"))).toEqual([]);
+  });
+});

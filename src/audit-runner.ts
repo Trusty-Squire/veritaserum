@@ -235,12 +235,14 @@ export function enqueue(dir: string, job: AuditJob): void {
 function listPending(qdir: string): QueuedJob[] {
   if (!existsSync(qdir)) return [];
   return readdirSync(qdir)
-    .filter((f) => f.endsWith(".json"))
+    .filter((f) => f.endsWith(".json") && f.includes("__")) // only enqueue-pattern names (<seq>__<session>__<turn>.json): the queue root also holds non-job state files, and one parsed as an empty job "succeeds" vacuously and gets deleted (this silently killed live auditing)
     .sort()
     .flatMap((f) => {
       const file = join(qdir, f);
       try {
-        return [{ file, job: JSON.parse(readFileSync(file, "utf8")) as AuditJob }];
+        const job = JSON.parse(readFileSync(file, "utf8")) as AuditJob;
+        if (typeof job.dir !== "string" || typeof job.sessionId !== "string") return []; // not a job — never list it, never delete it
+        return [{ file, job }];
       } catch {
         return []; // unreadable/corrupt job file — skip, don't wedge the drain
       }

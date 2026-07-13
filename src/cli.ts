@@ -98,7 +98,11 @@ interface LastAudit {
   ccTranscriptSize?: Record<string, number>;
 }
 function lastAuditPath(qdir: string): string {
-  return join(qdir, "last-audit.json");
+  // MUST live outside the queue root's top level: the drain loop scans every
+  // top-level *.json there as a job, and a marker parsed as an empty job
+  // "succeeds" vacuously and gets deleted — which silently killed live
+  // auditing (watermark reset every drain cycle, zero telemetry).
+  return join(qdir, "state", "last-audit.json");
 }
 function readLastAudit(qdir: string): LastAudit {
   try {
@@ -109,7 +113,7 @@ function readLastAudit(qdir: string): LastAudit {
 }
 function writeLastAudit(qdir: string, next: LastAudit): void {
   try {
-    mkdirSync(qdir, { recursive: true });
+    mkdirSync(dirname(lastAuditPath(qdir)), { recursive: true });
     writeFileSync(lastAuditPath(qdir), JSON.stringify(next), "utf8");
   } catch {
     /* best-effort marker */
