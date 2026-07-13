@@ -77,20 +77,24 @@ function openReadOnly(dbPath: string): InstanceType<typeof DatabaseSync> | null 
 }
 
 /**
- * Sync-path step 1 (SPEC §2): has any tool-bearing message for `sessionId` been
- * recorded after `sinceEpochMs`? Used to answer "nothing to audit" — a false
- * here is the ~0ms exit. Defensive: any DB/schema failure → false (fail toward
- * silence, never toward noise, on the sync path — R8).
+ * Sync-path step 1 (SPEC §2): has ANY message for `sessionId` been recorded
+ * after `sinceEpochMs`? Used to answer "nothing to audit" — a false here is
+ * the ~0ms exit. Any message counts, not just tool blocks: an armchair
+ * misdiagnosis ("the bottleneck is X") in a turn with zero tool calls is
+ * exactly the cause-attribution class the auditor exists to catch, and
+ * tool-gating let those turns escape unaudited (the Claude Code path already
+ * fires on any transcript growth). Defensive: any DB/schema failure → false
+ * (fail toward silence, never toward noise, on the sync path — R8).
  */
 export function hasToolActivitySince(dbPath: string, sessionId: string, sinceEpochMs: number): boolean {
   const db = openReadOnly(dbPath);
   if (!db) return false;
   try {
     const sinceSec = Math.floor(sinceEpochMs / 1000);
-    const rows = db
-      .prepare("SELECT content_json FROM messages WHERE session_id = ? AND created_timestamp > ? ORDER BY id ASC")
-      .all(sessionId, sinceSec) as { content_json: string }[];
-    return rows.some((r) => parseContentJson(r.content_json).some(isToolBlock));
+    const row = db
+      .prepare("SELECT COUNT(*) AS n FROM messages WHERE session_id = ? AND created_timestamp > ?")
+      .get(sessionId, sinceSec) as { n: number } | undefined;
+    return (row?.n ?? 0) > 0;
   } catch {
     return false;
   } finally {

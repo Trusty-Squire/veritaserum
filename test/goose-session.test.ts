@@ -154,13 +154,15 @@ describe("hasToolActivitySince — the sync-path nothing-to-audit probe", () => 
     expect(hasToolActivitySince(dbPath, "s1", 200_000)).toBe(true); // 200s in ms
   });
 
-  it("false when only text/thinking rows exist after the watermark (no tool activity)", () => {
+  it("true when only text/thinking rows exist after the watermark — armchair claims get audited too", () => {
     makeDb(dbPath, [
       { sessionId: "s1", role: "assistant", contentJson: toolRequestBlock("c1", "shell", { command: "ls" }), ts: 100 },
       { sessionId: "s1", role: "assistant", contentJson: thinkingBlock("just thinking"), ts: 500 },
       { sessionId: "s1", role: "user", contentJson: textBlock("more chat"), ts: 600 },
     ]);
-    expect(hasToolActivitySince(dbPath, "s1", 200_000)).toBe(false); // tool row is BEFORE the watermark
+    // A misdiagnosis in a zero-tool-call turn is exactly the cause-attribution
+    // class the auditor exists for; any new message counts as auditable.
+    expect(hasToolActivitySince(dbPath, "s1", 200_000)).toBe(true);
   });
 
   it("false for a session with no rows at all after the watermark", () => {
