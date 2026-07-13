@@ -239,4 +239,38 @@ gates:
         telemetry event — post-turn silence is a failure, not a pass."
       source: user-word
       retired: false
+  - id: g6-2
+    run: null
+    checklist: "Demands were vacuous (blockchain run-3: \"run verify_chain.py\" —
+      the defendant's own file — then cited its assertions back as evidence).
+      Phase 1 of docs/DEMANDS.md replaces yaml demand-append entirely: the
+      auditor must author a demand as {origin_claim, gap, accept, remedy,
+      test_file, rung} where accept carries expected values and test_file is a
+      standalone exit-code script embodying them; the script is materialized
+      under test/veritaserum/, must FAIL when run at authoring time (else
+      discarded as a bad oracle); enforcement runs demand scripts FROM GIT HEAD
+      (working-tree edits/deletions cannot alter the enforcement run); demands
+      without accept are recorded unverifiable and never bind; the next-turn
+      feedback line carries remedy+accept verbatim for the highest-severity
+      unmet demand, never repeated verbatim. Register/first-green/CI job are
+      explicitly deferred."
+    gatePaths: []
+    lineage:
+      pattern: checklist
+      params: {}
+      provenance: "Demands were vacuous (blockchain run-3: \"run verify_chain.py\" —
+        the defendant's own file — then cited its assertions back as evidence).
+        Phase 1 of docs/DEMANDS.md replaces yaml demand-append entirely: the
+        auditor must author a demand as {origin_claim, gap, accept, remedy,
+        test_file, rung} where accept carries expected values and test_file is a
+        standalone exit-code script embodying them; the script is materialized
+        under test/veritaserum/, must FAIL when run at authoring time (else
+        discarded as a bad oracle); enforcement runs demand scripts FROM GIT
+        HEAD (working-tree edits/deletions cannot alter the enforcement run);
+        demands without accept are recorded unverifiable and never bind; the
+        next-turn feedback line carries remedy+accept verbatim for the
+        highest-severity unmet demand, never repeated verbatim.
+        Register/first-green/CI job are explicitly deferred."
+      source: user-word
+      retired: false
 repeats: []
