@@ -3,30 +3,23 @@
  * `veritaserum` CLI (DESIGN §4) — the enforcement door a hook shells out to.
  *   veritaserum install <harness>              wire veritaserum's sync path into a harness
  *   veritaserum doctor                        which auditor rule fired and why (SPEC §2)
- *   veritaserum seed <goal>                    seed a fresh contract (Knight)
- *   veritaserum ratchet <complaint>            append a gate (monotonic)
- *   veritaserum amend --retire --match <s> --as <s> [--confirm]   the only weakening path
  *   veritaserum retire <law-id> "<reason>"      retire a standing case-law entry
- *   veritaserum verify [--full]                run gates from pristine graders; block on contradiction
+ *   veritaserum demands                        run the demands the auditor materialized
+ *   veritaserum telemetry                      what the auditor caught
  *
- * Exit codes: verify blocked -> 1, verify green -> 0, errors -> 2.
+ * Exit codes: errors -> 2.
  */
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { loadContract, activeGates } from "./contract.js";
 import { commitPaths, currentTreeHash } from "./git.js";
-import { ratchetComplaint, retireByProvenance, commitRatchet } from "./ratchet.js";
 import { loadLaw, retireLaw, runnableChecks, LAW_FILENAME } from "./law.js";
-import { seed, SeedError } from "./seed.js";
-import { CONTRACT_FILENAME } from "./schema.js";
-import { verify, NotSealedError } from "./verify.js";
-import { resolveKnight, resolveJudge, resolveTranscriber, resolveAuditor, doctorReport } from "./resolve.js";
+import { resolveAuditor, doctorReport } from "./resolve.js";
 import { enqueue, queueRoot, lawCheckMarkerPath, takePendingFeedback, type AuditJob } from "./audit-runner.js";
 import { runDemands, retireDemand } from "./demands.js";
 import { hasToolActivitySince, readGooseSession, defaultGooseSessionsDb } from "./goose.js";
 import { audit, type AuditJob as AuditContentJob } from "./auditor.js";
 import { logFiring, readFirings, summarize } from "./telemetry.js";
-import { installTarget, detectHarnesses, isTarget, TARGETS, SEAL_RULE } from "./install.js";
+import { installTarget, detectHarnesses, isTarget, TARGETS } from "./install.js";
 import * as style from "./style.js";
 
 /** Which harness fired us (installer sets VS_HARNESS). */
@@ -128,11 +121,23 @@ function writeLastAudit(qdir: string, next: LastAudit): void {
  * the ~0ms budget — cheap and sufficient (no reason to parse JSONL just to answer
  * yes/no). Unknown payload shape → nothing to audit (fail toward silence, R8-adjacent).
  */
+/**
+ * Never audit the auditor. The agentic auditor IS a coding agent (codex/claude) and it
+ * runs inside the audited repo, so veritaserum's own Stop hook fires on ITS turn-end and
+ * enqueues a job — whose audit spawns another auditor, which enqueues again. That loop
+ * never converges: it floods the queue with empty-content self-audits and starves the
+ * real session's job. resolve.ts stamps VS_AUDIT_CHILD on every auditor subprocess; the
+ * hook that sees it does nothing.
+ */
+function isAuditorChild(): boolean {
+  return process.env.VS_AUDIT_CHILD === "1";
+}
+
 function hasNewToolActivity(p: HookPayload, marker: LastAudit): boolean {
-  if (p.session_id) {
-    const dbPath = process.env.VS_GOOSE_SESSIONS_DB || defaultGooseSessionsDb();
-    return hasToolActivitySince(dbPath, p.session_id, marker.ts);
-  }
+  // transcript_path FIRST: Claude Code sends BOTH fields, and its session_id is
+  // meaningless to goose's sessions.db — querying that DB for it always answers
+  // "no activity", so every Claude Code turn was silently skipped, never audited.
+  // Only goose (session_id, no transcript) takes the DB path.
   if (p.transcript_path) {
     try {
       const size = statSync(p.transcript_path).size;
@@ -141,6 +146,10 @@ function hasNewToolActivity(p: HookPayload, marker: LastAudit): boolean {
     } catch {
       return false; // missing/unreadable transcript — nothing to audit
     }
+  }
+  if (p.session_id) {
+    const dbPath = process.env.VS_GOOSE_SESSIONS_DB || defaultGooseSessionsDb();
+    return hasToolActivitySince(dbPath, p.session_id, marker.ts);
   }
   return false;
 }
@@ -206,52 +215,6 @@ async function main(argv: string[]): Promise<number> {
   const dir = process.cwd();
 
   switch (cmd) {
-    case "seed": {
-      const goal = positional(rest).join(" ").trim();
-      if (!goal) return usage("seed <goal>");
-      const out = await seed(dir, goal, await resolveKnight());
-      console.log(`sealed contract: ${out.gates} gate(s), ${out.files.length} grader file(s)`);
-      console.log(`contractCommit ${out.contractCommit.slice(0, 10)}`);
-      return 0;
-    }
-
-    case "ratchet": {
-      const complaint = positional(rest).join(" ").trim();
-      if (!complaint) return usage("ratchet <complaint>");
-      const r = await ratchetComplaint(dir, complaint, await resolveTranscriber());
-      console.log(`${r.action}${r.gateId ? ` (${r.gateId})` : ""}: ${r.describeBack}`);
-      if (r.action === "conflict-surfaced" && r.conflictWith) {
-        console.log(`  conflicts with ${r.conflictWith.id} — resolve with \`ser amend --retire\``);
-      }
-      // Persist: commits contract.yaml (+ new grader files) and reseals contractCommit
-      // when the new gate brought graders (R2). No-op for conflict/boundary outcomes.
-      if (r.action === "added" || r.action === "repeat-recorded") await commitRatchet(dir, r);
-      return 0;
-    }
-
-    case "amend": {
-      if (!flag(rest, "retire")) return usage("amend --retire --match <provenance> --as <reason> [--confirm]");
-      const match = opt(rest, "match");
-      const as = opt(rest, "as");
-      if (!match || !as) return usage("amend --retire --match <provenance> --as <reason> [--confirm]");
-      const c = await loadContract(dir);
-      const targets = activeGates(c).filter((g) => g.lineage.provenance.toLowerCase().includes(match.toLowerCase()));
-      if (targets.length === 0) {
-        console.log(`no active gate matches provenance "${match}"`);
-        return 0;
-      }
-      if (!flag(rest, "confirm")) {
-        console.log(`amend --retire would retire ${targets.length} gate(s) (weakens the contract):`);
-        for (const g of targets) console.log(`  ${g.id}: ${g.lineage.provenance}`);
-        console.log(`re-run with --confirm to proceed.`);
-        return 0;
-      }
-      const retired = await retireByProvenance(dir, match, as);
-      await commitPaths(dir, [CONTRACT_FILENAME], `ser: amend --retire (${as})`);
-      console.log(`retired ${retired.length} gate(s): ${retired.join(", ")} (recorded, not deleted)`);
-      return 0;
-    }
-
     case "retire": {
       const lawId = rest[0];
       const reason = rest.slice(1).join(" ").trim();
@@ -286,31 +249,6 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
 
-    case "verify": {
-      const level = flag(rest, "full") ? "full" : "fast";
-      const judge = await resolveJudge();
-      const r = await verify(dir, { level, ...(judge ? { judge } : {}) });
-      for (const t of r.tamper) {
-        console.log(`⚠ TAMPER (${t.kind}): ${t.path} — ${t.detail} [ran pristine grader anyway]`);
-      }
-      for (const f of r.failures) {
-        console.log(`✗ ${f.gateId} (${f.provenance})`);
-        if (f.symptom) console.log(`    ${f.symptom.replace(/\n/g, "\n    ")}`);
-      }
-      for (const a of r.abstentions) console.log(`? ${a.gateId} (${a.provenance}) — ABSTAIN → human: ${a.symptom ?? ""}`);
-      for (const item of r.checklist) console.log(`○ checklist ${item.gateId}: ${item.text}`);
-      if (r.blocked) {
-        console.log(`BLOCKED — ${r.failures.length}/${r.ran} gate(s) failed. A "done" claim would be false.`);
-        return 1;
-      }
-      const tail = [
-        r.tamper.length ? `${r.tamper.length} tamper flag(s)` : "",
-        r.abstentions.length ? `${r.abstentions.length} abstention(s) → human` : "",
-      ].filter(Boolean).join(", ");
-      console.log(`OK — ${r.passed}/${r.ran} gate(s) pass${tail ? ` (${tail})` : ""}.`);
-      return 0;
-    }
-
     case "install": {
       const target = positional(rest)[0];
       const global = flag(rest, "global");
@@ -325,7 +263,7 @@ async function main(argv: string[]): Promise<number> {
           console.log(`  detected here: ${found.map((t) => style.cyan(t)).join(", ")}`);
           console.log(style.step(`e.g. ${style.bold(`veritaserum install ${found[0]}`)}`));
         } else {
-          console.log(style.dim("  no harness config found (~/.claude, ~/.config/goose, ~/.codex, ~/.cursor)"));
+          console.log(style.dim("  no harness config found (~/.claude, ~/.config/goose, ~/.codex)"));
         }
         return 0;
       }
@@ -342,14 +280,10 @@ async function main(argv: string[]): Promise<number> {
       }
       console.log();
       console.log(style.divider());
-      if (target === "cursor") {
-        console.log(style.ok(`${style.bold(target)} wired — contract MCP tools registered (no turn-end sentinel yet).`));
-      } else {
         console.log(style.ok(`${style.bold(target)} wired — veritaserum now watches every turn-end.`));
         console.log(style.step(`week 1:  ${style.dim("export")} VS_ADVISORY=1   ${style.dim("# watch + log, never block")}`));
         console.log(style.step(`read catches:  ${style.bold("veritaserum telemetry")}`));
         console.log(style.step(`enable blocking later:  ${style.dim("unset")} VS_ADVISORY`));
-      }
       return 0;
     }
 
@@ -393,6 +327,7 @@ async function main(argv: string[]): Promise<number> {
     case "hook-stop": {
       // v3 sync path (SPEC §2 "the mechanism"): deterministic, no LLM, no claim
       // regex (R2 — claim identification is the async auditor's judgment only).
+      if (isAuditorChild()) return 0;
       try {
         const p = parsePayload(await readStdin());
         const wd = payloadDir(p, dir);
@@ -456,6 +391,7 @@ async function main(argv: string[]): Promise<number> {
     // `hook-stop` above is untouched — this is a separate, opt-in plugin variant
     // (adapters/goose/hooks/hooks-block.json).
     case "hook-stop-goose-block": {
+      if (isAuditorChild()) return 0;
       try {
         const p = parsePayload(await readStdin());
         const wd = payloadDir(p, dir);
@@ -565,21 +501,8 @@ async function main(argv: string[]): Promise<number> {
       }
     }
 
-    case "hook-seal-reminder": {
-      // SessionStart(compact): a long session's context is rewritten at compaction,
-      // so re-inject the plan→build seal rule to survive instruction decay. stdout
-      // becomes additionalContext. Never blocks (R8).
-      try {
-        await readStdin();
-        console.log(`veritaserum: ${SEAL_RULE}`);
-      } catch {
-        /* fail open — no reminder this compaction */
-      }
-      return 0;
-    }
-
     default:
-      return usage("<install|doctor|seed|ratchet|amend|retire|verify|telemetry|hook-stop|hook-stop-goose-block|hook-prompt|hook-seal-reminder>");
+      return usage("<install|doctor|retire|demands|telemetry|hook-stop|hook-stop-goose-block|hook-prompt>");
   }
 }
 
@@ -591,8 +514,7 @@ function usage(spec: string): number {
 main(process.argv.slice(2))
   .then((code) => process.exit(code))
   .catch((err) => {
-    const known = err instanceof SeedError || err instanceof NotSealedError;
     console.error(`ser: ${err instanceof Error ? err.message : String(err)}`);
-    if (!known && err instanceof Error && err.stack) console.error(err.stack.split("\n").slice(1, 3).join("\n"));
+    if (err instanceof Error && err.stack) console.error(err.stack.split("\n").slice(1, 3).join("\n"));
     process.exit(2);
   });

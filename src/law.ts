@@ -22,10 +22,10 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as toYaml } from "yaml";
-import { activeGates } from "./contract.js";
+
 import { showFileAtCommit } from "./git.js";
-import type { Rung } from "./propose.js";
-import { CONTRACT_FILENAME, ContractFileSchema, type ContractFile, type ContractGate } from "./schema.js";
+
+import { CONTRACT_FILENAME, ContractFileSchema, activeGates, type ContractFile, type ContractGate, type Rung } from "./schema.js";
 
 export const LAW_FILENAME = "veritaserum.law.yaml";
 

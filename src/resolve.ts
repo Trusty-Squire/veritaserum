@@ -17,40 +17,11 @@ import {
   OpenRouterClient,
   type Vendor,
 } from "./llm.js";
-import { MockKnight, mockTranscriber, type Knight, type ComplaintTranscriber } from "./judge.js";
-import { LlmKnight } from "./knight-llm.js";
-import { makeLlmTranscriber } from "./transcriber-llm.js";
-import { makeSemanticJudge, type SemanticJudge } from "./judge-verdict.js";
-
-/** Authoring is not judging → no cross-vendor rule; prefer the faster generator. */
-export async function resolveKnight(): Promise<Knight> {
-  if (process.env.VS_MOCK_KNIGHT) return new MockKnight();
-  const vendors = await detectVendors();
-  if (!vendors.length) return new MockKnight();
-  const v: Vendor = vendors.includes("claude") ? "claude" : vendors[0]!;
-  return new LlmKnight(makeClient({ vendor: v, reason: "knight authoring", metered: false }));
-}
-
-/** Turn a complaint into a real gate (LLM). Authoring → prefer claude; else mock. */
-export async function resolveTranscriber(): Promise<ComplaintTranscriber> {
-  if (process.env.VS_MOCK_KNIGHT) return mockTranscriber;
-  const vendors = await detectVendors();
-  if (!vendors.length) return mockTranscriber;
-  const v: Vendor = vendors.includes("claude") ? "claude" : vendors[0]!;
-  return makeLlmTranscriber(makeClient({ vendor: v, reason: "ratchet transcriber", metered: false }));
-}
-
-/** Cross-vendor semantic judge from local subs, or undefined → semantic gates abstain. */
-export async function resolveJudge(): Promise<SemanticJudge | undefined> {
-  const executor = (process.env.VS_EXECUTOR as Vendor | "unknown") || "unknown";
-  try {
-    const sel = selectJudgeVendor(executor, { available: await detectVendors() });
-    if (sel.metered) return undefined;
-    return makeSemanticJudge(makeClient(sel));
-  } catch {
-    return undefined;
-  }
-}
+// The knight (authored gates up front), the transcriber (turned a complaint into a gate),
+// and the semantic judge (ruled on a gate's claim over captured evidence) are GONE. All
+// three were special cases of what the auditor already does — author a check, or rule on a
+// claim against evidence — each with its own vendor resolution, its own LLM client, and its
+// own spawn path. One role, two verbs; see src/auditor.ts and law.ts's appendDemand.
 
 // ---------------------------------------------------------------------------
 // Auditor resolution (SPEC.md §2 "Auditor resolution" — five rules + override).
@@ -173,6 +144,12 @@ async function probeClaude(): Promise<Probe> {
 
 /** Read-only tool allowlist for the agentic claude invocation (SPEC §2: "claude via `claude -p` with read-only tool restrictions"). */
 const CLAUDE_READONLY_TOOLS = "Read,Bash(git log:*),Bash(git status:*),Bash(git diff:*),Bash(git show:*),Bash(cat:*)";
+
+/** An agentic auditor is itself a hooked coding agent running in the audited repo, so its
+ *  own turn-end would enqueue an audit — which spawns another auditor, forever. This stamp
+ *  tells veritaserum's hooks (cli.ts's isAuditorChild) that this process is the auditor.
+ *  execa extends process.env at spawn time, so this must NOT snapshot it here. */
+const AUDITOR_CHILD_ENV = { VS_AUDIT_CHILD: "1" };
 const DEFAULT_METERED_MODEL = "glm-4.2";
 const DEFAULT_OLLAMA_MODEL = "qwen2.5:3b";
 
@@ -188,9 +165,15 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
           // Agentic: the auditor gathers its own evidence (git log/status/diff, law
           // from HEAD) inside a read-only sandbox — no "don't use tools" instruction,
           // unlike the v1 CodexCliClient judge (that reasons over given evidence only).
-          const r = await execa("codex", ["exec", "-s", "read-only", ...(model ? ["-m", model] : []), prompt], {
+          //
+          // The prompt goes over STDIN (`codex exec -`), never argv: Linux caps a single
+          // argument at MAX_ARG_STRLEN (128 KiB), and a real session's receipts tail blows
+          // past that, so an argv prompt made execve fail with E2BIG on exactly the long
+          // sessions worth auditing — surfacing as a bogus "timeout" with no stderr.
+          const r = await execa("codex", ["exec", "-s", "read-only", ...(model ? ["-m", model] : []), "-"], {
             cwd: dir,
-            stdin: "ignore",
+            input: prompt,
+            env: AUDITOR_CHILD_ENV,
             reject: false,
             timeout: timeoutMs ?? 180_000,
           });
@@ -207,8 +190,12 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
         model,
         sameFamily,
         async invoke(prompt, dir, timeoutMs) {
-          const r = await execa("claude", ["-p", prompt, "--allowedTools", CLAUDE_READONLY_TOOLS, ...(model ? ["--model", model] : [])], {
+          // Prompt over STDIN, not argv — same MAX_ARG_STRLEN (128 KiB) ceiling as the
+          // codex path above; a long session's prompt exceeds it and execve fails E2BIG.
+          const r = await execa("claude", ["-p", "--allowedTools", CLAUDE_READONLY_TOOLS, ...(model ? ["--model", model] : [])], {
             cwd: dir,
+            input: prompt,
+            env: AUDITOR_CHILD_ENV,
             reject: false,
             timeout: timeoutMs ?? 180_000,
           });

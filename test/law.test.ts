@@ -4,8 +4,15 @@ import { join } from "node:path";
 import { execa } from "execa";
 import { tempRepo } from "./helpers.js";
 import { appendDemand, loadLaw, readLawTreeSync, retireLaw, runnableChecks, LAW_FILENAME } from "../src/law.js";
-import { saveContract } from "../src/contract.js";
-import { ContractFileSchema, type ContractFile } from "../src/schema.js";
+import { ContractFileSchema, CONTRACT_FILENAME, type ContractFile } from "../src/schema.js";
+import { writeFile } from "node:fs/promises";
+import { stringify as toYaml } from "yaml";
+
+/** Write contract.yaml (the optional statute file loadLaw unions in). Was
+ *  contract.ts's saveContract, which died with the knight/judge/transcriber. */
+async function saveContract(dir: string, c: ContractFile): Promise<void> {
+  await writeFile(join(dir, CONTRACT_FILENAME), toYaml(c), "utf8");
+}
 
 let cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
