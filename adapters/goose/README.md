@@ -38,11 +38,13 @@ Restart goose (plugin discovery runs at startup) and it's live — no `config.ya
 edit, no enable step beyond the plugin existing on disk and not being disabled in
 `plugins.enabledPlugins`/`disabledPlugins` settings.
 
-`scripts/vs-stop.sh` resolves a global `veritaserum-hook` first, then the private runtime
-copied into the plugin by `veritaserum install goose`. The private copy is deliberate:
-an npm-exec cache and its bin shim may disappear as soon as installation ends, while a
-Goose plugin is durable. A checkout-linked plugin can still fall back to the checkout's
-compiled `dist/hook-cli.cjs`.
+`scripts/vs-stop.sh` resolves a global `veritaserum-hook` first, then a global
+`veritaserum` (`hook-stop`), then the private runtime copied into the plugin by
+`veritaserum install goose`. The private copy is deliberate: an npm-exec cache and its
+bin shim may disappear as soon as installation ends, while a Goose plugin is durable.
+A checkout-linked plugin can still fall back to the checkout's compiled
+`dist/hook-cli.cjs`; with no resolvable runtime at all the script exits 0 — fail open
+(R8), never breaking goose's turn-end.
 
 `VS_EXECUTOR` defaults to `ollama` in `vs-stop.sh` (SPEC §3: goose + local ollama is
 the first testbed target) — override it per setup, e.g. `VS_EXECUTOR=ollama:qwen2.5:3b`,

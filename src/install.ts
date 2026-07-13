@@ -422,10 +422,6 @@ function installResolvedAdapter(target: "codex", hookCmd: string): InstallResult
   };
 }
 
-// --- MCP registration for the non-claude targets. Same direct-write principle
-//     as registerMcpClaudeCode: never depend on the vendor binary being
-//     invocable from the installer's subprocess. ----------------------------
-
 /** Replace-or-append one `[header]` table in TOML text. Line-based (the span
  *  runs from the header line to the line before the next `[` header) so every
  *  byte outside the veritaserum table survives verbatim — a TOML round-trip

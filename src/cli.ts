@@ -531,7 +531,7 @@ async function main(argv: string[]): Promise<number> {
       // v3 feedback channel (SPEC §2 "Feedback channels", R7): the ONLY
       // injection door — stdout at UserPromptSubmit becomes the harness's
       // additionalContext. Never a prompt-time challenge (SPEC §4: the
-      // Knight's challenge only fires inside a live contract negotiation).
+      // prompt-time challenge is deleted, and the Knight behind it is gone).
       // Terse, sharp, non-stale (<24h), printed once then cleared. Never
       // blocks (R8): any internal error just means no line this turn.
       try {

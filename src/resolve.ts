@@ -1,6 +1,6 @@
 /**
- * Shared resolution of the Knight (authoring) and the cross-vendor Judge (verify),
- * from local subscriptions. Used by both the CLI (hook path) and the MCP server.
+ * Auditor resolution: pick the cross-family auditor from local subscriptions
+ * (SPEC §2 "Auditor resolution"). Used by the CLI (hook path and `doctor`).
  * Never auto-runs the metered OpenRouter path.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";

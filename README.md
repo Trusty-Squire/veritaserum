@@ -98,7 +98,7 @@ it stalls or blocks your agent. veritaserum never halts your work over its own h
 veritaserum install <claude-code|goose|codex> [--global]   wire the auditor into a harness
 veritaserum telemetry                      what got caught — verdicts, by harness
 veritaserum demands                        run the failing checks the auditor authored
-veritaserum retire <law-id> "<reason>"     retire a standing law entry (recorded, never deleted)
+veritaserum retire <law-id|slug> "<reason>"   retire a law entry or demand (recorded, never deleted)
 veritaserum doctor                         which auditor rule fired, and why
 ```
 
@@ -119,7 +119,8 @@ pnpm install && pnpm build && npm link   # puts `veritaserum` on PATH
 
 ## Dev
 ```
-pnpm test        # hermetic vitest — no network
+pnpm test           # hermetic vitest — no network
+pnpm test:package   # packed npm-tarball install seams — needs npm + registry access
 pnpm typecheck
 ```
 

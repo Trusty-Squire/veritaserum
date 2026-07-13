@@ -47,10 +47,11 @@ plugin manifest fails fast instead of shipping a mismatched plugin.
 npx veritaserum install <claude-code|goose|codex>
 ```
 
-Wires the `Stop` (and, for Claude Code, `UserPromptSubmit`) hook into the target
-harness's own config. This is the direct-install path: it edits `~/.claude/settings.json` (or
-`.claude/settings.json` with `--project`), goose's plugin directory, or a resolved codex
-config snippet. See each `adapters/<harness>/README.md` for what gets touched.
+Wires the `Stop` (and, for Claude Code and Codex, `UserPromptSubmit`) hook into the target
+harness's own config. This is the direct-install path: it edits `.claude/settings.json` (or
+`~/.claude/settings.json` with `--global`), goose's plugin directory, or `~/.codex/hooks.json`.
+`src/install.ts` is authoritative for what gets touched; goose's plugin layout is documented
+in [adapters/goose/README.md](../adapters/goose/README.md).
 
 ### Claude Code plugin (`/plugin install`)
 
