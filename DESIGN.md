@@ -1,5 +1,20 @@
 # ser — a portable ground-truth layer for coding agents
 
+> ## ⚠️ SUPERSEDED IN PART — this is DESIGN HISTORY, not current behavior
+>
+> **[SPEC.md](./SPEC.md) is the source of truth.** This document records how veritaserum was
+> designed, including the four-role world (Knight / Judge / Transcriber / auditor) and the
+> contract-negotiation machinery. **Those three roles and the MCP server no longer exist** —
+> they were special cases of the auditor, which already rules on a claim *and* authors the
+> check when the evidence is missing (SPEC §4.1). Sections describing `contract_propose` /
+> `contract_seal`, the semantic judge, the ratchet transcriber, the `verify` command, the
+> MCP tool surface, or the plan→build seal ceremony describe a system that has been deleted.
+>
+> Kept from this design: the cross-family auditor, the standing-law file, the gate schema
+> (`contract.yaml` survives as a human-edited *data* file the law loader unions in), and the
+> fail-open rules. Read it for the reasoning; do not read it for the current API.
+
+
 > ser is the Castellan verification binary. This repo is the clean rebuild of ser
 > as a portable layer that clips onto any coding agent (goose / Claude Code / Codex /
 > Cursor / opencode) instead of being its own harness. The proj-cs ser is the source

@@ -1,5 +1,5 @@
 {
-  "_comment": "veritaserum goose adapter (Open Plugins hooks spec). goose auto-discovers <plugin-root>/hooks/hooks.json for any enabled plugin — no config.yaml editing. v3 (SPEC.md §2/§3): only Stop is wired. There is deliberately no UserPromptSubmit hook — v3 has no prompt-time challenge (the Knight's challenge only fires inside a live contract negotiation).",
+  "_comment": "veritaserum goose adapter (Open Plugins hooks spec). goose auto-discovers <plugin-root>/hooks/hooks.json for any enabled plugin — no config.yaml editing. v3 (SPEC.md §2/§3): only Stop is wired. There is deliberately no UserPromptSubmit hook — v3 has no prompt-time challenge, and goose has no injection channel at prompt time.",
   "hooks": {
     "Stop": [
       {

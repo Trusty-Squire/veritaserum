@@ -19,31 +19,40 @@ afterEach(async () => {
   delete process.env.VS_ADVISORY;
 });
 
-describe("advisory harness installs", () => {
-  it("persists advisory mode in the Claude Code hook command", async () => {
+describe("harness installs", () => {
+  it("wires an idempotent Stop hook into Claude Code — and no VS_ADVISORY", async () => {
     const home = await withHome();
-    process.env.VS_ADVISORY = "1";
     const cwd = process.cwd();
     process.chdir(home);
     try {
       await installTarget("claude-code", {});
       await installTarget("claude-code", {});
       const settings = JSON.parse(await readFile(join(home, ".claude", "settings.json"), "utf8"));
-      expect(settings.hooks.Stop[0].hooks[0].command).toContain("VS_ADVISORY=1");
-      expect(settings.hooks.Stop).toHaveLength(1);
+      expect(settings.hooks.Stop[0].hooks[0].command).toContain("hook-stop");
+      expect(settings.hooks.Stop).toHaveLength(1); // installing twice adds one hook, not two
+      // VS_ADVISORY gated nothing (R5: the audit path never blocks), and the install
+      // ceremony's "unset it to enable blocking" was false. It is not written any more.
+      expect(settings.hooks.Stop[0].hooks[0].command).not.toContain("VS_ADVISORY");
     } finally {
       process.chdir(cwd);
     }
   });
 
-  it("merges an advisory Stop hook into Codex's live hooks.json", async () => {
+  it("merges a Stop hook into Codex's live hooks.json", async () => {
     const home = await withHome();
-    process.env.VS_ADVISORY = "1";
     const res = await installTarget("codex", {});
     const settings = JSON.parse(await readFile(join(home, ".codex", "hooks.json"), "utf8"));
-    expect(settings.hooks.Stop[0].hooks[0].command).toContain("VS_ADVISORY=1");
     expect(settings.hooks.Stop[0].hooks[0].command).toContain("hook-stop");
+    expect(settings.hooks.Stop[0].hooks[0].command).not.toContain("VS_ADVISORY");
     expect(res.primaryFile).toBe(join(home, ".codex", "hooks.json"));
+  });
+
+  it("registers exactly ONE hook on codex (Stop) — it does not touch SessionStart", async () => {
+    const home = await withHome();
+    await installTarget("codex", {});
+    const settings = JSON.parse(await readFile(join(home, ".codex", "hooks.json"), "utf8"));
+    expect(Object.keys(settings.hooks)).toEqual(["Stop"]);
+    expect(settings.hooks.Stop[0].hooks).toHaveLength(1);
   });
 });
 
