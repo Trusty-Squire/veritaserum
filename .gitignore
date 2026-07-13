@@ -10,3 +10,4 @@ eval/**/results*.jsonl
 *.local.toml
 *.vs-bak
 .veritaserum/
+.veritaserum-evidence/   # ephemeral probe receipts an oracle checks (capture-time bound)

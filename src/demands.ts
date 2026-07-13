@@ -74,6 +74,18 @@ export function demandSlug(d: AuthoredDemand): string {
 
 /** Header lines are the demand's whole provenance record (register deferred).
  *  Parsed back by parseHeader() — keep the field markers stable. */
+/**
+ * Node only tolerates a shebang on LINE 1. We prepend a provenance header, so an
+ * authored script that opens with `#!/usr/bin/env node` — the natural thing to write when
+ * you are asked for "a standalone node script" — lands its shebang mid-file and dies with
+ * `SyntaxError: Invalid or unexpected token`. The demand then reports UNMET forever, no
+ * matter what the executor does: an oracle that cannot pass discriminates nothing, and the
+ * whole "a demand IS a failing test" mechanism silently rots. Strip it.
+ */
+function stripShebang(src: string): string {
+  return src.replace(/^\s*#![^\n]*\n?/, "");
+}
+
 function header(d: AuthoredDemand, now: Date): string {
   const line = (k: string, v: string) => `// ${k}: ${v.replace(/\n/g, " ")}`;
   return [
@@ -117,7 +129,7 @@ export async function materializeDemand(dir: string, d: AuthoredDemand): Promise
   if (existsSync(path) || existsSync(join(retiredDir(dir), `${slug}.js`))) return { action: "duplicate", path };
 
   mkdirSync(demandsDir(dir), { recursive: true });
-  writeFileSync(path, header(d, new Date()) + d.test_file, "utf8");
+  writeFileSync(path, header(d, new Date()) + stripShebang(d.test_file), "utf8");
 
   const probe = await runScript(dir, path);
   if (probe.passed) {
