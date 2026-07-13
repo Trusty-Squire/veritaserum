@@ -85,7 +85,7 @@ function buildCorrection(v: AuditVerdict): string | null {
   }
   if (v.demands.length) {
     parts.push("To pass, you must:");
-    for (const d of v.demands) parts.push(`  - ${d.description}${d.run ? ` (verification: \`${d.run}\`)` : ""}`);
+    for (const d of v.demands) parts.push(`  - ${d.remedy || d.gap}${d.accept ? ` (accepted when: ${d.accept})` : ""}`);
   }
   // Empty turn: no claim, no rejected work, no demand — the model planned or talked
   // without doing anything. That is NOT convergence (an unfixed repo dressed as a
@@ -310,7 +310,7 @@ async function main(): Promise<void> {
           label: r.label,
           groundTruth: r.groundTruth,
           claims: r.verdict.claims.map((c) => c.verdict),
-          demands: r.verdict.demands.map((d) => d.description),
+          demands: r.verdict.demands.map((d) => d.gap),
           unaccountable: r.verdict.unaccountable,
         })),
       },
