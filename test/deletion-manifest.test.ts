@@ -52,10 +52,33 @@ describe("v1 deletion manifest — import attempts fail", () => {
   });
 });
 
-describe("v1 deletion manifest — refactored-in survivors stay, on the new path", () => {
-  it("judge-verdict.ts (semantic gate judge, used by verify.ts) still exports makeSemanticJudge", async () => {
-    const mod = (await import("../src/judge-verdict.js")) as Record<string, unknown>;
-    expect(typeof mod.makeSemanticJudge).toBe("function");
+describe("v3 deletion manifest — the contract system is gone (one role, not four)", () => {
+  const GONE = [
+    "contract",
+    "propose",
+    "seed",
+    "verify",
+    "ratchet",
+    "judge",
+    "judge-verdict",
+    "knight-llm",
+    "transcriber-llm",
+    "pristine",
+    "symptom",
+    "mcp",
+  ];
+
+  it.each(GONE)("src/%s.ts is gone — knight/judge/transcriber were special cases of the auditor", (name) => {
+    expect(existsSync(src(`${name}.ts`))).toBe(false);
+  });
+
+  it.each(GONE)("importing src/%s.js throws (module absent)", async (name) => {
+    await expect(import(deletedModuleSpecifier(name))).rejects.toThrow();
+  });
+
+  it("the auditor still authors law by itself — appendDemand survives the knight", async () => {
+    const mod = (await import("../src/law.js")) as Record<string, unknown>;
+    expect(typeof mod.appendDemand).toBe("function");
   });
 
   it("gate-run.ts (mechanical check exec, used by auditor.ts) still exports runGate", async () => {
@@ -63,8 +86,11 @@ describe("v1 deletion manifest — refactored-in survivors stay, on the new path
     expect(typeof mod.runGate).toBe("function");
   });
 
-  it("resolve.ts's CorrectionClassifier consumer chase confirms ratchet.ts never imported claim.ts directly", async () => {
-    const mod = (await import("../src/ratchet.js")) as Record<string, unknown>;
-    expect(typeof mod.ratchetComplaint).toBe("function"); // ratchet takes a raw complaint string — no claim.ts classifier gate
+  it("vendor resolution keeps exactly one role: the auditor", async () => {
+    const mod = (await import("../src/resolve.js")) as Record<string, unknown>;
+    expect(typeof mod.resolveAuditor).toBe("function");
+    expect(mod.resolveKnight).toBeUndefined();
+    expect(mod.resolveJudge).toBeUndefined();
+    expect(mod.resolveTranscriber).toBeUndefined();
   });
 });

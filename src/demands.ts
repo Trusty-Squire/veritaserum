@@ -20,7 +20,7 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rename
 import { join } from "node:path";
 import { execa } from "execa";
 import { queueRoot } from "./audit-runner.js";
-import type { Rung } from "./propose.js";
+import type { Rung } from "./schema.js";
 
 /** Per-repo demand store, sibling of the queue's state/warnings/feedback dirs. */
 export function demandsDir(dir: string): string {

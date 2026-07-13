@@ -16,7 +16,7 @@
 import { execa } from "execa";
 import { runGate } from "./gate-run.js";
 import { logFiring } from "./telemetry.js";
-import { RUNGS, type Rung } from "./propose.js";
+import { RUNGS, type Rung } from "./schema.js";
 import type { Auditor, AuditorTier } from "./resolve.js";
 import { loadLaw, runnableChecks } from "./law.js";
 import { materializeDemand, runDemands } from "./demands.js";

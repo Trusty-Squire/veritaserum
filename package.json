@@ -2,7 +2,7 @@
   "name": "veritaserum",
   "version": "0.2.1",
   "type": "module",
-  "description": "A portable ground-truth layer for coding agents — the truth serum for confabulating agents",
+  "description": "A portable ground-truth layer for coding agents \u2014 the truth serum for confabulating agents",
   "license": "MIT",
   "author": "Trusty Squire",
   "homepage": "https://github.com/Trusty-Squire/veritaserum#readme",
@@ -33,8 +33,7 @@
     "access": "public"
   },
   "bin": {
-    "veritaserum": "./dist/cli.js",
-    "veritaserum-mcp": "./dist/mcp.js"
+    "veritaserum": "./dist/cli.js"
   },
   "files": [
     "dist",
@@ -46,7 +45,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js dist/mcp.js",
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "check:plugin": "tsx scripts/check-plugin.ts",
