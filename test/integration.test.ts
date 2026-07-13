@@ -83,7 +83,16 @@ describe("integration — sync enqueue → real runAudit → case law + telemetr
 
     const CANNED_REPLY = JSON.stringify({
       claims: [{ claim: "wrote an MCCFR solver, it's working well", verdict: "unsupported", basis: "no Kuhn-anchor test found", evidence: "" }],
-      demands: [{ description: "add a Kuhn-poker anchor test for the MCCFR solver", rung: "oracle", origin_claim: "wrote an MCCFR solver, it's working well" }],
+      demands: [
+        {
+          origin_claim: "wrote an MCCFR solver, it's working well",
+          gap: "no Kuhn-poker anchor test exists for the MCCFR solver",
+          remedy: "add a Kuhn-poker anchor test for the MCCFR solver",
+          accept: "computed strategy within 1e-3 of the known Kuhn equilibrium values",
+          test_file: "process.exit(1);\n",
+          rung: "oracle",
+        },
+      ],
       unaccountable: false,
       note: "",
     });
@@ -120,12 +129,13 @@ describe("integration — sync enqueue → real runAudit → case law + telemetr
       expect(last.verdict).toBe("unsupported");
       expect((last.law_ids ?? []).length).toBeGreaterThanOrEqual(1); // the seed mechanical check ran
 
-      // 3. the auditor's demand landed in the law TREE copy (never auto-committed — R6).
-      const tree = readLawTreeSync(dir);
-      expect(tree).not.toBeNull();
-      const demandGate = tree!.gates.find((g) => g.lineage.provenance.includes("Kuhn-poker anchor test"));
-      expect(demandGate).toBeDefined();
-      expect(demandGate!.lineage.source).toBe("evaluator-demand");
+      // 3. the auditor's demand materialized as a failing test in the TREE
+      //    (never auto-committed — the commit is the consent checkpoint).
+      const demandPath = join(dir, "test/veritaserum", "no-kuhn-poker-anchor-test-exists-for-the-mccfr-solver.js");
+      expect(existsSync(demandPath)).toBe(true);
+      const demandContent = readFileSync(demandPath, "utf8");
+      expect(demandContent).toContain("wrote an MCCFR solver, it's working well");
+      expect(demandContent).toContain("within 1e-3");
 
       // 4. the green marker was updated — the seed "true" check passed mechanically.
       const markerPath = lawCheckMarkerPath(dir);

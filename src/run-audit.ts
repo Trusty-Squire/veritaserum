@@ -71,9 +71,12 @@ function buildFeedbackLine(verdict: AuditVerdict): string | null {
   } else {
     head = verdict.warnings[0] ?? "new standing check appended";
   }
+  // The demand line is the instruction, not a nudge (docs/DEMANDS.md §2.2):
+  // remedy + accept verbatim, so the executor knows what to produce and what
+  // will be accepted.
   const demand = verdict.demands[0];
-  const tail = demand ? `; demanded: ${demand.description}` : "";
-  return `veritaserum: ${head}${tail}`.slice(0, 300);
+  const tail = demand ? `; DEMAND: ${demand.remedy || demand.gap} — accept: ${demand.accept}` : "";
+  return `veritaserum: ${head}${tail}`.slice(0, 500);
 }
 
 /** Step 3: a GREEN mechanical recheck of every runnable standing-law entry
