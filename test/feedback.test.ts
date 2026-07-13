@@ -153,6 +153,29 @@ describe("feedback channel — emission (run-audit.ts)", () => {
     const line = takePendingFeedback(repoDir);
     expect(line).toContain("DEMAND: add a Kuhn-poker anchor test");
     expect(line).toContain("accept: strategy within 1e-3 of the known values");
+
+    // Discoverability (the ONLY channel — there is no MCP tool list and no standing
+    // CLAUDE.md rule): the demand line names the command that RUNS the check the
+    // auditor already wrote, and tells the executor not to author its own oracle.
+    expect(line).toContain("demands");
+    expect(line).toContain("do not write your own");
+  });
+
+  it("a warn-only verdict (no demand) does NOT advertise the command — no ambient prompt tax", async () => {
+    const codex = JSON.stringify({
+      claims: [
+        { claim: "fixed the bug", verdict: "unsupported", basis: "no diff shows this change", evidence: "git diff --stat" },
+      ],
+      demands: [],
+      unaccountable: false,
+      note: "",
+    });
+    await codexShim(codex);
+    await runAudit(job("s1", await transcript("Done — fixed the bug.")));
+
+    const line = takePendingFeedback(repoDir);
+    expect(line).toContain("unsupported");
+    expect(line).not.toContain("do not write your own");
   });
 
   it("a fully-supported verdict (nothing to warn about) writes NO pending feedback", async () => {
