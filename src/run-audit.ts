@@ -36,13 +36,14 @@ import {
   type RunAudit,
 } from "./audit-runner.js";
 import { currentTreeHash } from "./git.js";
+import { writeHookLawState } from "./hook-state.js";
 
 /** Step 1: the turn's final message, the user's request, and a receipt tail —
  *  from goose's sessions.db (session id) or a Claude Code transcript (path). */
 function loadTurnMaterial(job: AuditJob): { finalMessage: string; userRequest: string; receipts?: string } {
   if (job.transcriptPath) {
-    const finalMessage = readLastAssistantMessage(job.transcriptPath);
-    const userRequest = readLastUserMessage(job.transcriptPath);
+    const finalMessage = job.finalMessage ?? readLastAssistantMessage(job.transcriptPath);
+    const userRequest = job.userRequest ?? readLastUserMessage(job.transcriptPath);
     const receipts = readReceiptsTail(job.transcriptPath);
     return { finalMessage, userRequest, ...(receipts ? { receipts } : {}) };
   }
@@ -109,8 +110,8 @@ async function markGreenIfAllPassed(job: AuditJob, verdict: Awaited<ReturnType<t
 export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
   const { finalMessage, userRequest, receipts } = loadTurnMaterial(job);
 
-  const executor = process.env.VS_EXECUTOR || "unknown";
-  const auditor = await resolveAuditor(executor);
+  const executor = job.executor || "unknown";
+  const auditor = await resolveAuditor(executor, job.auditor);
 
   // R5 (SPEC §6.5): load this session's already-surfaced warnings so the audit
   // never repeats a verbatim duplicate; append whatever's new once it's done.
@@ -119,12 +120,19 @@ export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
   const contentJob: AuditContentJob = {
     dir: job.dir,
     sessionId: job.sessionId,
+    turnRef: job.turnRef,
     finalMessage,
     userRequest,
     ...(receipts ? { receipts } : {}),
     ...(priorWarnings.length ? { priorWarnings } : {}),
+    harness: job.harness || "unknown",
+    schedulingMode: job.mode,
+    demandMode: job.demandMode || "script",
   };
   const verdict = await audit(contentJob, auditor);
+  writeHookLawState(job.dir, {
+    runnableCount: verdict.mechanicalChecks.filter((check) => !check.gateId.startsWith("demand:")).length,
+  });
   appendSessionWarnings(job.dir, job.sessionId, verdict.warnings);
 
   // Feedback channel (SPEC §2, R7): a fresh warn/demand/unaccountable verdict

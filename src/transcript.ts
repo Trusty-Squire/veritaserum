@@ -21,6 +21,19 @@ function textFromContent(content: unknown): string {
   return "";
 }
 
+function textFromCodexContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) =>
+      part && typeof part === "object" && "text" in part && typeof (part as { text: unknown }).text === "string"
+        ? (part as { text: string }).text
+        : "",
+    )
+    .join("")
+    .trim();
+}
+
 /** Last assistant text in a JSONL transcript, or "" if none/unreadable. */
 export function readLastAssistantMessage(path: string): string {
   try {
@@ -35,6 +48,10 @@ export function readLastAssistantMessage(path: string): string {
       }
       if (!obj || typeof obj !== "object") continue;
       const o = obj as Record<string, unknown>;
+      const payload = o.payload as Record<string, unknown> | undefined;
+      if (o.type === "event_msg" && payload?.type === "agent_message" && typeof payload.message === "string") {
+        return payload.message;
+      }
       // Common shapes: {type:"assistant", message:{role, content}} | {role, content}
       const role = o.role ?? (o.message as Record<string, unknown> | undefined)?.role ?? o.type;
       if (role !== "assistant") continue;
@@ -63,6 +80,10 @@ export function readLastUserMessage(path: string): string {
       }
       if (!obj || typeof obj !== "object") continue;
       const o = obj as Record<string, unknown>;
+      const payload = o.payload as Record<string, unknown> | undefined;
+      if (o.type === "event_msg" && payload?.type === "user_message" && typeof payload.message === "string") {
+        return payload.message;
+      }
       const role = o.role ?? (o.message as Record<string, unknown> | undefined)?.role ?? o.type;
       if (role !== "user") continue;
       const content = (o.message as Record<string, unknown> | undefined)?.content ?? o.content;
@@ -127,6 +148,16 @@ export function readReceiptsTail(path: string, capBytes: number = RECEIPTS_TAIL_
       }
       if (!obj || typeof obj !== "object") continue;
       const o = obj as Record<string, unknown>;
+      const payload = o.payload as Record<string, unknown> | undefined;
+      if (o.type === "response_item" && payload?.type === "custom_tool_call") {
+        out.push(`> ${String(payload.name || "?")} ${clipResult(String(payload.input || ""))}`);
+        continue;
+      }
+      if (o.type === "response_item" && payload?.type === "custom_tool_call_output") {
+        const text = textFromCodexContent(payload.output);
+        if (text) out.push(`< ${clipResult(text)}`);
+        continue;
+      }
       const content = (o.message as Record<string, unknown> | undefined)?.content ?? o.content;
       if (!Array.isArray(content)) continue;
       for (const part of content as TranscriptPart[]) {

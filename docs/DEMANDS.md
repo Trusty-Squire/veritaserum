@@ -1,22 +1,22 @@
 # Demand redesign — tests enforce (from HEAD), a git-tracked register remembers
 
-Status: PHASE 1 IMPLEMENTED (2026-07-12, amended same day) — demand
-authoring (gap/remedy/accept/test_file), failing-test materialization with
-authoring-time must-fail probe, remedy+accept feedback line (src/demands.ts).
+Status: IMPLEMENTED (2026-07-13) — demand authoring
+(gap/remedy/accept/test_file), failing-test materialization with an
+authoring-time must-fail probe, a portable law-file record, and a
+remedy+accept feedback line (`src/demands.ts`, `src/auditor.ts`).
 
 AMENDMENT (owner, 2026-07-12): demand scripts live in **veritaserum's own
 state dir** (`<state>/<repoKey>/demands/`), NEVER in the user's repo.
 Rationale: an in-repo `test/veritaserum/` directory is visible vendor
 residue (adoption killer), and placing the oracle inside the defendant's
 tree is what FORCED the HEAD-run/pristine/consent-by-commit machinery — all
-deleted as unnecessary once the oracle left the repo. veritaserum is
-invisible: `git status` stays clean, nothing the executor does to the tree
-touches the oracle. Human window: `veritaserum demands` (list + status);
+deleted as unnecessary once the oracle left the repo. No demand test file
+lands in the user's tree; `veritaserum.law.yaml` is the sole allowed repo
+write and stores provenance plus a state-oracle locator, not the hidden test
+bytes. Human window: `veritaserum demands` (list + status);
 veto: `veritaserum retire <slug> "<reason>"` (moved to retired/, recorded,
-never resurrected). Register, first-green review, distrust, CI job: still
-DEFERRED until the testbed earns them. Sections below are the full reviewed
-map and retain the superseded in-repo container for the record.
-Supersedes the law-file demand mechanism (SPEC.md §2 step 6, "Case law").
+never resurrected). First-green review, distrust, and a dedicated CI job
+remain deferred. Sections below retain superseded design history where noted.
 Evidence base: the blockchain confabulation experiment (2026-07-11, gbrain:
 `blockchain-experiment-architectural-confab-boundary`) and its run-3
 vacuity artifact.
@@ -51,7 +51,11 @@ being git-tracked: HEAD-read tamper evidence, deletion-proof records.
 
 ## 2. The redesign
 
-### 2.0 Container
+### 2.0 Historical container (superseded)
+
+Current behavior is the state-owned script plus portable law record described
+in the amendment above. The bullets in this subsection preserve the earlier
+in-repo proposal for decision history; they are not runtime behavior.
 
 - **A demand IS a failing test file**, authored by the unified module
   (§2.4) into `test/veritaserum/` (framework-idiomatic when the host has a
@@ -131,7 +135,7 @@ Next-turn feedback carries `remedy` + `accept` verbatim for the
 highest-severity unmet demand (severity = rung, then age; age = register
 line's first-commit timestamp):
 
-> DEMAND (unmet, test/veritaserum/kuhn-anchor.test.js failing): make the
+> DEMAND (unmet, `veritaserum demands` failing): make the
 > MCCFR solver pass the Kuhn anchor — computed equilibrium strategy within
 > 1e-3 of the known values. Your existing benchmark does not count: its
 > timed path omits signatures, consensus, and contract execution.

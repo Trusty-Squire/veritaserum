@@ -191,9 +191,9 @@ describe("audit — demand -> failing test materialization (docs/DEMANDS.md phas
     test_file: "process.exit(1);\n",
     rung: "analytic",
   };
-  const kuhnPath = (dir: string) => join(demandsDir(dir), "no-oracle-demonstrates-convergence-to-the-known-kuhn-poker-e.js");
+  const kuhnPath = (dir: string) => join(demandsDir(dir), "no-oracle-demonstrates-convergence-to-the-known-kuhn-poker-e.cjs");
 
-  it("materializes a demand as a failing script in the STATE dir with provenance header — nothing in the repo, no law entry", async () => {
+  it("materializes the oracle in state and records a portable runnable copy in case law", async () => {
     const dir = await repo();
     const reply = JSON.stringify({
       claims: [{ claim: "wrote an MCCFR solver, working well", verdict: "unsupported", basis: "no oracle exists", evidence: "" }],
@@ -209,10 +209,15 @@ describe("audit — demand -> failing test materialization (docs/DEMANDS.md phas
     expect(content).toContain("wrote an MCCFR solver, working well");
     expect(content).toContain("within 1e-3");
     expect(content).toContain("process.exit(1);");
-    expect(readLawTreeSync(dir)).toBeNull(); // demands no longer write case law
-    // Invisible by design: veritaserum leaves NOTHING in the user's repo.
+    const law = readLawTreeSync(dir);
+    expect(law?.gates).toHaveLength(1);
+    expect(law?.gates[0]?.lineage.provenance).toBe(KUHN_DEMAND.origin_claim);
+    expect(law?.gates[0]?.lineage.params.demandSlug).toBe("no-oracle-demonstrates-convergence-to-the-known-kuhn-poker-e");
+    expect(law?.gates[0]?.run).toContain(".veritaserum");
+    expect(law?.gates[0]?.run).not.toContain("failing test IS the demand");
+    // The law register is the only allowed write in the user's repository.
     const status = await execa("git", ["status", "--porcelain"], { cwd: dir });
-    expect(status.stdout.trim()).toBe("");
+    expect(status.stdout.trim()).toBe("?? veritaserum.law.yaml");
   });
 
   it("a duplicate demand (same slug already on disk) is not overwritten and is omitted from verdict.demands", async () => {
@@ -249,7 +254,7 @@ describe("audit — demand -> failing test materialization (docs/DEMANDS.md phas
     });
     const v = await audit(job(dir), fakeAuditor("agentic", reply));
     expect(v.demands).toHaveLength(0);
-    expect(existsSync(join(demandsDir(dir), "a-passing-oracle.js"))).toBe(false);
+    expect(existsSync(join(demandsDir(dir), "a-passing-oracle.cjs"))).toBe(false);
   });
 
   it("standing demands run every audit and nothing in the repo can dodge them; retire is the only exit", async () => {

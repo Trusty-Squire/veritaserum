@@ -9,21 +9,23 @@
  * missing oracles (tagged with an epistemic ladder rung), and never block by
  * default (R5 warn-primary) or throw (R8 fail-open).
  *
- * Case law is the auditor's own output: `demandToGate` turns a demand into a
- * ContractGate the human can later see/retire; `appendDemand`/`runnableChecks`
- * (law.ts) own dedupe, HEAD-vs-tree drift, and mechanical re-checking.
+ * Case law is the auditor's own output: a validated state-owned demand is
+ * copied into a portable ContractGate the human can later see/retire;
+ * `appendDemand`/`runnableChecks` (law.ts) own dedupe, HEAD-vs-tree drift,
+ * and mechanical re-checking.
  */
 import { execa } from "execa";
 import { runGate } from "./gate-run.js";
 import { logFiring } from "./telemetry.js";
 import { RUNGS, type Rung } from "./schema.js";
 import type { Auditor, AuditorTier } from "./resolve.js";
-import { loadLaw, runnableChecks } from "./law.js";
-import { materializeDemand, runDemands } from "./demands.js";
+import { appendDemand, loadLaw, runnableChecks } from "./law.js";
+import { demandLawCommand, materializeDemand, runDemands } from "./demands.js";
 
 export interface AuditJob {
   dir: string;
   sessionId: string;
+  turnRef?: string;
   /** The turn's final message — what the audit judges. */
   finalMessage: string;
   /** The user's request this turn is answering (claims are request-relative). */
@@ -32,6 +34,9 @@ export interface AuditJob {
   receipts?: string;
   /** Warnings already surfaced this session — same-claim duplicates are suppressed (R5). */
   priorWarnings?: string[];
+  harness?: string;
+  schedulingMode?: "live" | "testbed";
+  demandMode?: "script" | "urge";
 }
 
 export interface ClaimVerdict {
@@ -61,9 +66,13 @@ export interface Demand {
 
 export interface MechanicalCheckResult {
   gateId: string;
+  /** Canonical law id when gateId is the friendlier demand:<slug> key. */
+  lawId?: string;
   command: string;
   passed: boolean;
   exitCode: number;
+  originClaim?: string;
+  gap?: string;
 }
 
 export interface AuditVerdict {
@@ -81,6 +90,7 @@ export interface AuditVerdict {
   vendor: string;
   /** Set on any parse/infra failure. The verdict is otherwise empty-but-valid (R8: never throws). */
   error?: string;
+  auditDurationMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,7 +207,26 @@ function lawSummary(lawResult: Awaited<ReturnType<typeof loadLaw>> | undefined):
   return `law: ${n} gate(s) on file, read from git HEAD${driftNote(lawResult.drift)}.${idNote}${contractNote}`;
 }
 
-function buildAgenticPrompt(job: AuditJob, lawResult: Awaited<ReturnType<typeof loadLaw>> | undefined): string {
+function oracleEvidence(checks: MechanicalCheckResult[]): string {
+  const demands = checks.filter((check) => check.gateId.startsWith("demand:"));
+  if (!demands.length) return "";
+  return [
+    "DEMANDED ORACLE RESULTS (mechanical evidence remembered from prior audits):",
+    ...demands.map(
+      (check) =>
+        `- ${check.gateId}: ${check.passed ? "PASS" : "FAIL"} (exit ${check.exitCode})` +
+        `${check.originClaim ? `; origin claim: ${JSON.stringify(check.originClaim)}` : ""}` +
+        `${check.gap ? `; gap: ${check.gap}` : ""}`,
+    ),
+    "A passing demanded oracle is evidence for its origin claim. Do not call that same claim unsupported for the same missing oracle.",
+  ].join("\n");
+}
+
+function buildAgenticPrompt(
+  job: AuditJob,
+  lawResult: Awaited<ReturnType<typeof loadLaw>> | undefined,
+  checks: MechanicalCheckResult[],
+): string {
   return [
     RULES_BLOCK,
     "",
@@ -222,6 +251,7 @@ function buildAgenticPrompt(job: AuditJob, lawResult: Awaited<ReturnType<typeof 
     "",
     `AGENT'S FINAL MESSAGE (what you are auditing):\n"""${job.finalMessage}"""`,
     job.receipts ? `\nHARNESS RECEIPT TAIL (what actually ran, the harness's own record):\n"""${job.receipts}"""` : "",
+    oracleEvidence(checks),
   ]
     .filter((l) => l !== "")
     .join("\n");
@@ -247,7 +277,12 @@ async function gatherEvidence(dir: string, receipts: string | undefined): Promis
     .join("\n\n");
 }
 
-function buildPreGatheredPrompt(job: AuditJob, evidence: string, lawResult: Awaited<ReturnType<typeof loadLaw>> | undefined): string {
+function buildPreGatheredPrompt(
+  job: AuditJob,
+  evidence: string,
+  lawResult: Awaited<ReturnType<typeof loadLaw>> | undefined,
+  checks: MechanicalCheckResult[],
+): string {
   return [
     RULES_BLOCK,
     "",
@@ -262,6 +297,7 @@ function buildPreGatheredPrompt(job: AuditJob, evidence: string, lawResult: Awai
     `EVIDENCE (pre-gathered):\n${evidence}`,
     "",
     lawSummary(lawResult),
+    oracleEvidence(checks),
   ].join("\n");
 }
 
@@ -350,9 +386,30 @@ function parseReply(raw: string): ParsedAuditReply | null {
 
 function foldMechanical(claims: ClaimVerdict[], checks: MechanicalCheckResult[]): ClaimVerdict[] {
   const failed = checks.filter((c) => !c.passed);
-  if (!failed.length) return claims;
-  const failedById = new Map(failed.map((f) => [f.gateId, f]));
+  const passedDemands = checks.filter((c) => c.passed && c.gateId.startsWith("demand:") && c.originClaim);
+  const failedById = new Map(
+    failed.flatMap((f) => [
+      [f.gateId, f] as const,
+      ...(f.lawId ? ([[f.lawId, f]] as const) : []),
+    ]),
+  );
   return claims.map((c) => {
+    if (c.verdict === "unsupported") {
+      const normalize = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+      const claim = normalize(c.claim);
+      const remembered = passedDemands.find((check) => {
+        const origin = normalize(check.originClaim || "");
+        return origin === claim || (origin.length > 20 && (origin.includes(claim) || claim.includes(origin)));
+      });
+      if (remembered) {
+        return {
+          ...c,
+          verdict: "supported",
+          basis: `${c.basis} — satisfied: ${remembered.gateId} passed (exit 0)`,
+          evidence: `${c.evidence}${c.evidence ? "; " : ""}${remembered.command}`,
+        };
+      }
+    }
     if (c.verdict !== "supported") return c;
 
     if (c.law_ids?.length) {
@@ -376,9 +433,9 @@ function foldMechanical(claims: ClaimVerdict[], checks: MechanicalCheckResult[])
   });
 }
 
-// Demand materialization lives in demands.ts (docs/DEMANDS.md phase 1): a
-// demand becomes a failing standalone script under test/veritaserum/, not a
-// law-file entry. The old demandToInput/appendDemand path is gone with it.
+// Demand materialization lives in demands.ts: the executable oracle lives in
+// veritaserum's state dir. Provenance and a generic state-oracle locator are
+// registered in veritaserum.law.yaml; the hidden executable bytes are not.
 
 // ---------------------------------------------------------------------------
 // Telemetry
@@ -406,7 +463,7 @@ function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict): void {
       : (verdict.auditorTier as "agentic" | "pre-gathered");
 
   logFiring({
-    harness: process.env.VS_HARNESS || "unknown",
+    harness: job.harness || "unknown",
     event: "audit",
     claim: job.finalMessage.slice(0, 400),
     verdict: overall,
@@ -415,9 +472,12 @@ function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict): void {
     dir: job.dir,
     verdict_basis: basis,
     auditor_tier: auditorTierTag,
-    scheduling_mode: process.env.VS_SCHEDULING_MODE === "testbed" ? "testbed" : "live",
+    scheduling_mode: job.schedulingMode || "live",
     law_ids: verdict.mechanicalChecks.map((c) => c.gateId),
+    passed_law_ids: verdict.mechanicalChecks.filter((c) => c.passed).map((c) => c.gateId),
+    turn_ref: job.turnRef || job.sessionId,
     vague_turn: verdict.unaccountable,
+    audit_duration_ms: verdict.auditDurationMs,
   });
 }
 
@@ -427,6 +487,7 @@ function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict): void {
 // ---------------------------------------------------------------------------
 
 export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdict> {
+  const auditStartedAt = Date.now();
   let lawResult: Awaited<ReturnType<typeof loadLaw>> | undefined;
   try {
     lawResult = await loadLaw(job.dir);
@@ -438,12 +499,24 @@ export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdi
   // no LLM, and regardless of auditor availability (R8: mechanical checks run
   // even when no LLM auditor exists at all).
   const mechanicalChecks: MechanicalCheckResult[] = [];
+  const registeredDemandSlugs = new Set<string>();
   if (lawResult) {
     try {
       for (const gate of runnableChecks(lawResult.law)) {
         if (!gate.run) continue;
         const r = await runGate(gate.run, job.dir);
-        mechanicalChecks.push({ gateId: gate.id, command: gate.run, passed: r.passed, exitCode: r.exitCode });
+        const demandSlug = typeof gate.lineage.params?.demandSlug === "string" ? gate.lineage.params.demandSlug : undefined;
+        if (demandSlug) registeredDemandSlugs.add(demandSlug);
+        const gap = typeof gate.lineage.params?.gap === "string" ? gate.lineage.params.gap : undefined;
+        mechanicalChecks.push({
+          gateId: demandSlug ? `demand:${demandSlug}` : gate.id,
+          ...(demandSlug ? { lawId: gate.id } : {}),
+          command: demandSlug ? `veritaserum demands (${demandSlug})` : gate.run,
+          passed: r.passed,
+          exitCode: r.exitCode,
+          ...(demandSlug ? { originClaim: gate.lineage.provenance } : {}),
+          ...(gap ? { gap } : {}),
+        });
       }
     } catch {
       /* the mechanical runner never blocks the verdict (R8) */
@@ -454,7 +527,15 @@ export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdi
   // the tree can alter the script — only meeting `accept` turns it green.
   try {
     for (const d of await runDemands(job.dir)) {
-      mechanicalChecks.push({ gateId: `demand:${d.slug}`, command: `node ${d.path}`, passed: d.passed, exitCode: d.exitCode });
+      if (registeredDemandSlugs.has(d.slug)) continue; // the portable law copy already ran
+      mechanicalChecks.push({
+        gateId: `demand:${d.slug}`,
+        command: `node ${d.path}`,
+        passed: d.passed,
+        exitCode: d.exitCode,
+        ...(d.originClaim ? { originClaim: d.originClaim } : {}),
+        ...(d.gap ? { gap: d.gap } : {}),
+      });
     }
   } catch {
     /* never blocks the verdict (R8) */
@@ -469,8 +550,8 @@ export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdi
     try {
       const prompt =
         auditor.tier === "agentic"
-          ? buildAgenticPrompt(job, lawResult)
-          : buildPreGatheredPrompt(job, await gatherEvidence(job.dir, job.receipts), lawResult);
+          ? buildAgenticPrompt(job, lawResult, mechanicalChecks)
+          : buildPreGatheredPrompt(job, await gatherEvidence(job.dir, job.receipts), lawResult, mechanicalChecks);
       const raw = await auditor.invoke(prompt, job.dir);
       reply = parseReply(raw);
       if (!reply) error = "auditor reply did not parse as the expected JSON verdict";
@@ -481,37 +562,47 @@ export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdi
 
   const claims = reply ? foldMechanical(reply.claims, mechanicalChecks) : [];
 
-  // Step 6 (docs/DEMANDS.md phase 1): missing-oracle demands become FAILING
-  // TESTS under test/veritaserum/ — materializeDemand dedupes by slug (tree
-  // and HEAD), verifies the script fails at authoring time (an already-passing
+  // Step 6 (docs/DEMANDS.md phase 1): missing-oracle demands become failing
+  // tests in veritaserum's state dir. materializeDemand dedupes by slug,
+  // verifies the script fails at authoring time (an already-passing
   // demand discriminates nothing and is discarded), and records unverifiable
   // demands (no accept/test_file) without binding anything. We only report the
   // ones actually added.
   // VS_DEMAND_MODE=urge (experiment arm, SPEC §6.6 two-arm suite): the demand
   // is delivered as an instruction only — no oracle script is materialized.
   // Default ("script") materializes the failing test as well.
-  const urgeOnly = process.env.VS_DEMAND_MODE === "urge";
+  const urgeOnly = job.demandMode === "urge";
   const demands: Demand[] = [];
   if (reply) {
     for (const d of reply.demands) {
+      const normalize = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+      const origin = normalize(d.origin_claim);
+      const originAlreadySupported = claims.some((claim) => {
+        if (claim.verdict !== "supported") return false;
+        const text = normalize(claim.claim);
+        return text === origin || (origin.length > 20 && (origin.includes(text) || text.includes(origin)));
+      });
+      if (originAlreadySupported) continue;
       if (urgeOnly) {
         if (d.accept?.trim()) demands.push(d);
         continue;
       }
       try {
         const res = await materializeDemand(job.dir, d);
-        if (res.action === "added") demands.push(d);
-        else if (res.action === "discarded_passing" || res.action === "unverifiable") {
-          logFiring({
-            harness: "audit-runner",
-            event: "audit",
-            claim: d.origin_claim.slice(0, 200),
-            verdict: "no-claim",
-            caught: `demand ${res.action}: ${d.gap.slice(0, 200)}`,
-            blocked: false,
-            dir: job.dir,
+        if (res.action === "added" && res.path && res.slug) {
+          await appendDemand(job.dir, {
+            run: demandLawCommand(res.slug),
+            rung: d.rung,
+            originClaim: d.origin_claim,
+            demandSlug: res.slug,
+            demandGap: d.gap,
+            demandAccept: d.accept,
           });
+          demands.push(d);
         }
+        // A rejected oracle is not a second audit. The turn's one authoritative
+        // telemetry row is emitted below; auxiliary event=audit rows break the
+        // exact one-Stop/one-row coverage invariant.
       } catch {
         /* a demand-materialization failure never blocks the verdict (R8) */
       }
@@ -541,6 +632,7 @@ export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdi
     auditorTier: auditor.tier,
     sameFamily: auditor.sameFamily,
     vendor: auditor.vendor,
+    auditDurationMs: Date.now() - auditStartedAt,
     ...(error ? { error } : {}),
   };
 

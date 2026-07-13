@@ -12,7 +12,7 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { commitPaths, currentTreeHash } from "./git.js";
-import { loadLaw, retireLaw, runnableChecks, LAW_FILENAME } from "./law.js";
+import { loadLaw, retireDemandLaw, retireLaw, runnableChecks, LAW_FILENAME } from "./law.js";
 import { resolveAuditor, doctorReport } from "./resolve.js";
 import { enqueue, queueRoot, lawCheckMarkerPath, takePendingFeedback, type AuditJob } from "./audit-runner.js";
 import { runDemands, retireDemand } from "./demands.js";
@@ -21,6 +21,7 @@ import { audit, type AuditJob as AuditContentJob } from "./auditor.js";
 import { logFiring, readFirings, summarize } from "./telemetry.js";
 import { installTarget, detectHarnesses, isTarget, TARGETS } from "./install.js";
 import * as style from "./style.js";
+import { writeHookLawState } from "./hook-state.js";
 
 /** Which harness fired us (installer sets VS_HARNESS). */
 function harnessName(): string {
@@ -45,6 +46,11 @@ interface HookPayload {
   transcript_path?: string;
   cwd?: string;
   stop_hook_active?: boolean;
+  hook_event_name?: string;
+  turn_id?: string;
+  /** Codex Stop's documented, stable content field. Codex does not promise a
+   * stable transcript wire format, so this is authoritative for its final text. */
+  last_assistant_message?: string | null;
 }
 function parsePayload(raw: string): HookPayload {
   try {
@@ -207,7 +213,11 @@ async function printLawStateLineIfDue(dir: string): Promise<void> {
     /* no green run recorded yet for this repo */
   }
   if (lastGreen === hash) return;
-  console.log(`veritaserum: ${runnable.length} standing check(s) unverified against current tree`);
+  const line = `veritaserum: ${runnable.length} standing check(s) unverified against current tree`;
+  // Codex Stop rejects plain stdout even on exit 0. `systemMessage` is the
+  // documented non-blocking common output field; Claude Code accepts the terse
+  // text directly.
+  console.log(harnessName() === "codex" ? JSON.stringify({ systemMessage: line }) : line);
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -221,6 +231,9 @@ async function main(argv: string[]): Promise<number> {
       if (!lawId || !reason) return usage('retire <law-id|demand-slug> "<reason>"');
       // Demands live in the state dir (docs/DEMANDS.md phase 1) — try there first.
       if (retireDemand(dir, lawId)) {
+        if (await retireDemandLaw(dir, lawId, reason)) {
+          await commitPaths(dir, [LAW_FILENAME], `ser: retire demand ${lawId} (${reason})`);
+        }
         console.log(`retired demand ${lawId}: ${reason} (moved to retired/, never resurrected)`);
         return 0;
       }
@@ -235,6 +248,19 @@ async function main(argv: string[]): Promise<number> {
     }
 
     case "demands": {
+      // A demand that invokes `veritaserum demands` would otherwise execute
+      // itself recursively. Signal the outer evaluator and stop before reading
+      // any oracle. runScript also rejects known source shapes pre-execution.
+      const recursionSentinel = process.env.VS_DEMAND_EVALUATION_SENTINEL;
+      if (recursionSentinel) {
+        try {
+          writeFileSync(recursionSentinel, String(process.pid), "utf8");
+        } catch {
+          /* the refusal itself does not depend on recording the sentinel */
+        }
+        console.error("refusing recursive demand evaluation");
+        return 1;
+      }
       // The demand store is invisible by design — this is the human window into it.
       const results = await runDemands(dir);
       if (!results.length) {
@@ -272,6 +298,12 @@ async function main(argv: string[]): Promise<number> {
         return 2;
       }
       const res = await installTarget(target, { global, project });
+      try {
+        const { law } = await loadLaw(dir);
+        writeHookLawState(dir, { runnableCount: runnableChecks(law).length });
+      } catch {
+        // A missing/empty/corrupt repo still gets a fail-open hook installation.
+      }
       for (const line of res.steps) console.log(line);
       if (res.manual.length) {
         console.log();
@@ -281,7 +313,13 @@ async function main(argv: string[]): Promise<number> {
       console.log();
       console.log(style.divider());
       console.log(style.ok(`${style.bold(target)} wired — veritaserum now audits every turn-end.`));
-      console.log(style.step(`warn-primary (R5): nothing blocks. A verdict lands as one line at your next prompt.`));
+      console.log(
+        style.step(
+          target === "goose"
+            ? "warn-primary (R5): nothing blocks. Goose exposes no prompt injection channel; verdicts land in telemetry."
+            : "warn-primary (R5): nothing blocks. A verdict lands as one line at your next prompt.",
+        ),
+      );
       console.log(style.step(`read catches:  ${style.bold("veritaserum telemetry")}`));
       console.log(style.step(`run demanded checks:  ${style.bold("veritaserum demands")}`));
       return 0;
@@ -353,6 +391,11 @@ async function main(argv: string[]): Promise<number> {
           turnRef: String(Date.now()),
           mode: process.env.VS_AUDIT_MODE === "testbed" ? "testbed" : "live",
           ...(p.transcript_path ? { transcriptPath: p.transcript_path } : {}),
+          ...(typeof p.last_assistant_message === "string" ? { finalMessage: p.last_assistant_message } : {}),
+          harness: harnessName(),
+          executor: process.env.VS_EXECUTOR || "unknown",
+          ...(process.env.VS_AUDITOR ? { auditor: process.env.VS_AUDITOR } : {}),
+          demandMode: process.env.VS_DEMAND_MODE === "urge" ? "urge" : "script",
         };
         enqueue(wd, job);
 

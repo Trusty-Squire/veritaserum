@@ -11,3 +11,7 @@ eval/**/results*.jsonl
 *.vs-bak
 .veritaserum/
 .veritaserum-evidence/   # ephemeral probe receipts an oracle checks (capture-time bound)
+# production-fidelity harness runs (pack installs, scratch HOME, reports)
+.stress/
+# local structural index
+.codegraph/

@@ -33,7 +33,8 @@
     "access": "public"
   },
   "bin": {
-    "veritaserum": "./dist/cli.js"
+    "veritaserum": "./dist/cli.js",
+    "veritaserum-hook": "./dist/hook-cli.cjs"
   },
   "files": [
     "dist",
@@ -45,12 +46,14 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js dist/hook-cli.cjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "check:plugin": "tsx scripts/check-plugin.ts",
     "ser": "tsx src/cli.ts",
     "demo": "tsx scripts/demo.ts",
+    "stress:production": "tsx scripts/stress/production-harness.ts",
+    "stress:watchdog": "tsx scripts/stress/invariant-watchdog.ts",
     "eval:fixtures": "tsx eval/run-fixtures.ts",
     "prepublishOnly": "npm run build"
   },

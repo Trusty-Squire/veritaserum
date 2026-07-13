@@ -12,7 +12,7 @@
  */
 import { execa } from "execa";
 import { parseDocument, Document } from "yaml";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync, chmodSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync, chmodSync, cpSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,17 +31,62 @@ function pkgRoot(): string {
   return resolve(dirname(fileURLToPath(import.meta.url)), "..");
 }
 
+function shellQuote(path: string): string {
+  return `'${path.replace(/'/g, `'\\''`)}'`;
+}
+
+/** Copy the installed package plus its working dependency layout into a hook-owned
+ * runtime. npm uses nested dependencies for a global install and hoists them beside
+ * the package for `npm exec`/npx; preserve whichever layout is actually present. */
+function copyPackageRuntime(runtimeModules: string): void {
+  mkdirSync(runtimeModules, { recursive: true });
+  const nestedModules = join(pkgRoot(), "node_modules");
+  if (existsSync(nestedModules)) {
+    const runtimePackage = join(runtimeModules, "veritaserum");
+    mkdirSync(runtimePackage, { recursive: true });
+    cpSync(join(pkgRoot(), "dist"), join(runtimePackage, "dist"), { recursive: true, force: true });
+    copyFileSync(join(pkgRoot(), "package.json"), join(runtimePackage, "package.json"));
+    cpSync(nestedModules, join(runtimePackage, "node_modules"), { recursive: true, force: true, dereference: true });
+    return;
+  }
+  cpSync(dirname(pkgRoot()), runtimeModules, { recursive: true, force: true, dereference: true });
+}
+
+let durableNpxRuntime: { cli: string; hook: string } | undefined;
+
+/** npx's cache is disposable. Installing a persistent hook from it must first leave
+ * behind an offline-capable runtime under veritaserum's own state directory. */
+function npxRuntimeInvocations(): { cli: string; hook: string } {
+  if (durableNpxRuntime) return durableNpxRuntime;
+  const runtimeModules = join(homedir(), ".veritaserum", "runtime", "node_modules");
+  copyPackageRuntime(runtimeModules);
+  const runtimePackage = join(runtimeModules, "veritaserum", "dist");
+  durableNpxRuntime = {
+    cli: `node ${shellQuote(join(runtimePackage, "cli.js"))}`,
+    hook: `node ${shellQuote(join(runtimePackage, "hook-cli.cjs"))}`,
+  };
+  return durableNpxRuntime;
+}
+
 /**
  * The stable command a hook should run to invoke ser. An absolute
- * `node <dist/cli.js>` survives across sessions for local/global installs; an
- * npx-cache path is ephemeral, so reference the package name to re-resolve.
+ * `node <dist/cli.js>` survives across sessions for local/global installs. An
+ * npx-cache path does not, so npx installs use the durable private runtime.
  */
 function cliInvocation(): string {
   const entry = process.argv[1] ? resolve(process.argv[1]) : "";
-  if (/[\\/]_npx[\\/]/.test(entry)) return "npx -y veritaserum";
+  if (/[\\/]_npx[\\/]/.test(entry)) return npxRuntimeInvocations().cli;
   const cliJs = join(pkgRoot(), "dist", "cli.js");
-  if (existsSync(cliJs)) return `node ${cliJs}`;
+  if (existsSync(cliJs)) return `node ${shellQuote(cliJs)}`;
   return "veritaserum";
+}
+
+function hookInvocation(): string {
+  const entry = process.argv[1] ? resolve(process.argv[1]) : "";
+  if (/[\\/]_npx[\\/]/.test(entry)) return npxRuntimeInvocations().hook;
+  const hookJs = join(pkgRoot(), "dist", "hook-cli.cjs");
+  if (existsSync(hookJs)) return `node ${shellQuote(hookJs)}`;
+  return "veritaserum-hook";
 }
 
 /** The command the executor should run to check a demand — resolved the same way the
@@ -56,7 +101,8 @@ function hookCommand(target: Target, sub: "hook-stop" | "hook-prompt" = "hook-st
   // No VS_ADVISORY prefix: nothing in the audit path blocks (R5 warn-primary), so an
   // "advisory mode" env var gated nothing and the install ceremony's "unset it to enable
   // blocking" was simply false. Blocking is per-law-entry and human-promoted, never a flag.
-  return `VS_EXECUTOR=${VENDOR[target]} VS_HARNESS=${target} ${cliInvocation()} ${sub}`;
+  const invocation = sub === "hook-stop" ? hookInvocation() : `${cliInvocation()} ${sub}`;
+  return `VS_EXECUTOR=${VENDOR[target]} VS_HARNESS=${target} ${invocation}${sub === "hook-stop" ? "" : ""}`;
 }
 
 /** Harnesses whose config dir exists on this machine (for a no-arg suggestion). */
@@ -77,9 +123,11 @@ export interface InstallResult {
 }
 
 export async function installTarget(target: Target, opts: { global?: boolean; project?: boolean }): Promise<InstallResult> {
+  // Goose has its own self-contained plugin runtime. Avoid also materializing the
+  // shared Claude/Codex runtime merely to populate InstallResult.hookCmd.
+  if (target === "goose") return installGoose(opts.project === true);
   const hookCmd = hookCommand(target);
   if (target === "claude-code") return installClaudeCode(hookCmd, opts.global === true);
-  if (target === "goose") return installGoose(opts.project === true);
   return installResolvedAdapter("codex", hookCmd);
 }
 
@@ -203,10 +251,21 @@ function installGoose(project: boolean): InstallResult {
     steps.push(s.ok(`copied ${f} → ${s.dim(to)} (chmod +x)`));
   }
 
+  // A Goose plugin outlives the `npx` process that installed it. Copy a private,
+  // offline-capable runtime instead of pointing the hook at npm's ephemeral bin
+  // shim or at a nonexistent ../../dist directory. Packed npm installs have one
+  // of two dependency layouts: nested under the package (global install), or
+  // hoisted beside it (`npx`). Preserve the working layout verbatim.
+  const invokedEntry = process.argv[1] ? resolve(process.argv[1]) : "";
+  if (invokedEntry === join(pkgRoot(), "dist", "cli.js") || /[\\/]_npx[\\/]/.test(invokedEntry)) {
+    copyPackageRuntime(join(dest, "runtime", "node_modules"));
+    steps.push(s.ok(`copied self-contained hook runtime → ${s.dim(join(dest, "runtime"))}`));
+  }
+
 
   return {
     target: "goose",
-    hookCmd: hookCommand("goose"),
+    hookCmd: join(dest, "scripts", "vs-stop.sh"),
     steps,
     primaryFile: hooksDest,
     manual: [
@@ -244,10 +303,12 @@ function installResolvedAdapter(target: "codex", hookCmd: string): InstallResult
     steps.push(s.ok(`backed up ${s.dim(out + ".vs-bak")}`));
   }
 
-  const added = mergeHook(settings, "Stop", hookCmd);
-  if (added) {
+  const addedStop = mergeHook(settings, "Stop", hookCmd);
+  const addedPrompt = mergeHook(settings, "UserPromptSubmit", hookCommand("codex", "hook-prompt"));
+  if (addedStop || addedPrompt) {
     writeFileSync(out, JSON.stringify(settings, null, 2) + "\n");
-    steps.push(s.ok(`added Stop hook to ${s.dim(out)}`));
+    const added = [addedStop && "Stop", addedPrompt && "UserPromptSubmit"].filter(Boolean).join(" + ");
+    steps.push(s.ok(`added ${added} hook(s) to ${s.dim(out)}`));
   } else {
     steps.push(s.ok(`already installed — no change to ${s.dim(out)}`));
   }
@@ -281,4 +342,3 @@ function upsertTomlTable(content: string, header: string, block: string): string
   const rest = lines.join("\n").trimEnd();
   return rest ? `${rest}\n\n${block}` : block;
 }
-

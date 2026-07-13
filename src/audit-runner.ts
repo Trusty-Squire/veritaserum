@@ -12,7 +12,7 @@
  * NEVER throws — any internal error becomes an R8 telemetry error event.
  */
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -30,6 +30,16 @@ export interface AuditJob {
    *  (read via src/transcript.ts) apart from a goose turn (sessionId keys
    *  goose's own sessions.db, read via src/goose.ts). */
   transcriptPath?: string;
+  /** Codex Stop supplies the final text directly. Its transcript format is not a
+   * public contract, so never discard this documented payload field. */
+  finalMessage?: string;
+  userRequest?: string;
+  /** Resolution and telemetry context belongs to the turn, not to whichever
+   * detached runner wins the per-repo drain race. */
+  harness?: string;
+  executor?: string;
+  auditor?: string;
+  demandMode?: "script" | "urge";
 }
 export type RunAudit = (job: AuditJob) => Promise<void>;
 
@@ -174,7 +184,7 @@ function nextSeq(): string {
   // wall-clock primary key (cross-process rough ordering) + a monotonic
   // in-process counter tie-break (guarantees strict ordering for back-to-back
   // enqueues within one process, e.g. the same audit run enqueuing supersedes).
-  return `${Date.now().toString().padStart(14, "0")}-${seqCounter.toString().padStart(6, "0")}`;
+  return `${Date.now().toString().padStart(14, "0")}-${process.pid}-${seqCounter.toString().padStart(6, "0")}-${randomUUID().slice(0, 8)}`;
 }
 
 // --- enqueue ---------------------------------------------------------------------
@@ -309,12 +319,27 @@ async function drain(qdir: string, runAudit: RunAudit): Promise<void> {
  */
 async function withLock(qdir: string, fn: () => Promise<void>): Promise<void> {
   const lp = lockPath(qdir);
-  if (existsSync(lp)) {
-    const held = Number(readFileSync(lp, "utf8").trim());
-    if (Number.isFinite(held) && isAlive(held)) return; // another runner is active
-    // stale lock (dead pid) — fall through and reclaim it below.
+  try {
+    writeFileSync(lp, String(process.pid), { encoding: "utf8", flag: "wx" });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    let held = Number.NaN;
+    try {
+      held = Number(readFileSync(lp, "utf8").trim());
+    } catch {
+      /* a concurrent owner may be between create and write */
+    }
+    if (Number.isFinite(held) && isAlive(held)) return;
+    // A stale owner cannot remove a newer owner's lock: the exclusive retry below
+    // either wins exactly once or observes another contender and returns.
+    rmSafely(lp);
+    try {
+      writeFileSync(lp, String(process.pid), { encoding: "utf8", flag: "wx" });
+    } catch (retryErr) {
+      if ((retryErr as NodeJS.ErrnoException).code === "EEXIST") return;
+      throw retryErr;
+    }
   }
-  writeFileSync(lp, String(process.pid), "utf8");
   try {
     await fn();
   } finally {

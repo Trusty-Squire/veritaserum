@@ -12,7 +12,8 @@ import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { materializeDemand, runDemands, type AuthoredDemand } from "../src/demands.js";
+import { demandLawCommand, materializeDemand, runDemands, type AuthoredDemand } from "../src/demands.js";
+import { runGate } from "../src/gate-run.js";
 import { tempRepo } from "./helpers.js";
 
 let cleanups: Array<() => Promise<void>> = [];
@@ -76,6 +77,72 @@ describe("materializeDemand — the authored oracle must actually RUN", () => {
 
     const [result] = await runDemands(repoDir);
     expect(result!.passed).toBe(true); // an oracle that can never pass is worthless
+  });
+
+  it("the portable law record locates the hidden state oracle and fails if it is missing", async () => {
+    const out = await materializeDemand(repoDir, demand(`#!/usr/bin/env node\n${FAILS_NOW}`));
+    expect(out.action).toBe("added");
+    const command = demandLawCommand(out.slug!);
+
+    expect((await runGate(command, repoDir)).exitCode).toBe(1);
+
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(join(repoDir, "widget.txt"), "built\n", "utf8");
+    expect((await runGate(command, repoDir)).exitCode).toBe(0);
+
+    await rm(out.path!);
+    expect((await runGate(command, repoDir)).exitCode).toBe(1);
+  });
+
+  it("runs real CommonJS auditor output beneath an ESM package boundary", async () => {
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(join(repoDir, "package.json"), '{"type":"module"}\n', "utf8");
+
+    const out = await materializeDemand(repoDir, demand(`#!/usr/bin/env node\n${FAILS_NOW}`));
+    expect(out.action).toBe("added");
+    expect(out.path).toMatch(/\.cjs$/);
+
+    await writeFile(join(repoDir, "widget.txt"), "built\n", "utf8");
+    const [result] = await runDemands(repoDir);
+    expect(result!.passed).toBe(true);
+  });
+
+  it("runs real ESM output that derives the repo from import.meta.url", async () => {
+    const source = `#!/usr/bin/env node
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+const REPO = dirname(fileURLToPath(import.meta.url));
+process.exit(existsSync(join(REPO, "widget.txt")) ? 0 : 1);
+`;
+    const out = await materializeDemand(repoDir, demand(source));
+    expect(out.action).toBe("added");
+    expect(out.path).toMatch(/\.mjs$/);
+
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(join(repoDir, "widget.txt"), "built\n", "utf8");
+    const [result] = await runDemands(repoDir);
+    expect(result!.passed).toBe(true);
+  });
+
+  it("discards authored scripts that crash in the interpreter", async () => {
+    const out = await materializeDemand(repoDir, demand("#!/usr/bin/env node\nconst broken = ;\n"));
+    expect(out.action).toBe("discarded_invalid");
+  });
+
+  it("rejects the captured self-recursive demand before it spawns a child", async () => {
+    const source = `const fs = require('node:fs');
+const cp = require('node:child_process');
+const path = require('node:path');
+fs.writeFileSync('recursive-demand-executed', 'bad');
+const root = process.cwd();
+const cli = path.join(root, 'dist', 'cli.js');
+const run = cp.spawnSync(process.execPath, [cli, 'demands'], { cwd: root, encoding: 'utf8' });
+process.exit(run.status === 0 ? 0 : 1);
+`;
+    const out = await materializeDemand(repoDir, demand(source));
+    expect(out.action).toBe("discarded_invalid");
+    expect((await import("node:fs")).existsSync(join(repoDir, "recursive-demand-executed"))).toBe(false);
   });
 
   it("a demand that already passes against the current tree is discarded (it discriminates nothing)", async () => {

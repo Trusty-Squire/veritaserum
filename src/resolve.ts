@@ -150,6 +150,10 @@ const CLAUDE_READONLY_TOOLS = "Read,Bash(git log:*),Bash(git status:*),Bash(git 
  *  tells veritaserum's hooks (cli.ts's isAuditorChild) that this process is the auditor.
  *  execa extends process.env at spawn time, so this must NOT snapshot it here. */
 const AUDITOR_CHILD_ENV = { VS_AUDIT_CHILD: "1" };
+// Real agentic CLI audits can legitimately exceed three minutes while making
+// read-only probes. They are detached from the hook; a five-minute async bound
+// preserves liveness without turning normal tool use into a false infra error.
+const DEFAULT_AUDITOR_TIMEOUT_MS = 300_000;
 const DEFAULT_METERED_MODEL = "glm-4.2";
 const DEFAULT_OLLAMA_MODEL = "qwen2.5:3b";
 
@@ -175,7 +179,7 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
             input: prompt,
             env: AUDITOR_CHILD_ENV,
             reject: false,
-            timeout: timeoutMs ?? 180_000,
+            timeout: timeoutMs ?? DEFAULT_AUDITOR_TIMEOUT_MS,
           });
           if (r.exitCode !== 0) {
             throw new Error(`codex exec failed (exit ${r.exitCode ?? "timeout"}): ${(r.stderr ?? "").slice(0, 300)}`);
@@ -197,7 +201,7 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
             input: prompt,
             env: AUDITOR_CHILD_ENV,
             reject: false,
-            timeout: timeoutMs ?? 180_000,
+            timeout: timeoutMs ?? DEFAULT_AUDITOR_TIMEOUT_MS,
           });
           if (r.exitCode !== 0) {
             throw new Error(`claude -p failed (exit ${r.exitCode ?? "timeout"}): ${(r.stderr ?? "").slice(0, 300)}`);
@@ -213,7 +217,7 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
         model: m,
         sameFamily,
         async invoke(prompt, _dir, timeoutMs) {
-          return new OllamaClient(m).complete({ prompt, timeoutMs: timeoutMs ?? 180_000 });
+          return new OllamaClient(m).complete({ prompt, timeoutMs: timeoutMs ?? DEFAULT_AUDITOR_TIMEOUT_MS });
         },
       };
     }
@@ -227,7 +231,7 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
         async invoke(prompt, _dir, timeoutMs) {
           const key = openrouterApiKey();
           if (!key) throw new Error("OPENROUTER_API_KEY not set");
-          return new OpenRouterClient(m, key).complete({ prompt, timeoutMs: timeoutMs ?? 180_000 });
+          return new OpenRouterClient(m, key).complete({ prompt, timeoutMs: timeoutMs ?? DEFAULT_AUDITOR_TIMEOUT_MS });
         },
       };
     }
@@ -265,8 +269,8 @@ interface Resolution {
  * `VS_AUDITOR` overriding everything. Used by both `resolveAuditor` (the
  * value callers need) and `doctorReport` (the trace of why).
  */
-async function resolveInternal(executor: string): Promise<Resolution> {
-  const override = process.env.VS_AUDITOR;
+async function resolveInternal(executor: string, explicitOverride?: string): Promise<Resolution> {
+  const override = explicitOverride ?? process.env.VS_AUDITOR;
   if (override) {
     const parsed = parseAuditorSpec(override);
     if (parsed) {
@@ -336,8 +340,8 @@ async function resolveInternal(executor: string): Promise<Resolution> {
  * resolution"). Nothing available → `{tier: "absent"}`; callers still run
  * mechanical law checks (R8) and record `auditor_absent` telemetry.
  */
-export async function resolveAuditor(executor: string): Promise<Auditor> {
-  return (await resolveInternal(executor)).auditor;
+export async function resolveAuditor(executor: string, override?: string): Promise<Auditor> {
+  return (await resolveInternal(executor, override)).auditor;
 }
 
 /** Which rule fired and why, per candidate — the brain for `veritaserum doctor` (CLI wiring is separate). */

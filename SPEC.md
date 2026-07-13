@@ -58,11 +58,13 @@ audit job (ASYNC — one auditor invocation)
      discriminating test) ▸ contradicted (strongest; blocks only if this law
      entry has earned it, R5)
   6. missing oracle ──▶ DEMAND: a FAILING test authored into veritaserum's
-     own state dir — never the user's repo (docs/DEMANDS.md phase 1
-     supersedes the law-append here: gap + accept + standalone exit-code
-     script; must fail at authoring or discarded; dedupe by slug incl.
-     retired; runs every audit with cwd = repo; veto = `veritaserum retire`;
-     no accept → unverifiable, recorded, never binding)
+     own state dir — never as a test file in the user's repo (gap + accept +
+     standalone exit-code script; must fail at authoring or be discarded;
+     dedupe by slug incl. retired; runs every audit with cwd = repo). A
+     standing record plus state-oracle locator is written to
+     `veritaserum.law.yaml`; that is the only allowed repo write, and it does
+     not contain the hidden test bytes. Veto = `veritaserum retire`; no accept → unverifiable,
+     never binding.
   7. verdict + demands ──▶ telemetry + next-turn feedback channel
   The auditor NEVER runs git write operations. Law commits are human moments.
 ```
@@ -94,9 +96,10 @@ temperature recorded per run; overnight runs budget auditor calls with backoff +
   drift is probe-detected and flagged; **human**-authored uncommitted edits are treated
   as pending-canon and said so in the verdict.
 - Retirement: explicit command with reason + confirm (R6); recorded, never deleted.
-- **Demands are inert until committed**: the auditor writes demands to the tree but reads
-  law from HEAD, so a demand binds only after a human commits it — the law-file commit IS
-  the veto moment (review the diff, drop what you reject). Consent by commit.
+- **Demand oracles are live immediately in local state; committed precedent is portable**:
+  the state-owned script is mechanically rechecked on later audits. Its portable law-file
+  gate becomes canonical when a human commits it; until then HEAD-based law loading reports
+  pending canon. `veritaserum retire` retires both records.
 - **Statute path** (`contract.yaml`, optional): `loadLaw` unions its active gates into the
   standing law, so a human-sealed gate binds exactly like an auditor-demanded precedent.
   It is a **data file you edit** — same schema, no negotiation machinery. The v1 tools that
@@ -227,8 +230,9 @@ measured grounds: claims can't be cheaply detected and ceremony kills adoption.
 7. **Budgets (CI-enforced)**: sync path ~0ms nothing-to-audit / <50ms otherwise, zero
    sync LLM; ≤1 auditor *invocation* per audited turn; lazy-evidence asserted (zero
    probes on claim-free, non-substantial turns).
-8. **No-second-truth + privacy**: state dir contains telemetry only; law file git-tracked
-   in-repo; secret-canary greps clean (metadata-only telemetry).
+8. **No-second-truth + privacy**: state contains queues, feedback, telemetry, and
+   state-owned demand oracles; the portable law file is git-tracked in-repo;
+   secret-canary greps clean (metadata-only telemetry).
 9. **R8 chaos**: kill git / corrupt law / remove codex mid-run → executor never stalls.
 10. **goose adapter contract**: payload parsing tested against real goose hook shapes;
     injection channel verified or telemetry-fallback documented and §6.6 scoped.

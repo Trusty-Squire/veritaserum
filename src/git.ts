@@ -3,6 +3,8 @@
  * execa, never string-concatenated commands.
  */
 import { createHash } from "node:crypto";
+import { statSync } from "node:fs";
+import { join } from "node:path";
 import { execa } from "execa";
 
 export class GitError extends Error {
@@ -61,16 +63,23 @@ export async function workingDiffersFromCommit(cwd: string, commit: string, path
 }
 
 /**
- * Combined hash of `git status --porcelain` + `git diff HEAD` — a cheap proxy
- * (two git calls, <50ms budget) for "has anything in the tree changed since
- * we last looked," tracked or not. `git diff HEAD` alone is blind to untracked
- * files, which is exactly the shape of a "wrote a new module" turn — the
- * porcelain status closes that gap.
+ * One-git-call working-tree fingerprint for the installed hook's <50ms budget.
+ * Porcelain names every changed/untracked path; size + nanosecond mtime makes a
+ * second edit to an already-dirty path visible without paying for `git diff`.
  */
 export async function currentTreeHash(cwd: string): Promise<string> {
-  const status = await git(cwd, ["status", "--porcelain"]);
-  const diff = await git(cwd, ["diff", "HEAD"]);
-  return createHash("sha256").update(status.stdout).update("\0").update(diff.stdout).digest("hex");
+  const status = await git(cwd, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+  const hash = createHash("sha256").update(status.stdout).update("\0");
+  for (const record of status.stdout.split("\0").filter(Boolean)) {
+    const path = record.length > 3 && record[2] === " " ? record.slice(3) : record;
+    try {
+      const stat = statSync(join(cwd, path), { bigint: true });
+      hash.update(`${path}\0${stat.size}\0${stat.mtimeNs}\0${stat.mode}\0`);
+    } catch {
+      hash.update(`${path}\0missing\0`);
+    }
+  }
+  return hash.digest("hex");
 }
 
 /** Stage + commit the given paths; returns the new commit sha. */

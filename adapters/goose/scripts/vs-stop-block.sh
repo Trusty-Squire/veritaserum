@@ -27,6 +27,5 @@ if command -v veritaserum >/dev/null 2>&1; then
   exec veritaserum hook-stop-goose-block
 fi
 
-# No global/npm-linked `veritaserum` on PATH — fall back to this package's own
-# bundled dist/ (see vs-stop.sh for why this path resolves across install shapes).
-exec node "${PLUGIN_ROOT}/../../dist/cli.js" hook-stop-goose-block
+# Durable runtime copied by `veritaserum install goose` (see vs-stop.sh).
+exec node "${PLUGIN_ROOT}/runtime/node_modules/veritaserum/dist/cli.js" hook-stop-goose-block

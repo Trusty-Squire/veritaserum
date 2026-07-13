@@ -151,7 +151,11 @@ describe("hook-stop — enqueue (SPEC §2 sync step 3, payload parsing across ha
   it("Claude Code payload shape ({transcript_path, cwd, stop_hook_active}) → job enqueued", async () => {
     const dir = await repo();
     blockRunner(dir);
-    const tpath = join(dir, "transcript.jsonl");
+    // Real harness transcripts live outside the audited repo. Keeping the
+    // fixture there avoids making transcript growth look like a tree change.
+    const transcriptDir = mkdtempSync(join(tmpdir(), "vs-sync-transcript-"));
+    cleanups.push(() => rm(transcriptDir, { recursive: true, force: true }));
+    const tpath = join(transcriptDir, "transcript.jsonl");
     writeFileSync(tpath, JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "done" }] } }) + "\n");
 
     const r = await hookStop(dir, { transcript_path: tpath, cwd: dir, stop_hook_active: false });
@@ -221,7 +225,10 @@ describe("hook-stop — standing-law state line (SPEC R7: terse, state-gated; pr
     await execa("git", ["add", "-A"], { cwd: dir });
     await execa("git", ["commit", "-q", "-m", "law"], { cwd: dir });
 
-    const tpath = join(dir, "transcript.jsonl");
+    // Harness-owned transcripts are not part of the audited working tree.
+    const transcriptDir = mkdtempSync(join(tmpdir(), "vs-sync-law-transcript-"));
+    cleanups.push(() => rm(transcriptDir, { recursive: true, force: true }));
+    const tpath = join(transcriptDir, "transcript.jsonl");
     writeFileSync(tpath, "turn 1\n");
     const EXPECTED = "veritaserum: 1 standing check(s) unverified against current tree";
 

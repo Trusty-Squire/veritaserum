@@ -28,7 +28,7 @@ describe("harness installs", () => {
       await installTarget("claude-code", {});
       await installTarget("claude-code", {});
       const settings = JSON.parse(await readFile(join(home, ".claude", "settings.json"), "utf8"));
-      expect(settings.hooks.Stop[0].hooks[0].command).toContain("hook-stop");
+      expect(settings.hooks.Stop[0].hooks[0].command).toContain("hook-cli.cjs");
       expect(settings.hooks.Stop).toHaveLength(1); // installing twice adds one hook, not two
       // VS_ADVISORY gated nothing (R5: the audit path never blocks), and the install
       // ceremony's "unset it to enable blocking" was false. It is not written any more.
@@ -42,17 +42,19 @@ describe("harness installs", () => {
     const home = await withHome();
     const res = await installTarget("codex", {});
     const settings = JSON.parse(await readFile(join(home, ".codex", "hooks.json"), "utf8"));
-    expect(settings.hooks.Stop[0].hooks[0].command).toContain("hook-stop");
+    expect(settings.hooks.Stop[0].hooks[0].command).toContain("hook-cli.cjs");
     expect(settings.hooks.Stop[0].hooks[0].command).not.toContain("VS_ADVISORY");
+    expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).toContain("hook-prompt");
     expect(res.primaryFile).toBe(join(home, ".codex", "hooks.json"));
   });
 
-  it("registers exactly ONE hook on codex (Stop) — it does not touch SessionStart", async () => {
+  it("registers Stop plus the documented prompt-feedback hook on codex — never SessionStart", async () => {
     const home = await withHome();
     await installTarget("codex", {});
     const settings = JSON.parse(await readFile(join(home, ".codex", "hooks.json"), "utf8"));
-    expect(Object.keys(settings.hooks)).toEqual(["Stop"]);
+    expect(Object.keys(settings.hooks)).toEqual(["Stop", "UserPromptSubmit"]);
     expect(settings.hooks.Stop[0].hooks).toHaveLength(1);
+    expect(settings.hooks.UserPromptSubmit[0].hooks).toHaveLength(1);
   });
 });
 

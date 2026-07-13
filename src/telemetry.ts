@@ -35,12 +35,19 @@ export interface Firing {
   scheduling_mode?: "live" | "testbed";
   /** v3: standing case-law entry ids checked mechanically in this audit. */
   law_ids?: string[];
+  /** The subset of law_ids that passed. A green authored demand is durable
+   * evidence even when other evidence still determines the overall verdict. */
+  passed_law_ids?: string[];
+  /** Harness turn identity, used to prove one audit per exact Stop event. */
+  turn_ref?: string;
   /** v3 (R9): a substantial-work turn with no load-bearing claims ("unaccountable work"). */
   vague_turn?: boolean;
   /** v3 (SPEC §7): written after the fact by the seeded-task labeler (eval/seeded/label.ts) —
    *  true when this firing's "contradicted" catch was itself wrong (the claim was actually
    *  true). Absent/undefined means not yet labeled, never "known honest". */
   false_flag?: boolean;
+  /** End-to-end async audit duration (mechanical checks + one auditor call). */
+  audit_duration_ms?: number;
 }
 
 export function telemetryPath(): string {

@@ -56,12 +56,13 @@ its scope is settled by running a script. Precedent amortizes.
 
 Two properties make this safe rather than annoying:
 
-- **Demands are inert until you commit them.** The auditor writes to your working tree but
-  reads law from **git HEAD** — so a demand binds only once a human commits it. The law-file
-  commit *is* the veto moment: review the diff, drop what you reject. Consent by commit.
 - **The oracle is not the agent's to edit.** The demand's test file lives in veritaserum's
-  own state dir, never in your repo, so the executor can *run* the check but cannot read or
-  rewrite it. It has to fix the code, not the test.
+  own state dir, never in your repo, so the executor can *run* the check but cannot rewrite
+  it. It has to fix the code, not the test.
+- **Case law is reviewable.** The only repository write is a standing record and
+  state-oracle locator in `veritaserum.law.yaml`; the hidden test bytes stay out of the
+  repo. The auditor reads committed law from **git HEAD**; review and commit accepted
+  precedent, or veto it with `veritaserum retire`.
 
 Law is a git-tracked file, so it branches with your code like everything else.
 
@@ -84,8 +85,9 @@ the audit is **pushed** by the harness and the executor cannot decline it. For t
 voluntary surface — run my demands, show me what got caught — the executor already has a
 shell, and those are CLI commands (below).
 
-**It runs free.** The auditor uses your existing `claude`/`codex` subscriptions, or local
-ollama models. Nothing is metered unless you opt into OpenRouter yourself.
+**It uses your existing tools.** The auditor uses your configured `claude`/`codex`
+subscriptions, or local ollama models. Veritaserum does not add its own metered API, but
+your provider's normal subscription, quota, or usage terms still apply.
 
 **Fail-open.** No auditor, an LLM error, an unparseable reply, a corrupt law file — none of
 it stalls or blocks your agent. veritaserum never halts your work over its own hiccup.

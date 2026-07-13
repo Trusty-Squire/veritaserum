@@ -132,12 +132,14 @@ describe("integration — sync enqueue → real runAudit → case law + telemetr
 
       // 3. the auditor's demand materialized as a failing test in the STATE
       //    dir — never in the user's repo (docs/DEMANDS.md phase 1).
-      const demandPath = join(demandsDir(dir), "no-kuhn-poker-anchor-test-exists-for-the-mccfr-solver.js");
+      const demandPath = join(demandsDir(dir), "no-kuhn-poker-anchor-test-exists-for-the-mccfr-solver.cjs");
       expect(existsSync(demandPath)).toBe(true);
       const demandContent = readFileSync(demandPath, "utf8");
       expect(demandContent).toContain("wrote an MCCFR solver, it's working well");
       expect(demandContent).toContain("within 1e-3");
       expect(existsSync(join(dir, "test/veritaserum"))).toBe(false); // invisible: nothing lands in the repo
+      const law = readLawTreeSync(dir)!;
+      expect(law.gates.some((gate) => gate.lineage.provenance.includes("MCCFR solver"))).toBe(true);
 
       // 4. the green marker was updated — the seed "true" check passed mechanically.
       const markerPath = lawCheckMarkerPath(dir);
