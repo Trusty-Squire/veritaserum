@@ -7,7 +7,7 @@ import { tempRepo, write } from "./helpers.js";
 import { audit, type AuditJob } from "../src/auditor.js";
 import type { Auditor, AuditorTier } from "../src/resolve.js";
 import { appendDemand, readLawTreeSync } from "../src/law.js";
-import { demandsDir, retireDemand } from "../src/demands.js";
+import { demandSlug, demandsDir, retireDemand, type AuthoredDemand } from "../src/demands.js";
 import { readFirings, type Firing } from "../src/telemetry.js";
 import { existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 
@@ -183,7 +183,7 @@ describe("audit — R9 unaccountable work", () => {
 });
 
 describe("audit — demand -> failing test materialization (docs/DEMANDS.md phase 1)", () => {
-  const KUHN_DEMAND = {
+  const KUHN_DEMAND: AuthoredDemand = {
     origin_claim: "wrote an MCCFR solver, working well",
     gap: "no oracle demonstrates convergence to the known Kuhn poker equilibrium",
     remedy: "run the MCCFR solver on Kuhn poker and compare to the known analytic equilibrium",
@@ -191,7 +191,8 @@ describe("audit — demand -> failing test materialization (docs/DEMANDS.md phas
     test_file: "process.exit(1);\n",
     rung: "analytic",
   };
-  const kuhnPath = (dir: string) => join(demandsDir(dir), "no-oracle-demonstrates-convergence-to-the-known-kuhn-poker-e.cjs");
+  const kuhnSlug = demandSlug(KUHN_DEMAND);
+  const kuhnPath = (dir: string) => join(demandsDir(dir), `${kuhnSlug}.cjs`);
 
   it("materializes the oracle in state and records a portable runnable copy in case law", async () => {
     const dir = await repo();
@@ -212,7 +213,7 @@ describe("audit — demand -> failing test materialization (docs/DEMANDS.md phas
     const law = readLawTreeSync(dir);
     expect(law?.gates).toHaveLength(1);
     expect(law?.gates[0]?.lineage.provenance).toBe(KUHN_DEMAND.origin_claim);
-    expect(law?.gates[0]?.lineage.params.demandSlug).toBe("no-oracle-demonstrates-convergence-to-the-known-kuhn-poker-e");
+    expect(law?.gates[0]?.lineage.params.demandSlug).toBe(kuhnSlug);
     expect(law?.gates[0]?.run).toContain(".veritaserum");
     expect(law?.gates[0]?.run).not.toContain("failing test IS the demand");
     // The law register is the only allowed write in the user's repository.

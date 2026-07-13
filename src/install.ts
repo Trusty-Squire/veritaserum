@@ -12,9 +12,9 @@
  */
 import { execa } from "execa";
 import { parseDocument, Document } from "yaml";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync, chmodSync, cpSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync, chmodSync, cpSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, dirname, resolve } from "node:path";
+import { join, dirname, basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as s from "./style.js";
 
@@ -35,21 +35,62 @@ function shellQuote(path: string): string {
   return `'${path.replace(/'/g, `'\\''`)}'`;
 }
 
-/** Copy the installed package plus its working dependency layout into a hook-owned
- * runtime. npm uses nested dependencies for a global install and hoists them beside
- * the package for `npm exec`/npx; preserve whichever layout is actually present. */
+function readPackageDependencies(packageDir: string): string[] {
+  try {
+    const pkg = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")) as {
+      dependencies?: Record<string, string>;
+      optionalDependencies?: Record<string, string>;
+    };
+    return [...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.optionalDependencies ?? {})];
+  } catch {
+    return [];
+  }
+}
+
+/** Find `name`'s package directory the way Node would from `fromDir`: walk up
+ * through node_modules levels — starting from the REAL path, so a pnpm layout
+ * (where a package's deps live beside its resolved dir under .pnpm/, not
+ * hoisted) resolves too. */
+function resolvePackageDir(fromDir: string, name: string): string | undefined {
+  let current: string;
+  try {
+    current = realpathSync(fromDir);
+  } catch {
+    current = fromDir;
+  }
+  for (;;) {
+    const base = basename(current) === "node_modules" ? current : join(current, "node_modules");
+    const candidate = join(base, name);
+    if (existsSync(join(candidate, "package.json"))) return candidate;
+    const parent = dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
+}
+
+/** Copy the installed package plus the production-dependency closure into a
+ * hook-owned runtime, hoisted beside the package (the layout node resolves from
+ * <runtime>/node_modules/veritaserum/dist). Only the closure: a dev checkout's
+ * node_modules also holds devDependencies (typescript, vitest — hundreds of MB)
+ * that the hook never loads. */
 function copyPackageRuntime(runtimeModules: string): void {
   mkdirSync(runtimeModules, { recursive: true });
-  const nestedModules = join(pkgRoot(), "node_modules");
-  if (existsSync(nestedModules)) {
-    const runtimePackage = join(runtimeModules, "veritaserum");
-    mkdirSync(runtimePackage, { recursive: true });
-    cpSync(join(pkgRoot(), "dist"), join(runtimePackage, "dist"), { recursive: true, force: true });
-    copyFileSync(join(pkgRoot(), "package.json"), join(runtimePackage, "package.json"));
-    cpSync(nestedModules, join(runtimePackage, "node_modules"), { recursive: true, force: true, dereference: true });
-    return;
+  const runtimePackage = join(runtimeModules, "veritaserum");
+  mkdirSync(runtimePackage, { recursive: true });
+  cpSync(join(pkgRoot(), "dist"), join(runtimePackage, "dist"), { recursive: true, force: true });
+  copyFileSync(join(pkgRoot(), "package.json"), join(runtimePackage, "package.json"));
+
+  const queue: Array<{ from: string; name: string }> = readPackageDependencies(pkgRoot()).map((name) => ({ from: pkgRoot(), name }));
+  const seen = new Set<string>();
+  while (queue.length) {
+    const { from, name } = queue.shift()!;
+    if (seen.has(name)) continue;
+    const source = resolvePackageDir(from, name);
+    if (!source) continue;
+    seen.add(name);
+    cpSync(source, join(runtimeModules, name), { recursive: true, force: true, dereference: true });
+    queue.push(...readPackageDependencies(source).map((dep) => ({ from: source, name: dep })));
   }
-  cpSync(dirname(pkgRoot()), runtimeModules, { recursive: true, force: true, dereference: true });
 }
 
 let durableNpxRuntime: { cli: string; hook: string } | undefined;
@@ -102,7 +143,7 @@ function hookCommand(target: Target, sub: "hook-stop" | "hook-prompt" = "hook-st
   // "advisory mode" env var gated nothing and the install ceremony's "unset it to enable
   // blocking" was simply false. Blocking is per-law-entry and human-promoted, never a flag.
   const invocation = sub === "hook-stop" ? hookInvocation() : `${cliInvocation()} ${sub}`;
-  return `VS_EXECUTOR=${VENDOR[target]} VS_HARNESS=${target} ${invocation}${sub === "hook-stop" ? "" : ""}`;
+  return `VS_EXECUTOR=${VENDOR[target]} VS_HARNESS=${target} ${invocation}`;
 }
 
 /** Harnesses whose config dir exists on this machine (for a no-arg suggestion). */
@@ -147,31 +188,87 @@ interface Settings {
   [k: string]: unknown;
 }
 
-/** Merge one command hook into settings.hooks[event], idempotently. Returns true when added.
+/** A command this installer (any version of it) wrote for this harness: the env
+ *  marker plus any of the invocation shapes ever installed — `… npx -y veritaserum
+ *  hook-stop`, `… node <path>/cli.js hook-stop`, `… node '<path>/hook-cli.cjs'`,
+ *  `veritaserum-hook`. Keying on the last whitespace token misses the quoted-path
+ *  shapes, which left stale Stop hooks behind on upgrade (double audits per turn). */
+function isVeritaserumHookCommand(command: string, harness: string): boolean {
+  return (
+    command.includes(`VS_HARNESS=${harness}`) &&
+    /\bveritaserum\b|veritaserum-hook|hook-cli\.cjs|\bhook-(?:stop|prompt|seal-reminder)\b/.test(command)
+  );
+}
+
+/** Merge one command hook into settings.hooks[event], idempotently: any prior
+ *  veritaserum hook for the same harness (whatever invocation shape wrote it) is
+ *  replaced, duplicates are dropped. Returns true when the settings changed.
  *  `matcher` scopes SessionStart hooks (e.g. "compact"). */
 function mergeHook(settings: Settings, event: HookEvent, cmd: string, matcher?: string): boolean {
   const hooks = (settings.hooks && typeof settings.hooks === "object" ? settings.hooks : {}) as Partial<Record<HookEvent, HookGroup[]>>;
   const groups = Array.isArray(hooks[event]) ? hooks[event]! : [];
-  if (groups.some((g) => Array.isArray(g.hooks) && g.hooks.some((h) => h.command === cmd))) return false;
   const harness = cmd.match(/\bVS_HARNESS=([^\s]+)/)?.[1];
-  const subcommand = cmd.trim().split(/\s+/).at(-1);
-  if (harness && subcommand) {
+  if (harness) {
+    let kept = false;
+    let changed = false;
     for (const group of groups) {
-      const existing = group.hooks?.find(
-        (hook) => hook.command.includes(`VS_HARNESS=${harness}`) && hook.command.trim().endsWith(` ${subcommand}`),
-      );
-      if (existing) {
-        existing.command = cmd;
-        hooks[event] = groups;
-        settings.hooks = hooks;
+      if (!Array.isArray(group.hooks)) continue;
+      group.hooks = group.hooks.filter((hook) => {
+        if (!isVeritaserumHookCommand(hook.command, harness)) return true;
+        if (kept) {
+          changed = true;
+          return false;
+        }
+        kept = true;
+        if (hook.command !== cmd) {
+          hook.command = cmd;
+          changed = true;
+        }
         return true;
-      }
+      });
+    }
+    if (kept) {
+      hooks[event] = groups.filter((g) => !(Array.isArray(g.hooks) && g.hooks.length === 0));
+      settings.hooks = hooks;
+      return changed;
     }
   }
+  if (groups.some((g) => Array.isArray(g.hooks) && g.hooks.some((h) => h.command === cmd))) return false;
   groups.push({ ...(matcher ? { matcher } : {}), hooks: [{ type: "command", command: cmd }] });
   hooks[event] = groups;
   settings.hooks = hooks;
   return true;
+}
+
+/** Older installers wired a SessionStart(compact) hook running the now-deleted
+ *  `hook-seal-reminder` subcommand (it exits 2 as an unknown command on every
+ *  compaction) and appended a seal-rule block to CLAUDE.md. Reinstalling must
+ *  remove both, or an upgraded machine keeps a permanently failing hook. */
+function removeSealReminderHook(settings: Settings): boolean {
+  const hooks = settings.hooks;
+  if (!hooks || !Array.isArray(hooks["SessionStart"])) return false;
+  const groups = hooks["SessionStart"] as HookGroup[];
+  let changed = false;
+  for (const group of groups) {
+    if (!Array.isArray(group.hooks)) continue;
+    const before = group.hooks.length;
+    group.hooks = group.hooks.filter((h) => !h.command.includes("hook-seal-reminder"));
+    if (group.hooks.length !== before) changed = true;
+  }
+  if (!changed) return false;
+  const pruned = groups.filter((g) => !(Array.isArray(g.hooks) && g.hooks.length === 0));
+  if (pruned.length) hooks["SessionStart"] = pruned;
+  else delete hooks["SessionStart"];
+  return true;
+}
+
+function removeSealRuleBlock(claudeMd: string, steps: string[]): void {
+  if (!existsSync(claudeMd)) return;
+  const content = readFileSync(claudeMd, "utf8");
+  if (!content.includes("veritaserum:seal-rule")) return;
+  const cleaned = content.replace(/\n?<!-- veritaserum:seal-rule -->\n[^\n]*\n?/g, "\n");
+  writeFileSync(claudeMd, cleaned);
+  steps.push(s.ok(`removed stale seal rule from ${s.dim(claudeMd)}`));
 }
 
 async function installClaudeCode(hookCmd: string, global: boolean): Promise<InstallResult> {
@@ -198,16 +295,18 @@ async function installClaudeCode(hookCmd: string, global: boolean): Promise<Inst
     steps.push(s.ok(`backed up ${s.dim(file + ".vs-bak")}`));
   }
 
+  const removedSeal = removeSealReminderHook(settings);
   const addedStop = mergeHook(settings, "Stop", hookCmd);
   const addedPrompt = mergeHook(settings, "UserPromptSubmit", hookCommand("claude-code", "hook-prompt"));
-  if (addedStop || addedPrompt) {
+  if (addedStop || addedPrompt || removedSeal) {
     writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
     const added = [addedStop && "Stop", addedPrompt && "UserPromptSubmit"].filter(Boolean).join(" + ");
-    steps.push(s.ok(`added ${added} hook(s) to ${s.dim(file)}`));
+    if (added) steps.push(s.ok(`added ${added} hook(s) to ${s.dim(file)}`));
+    if (removedSeal) steps.push(s.ok(`removed stale seal-reminder hook from ${s.dim(file)}`));
   } else {
     steps.push(s.ok(`already installed — no change to ${s.dim(file)}`));
   }
-
+  removeSealRuleBlock(global ? join(homedir(), ".claude", "CLAUDE.md") : join(process.cwd(), "CLAUDE.md"), steps);
 
   const manual: string[] = [];
   return { target: "claude-code", hookCmd, steps, manual, primaryFile: file };
@@ -253,11 +352,11 @@ function installGoose(project: boolean): InstallResult {
 
   // A Goose plugin outlives the `npx` process that installed it. Copy a private,
   // offline-capable runtime instead of pointing the hook at npm's ephemeral bin
-  // shim or at a nonexistent ../../dist directory. Packed npm installs have one
-  // of two dependency layouts: nested under the package (global install), or
-  // hoisted beside it (`npx`). Preserve the working layout verbatim.
-  const invokedEntry = process.argv[1] ? resolve(process.argv[1]) : "";
-  if (invokedEntry === join(pkgRoot(), "dist", "cli.js") || /[\\/]_npx[\\/]/.test(invokedEntry)) {
+  // shim. Whenever a built dist exists (global install, npx cache, or a built
+  // checkout — `pnpm ser install goose` runs under tsx, so argv heuristics would
+  // miss it), the plugin gets its own runtime; without one the hook scripts fail
+  // open to PATH/checkout resolution.
+  if (existsSync(join(pkgRoot(), "dist", "hook-cli.cjs"))) {
     copyPackageRuntime(join(dest, "runtime", "node_modules"));
     steps.push(s.ok(`copied self-contained hook runtime → ${s.dim(join(dest, "runtime"))}`));
   }

@@ -270,7 +270,7 @@ function rmSafely(p: string): void {
 /** Move an errored job to dead/ with its error message alongside — never deleted. */
 function moveToDead(qdir: string, q: QueuedJob, err: unknown): void {
   const message = err instanceof Error ? err.message : String(err);
-  const base = q.file.slice(qdir.length + 1);
+  const base = q.file.slice(qdir.length + 1).replace(/\.claimed-\d+$/, "");
   try {
     renameSync(q.file, join(deadDir(qdir), base));
     writeFileSync(join(deadDir(qdir), `${base}.error.txt`), message, "utf8");
@@ -293,7 +293,28 @@ function isSuperseded(job: AuditJob, rest: QueuedJob[]): boolean {
   return job.mode === "live" && rest.some((q) => q.job.sessionId === job.sessionId);
 }
 
+/** A job claimed by a runner that died mid-audit must not be lost: rename it
+ *  back into the queue so the next drain retries it. */
+function reclaimOrphanedClaims(qdir: string): void {
+  let names: string[];
+  try {
+    names = readdirSync(qdir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    const m = name.match(/^(.+\.json)\.claimed-(\d+)$/);
+    if (!m || isAlive(Number(m[2]))) continue;
+    try {
+      renameSync(join(qdir, name), join(qdir, m[1]!));
+    } catch {
+      /* another runner reclaimed it first */
+    }
+  }
+}
+
 async function drain(qdir: string, runAudit: RunAudit): Promise<void> {
+  reclaimOrphanedClaims(qdir);
   for (;;) {
     const pending = listPending(qdir);
     const head = pending[0];
@@ -302,11 +323,21 @@ async function drain(qdir: string, runAudit: RunAudit): Promise<void> {
       rmSafely(head.file); // superseded — dropped, not run, not an error
       continue;
     }
+    // Claim via rename before running: the lockfile narrows concurrent drains
+    // but cannot fully exclude them (two runners can both reclaim a stale
+    // lock), and a rename succeeds for exactly one claimant — the same job is
+    // never audited twice.
+    const claimed = `${head.file}.claimed-${process.pid}`;
+    try {
+      renameSync(head.file, claimed);
+    } catch {
+      continue; // another runner claimed or removed it
+    }
     try {
       await runAudit(head.job);
-      rmSafely(head.file);
+      rmSafely(claimed);
     } catch (err) {
-      moveToDead(qdir, head, err);
+      moveToDead(qdir, { file: claimed, job: head.job }, err);
     }
   }
 }
@@ -330,8 +361,10 @@ async function withLock(qdir: string, fn: () => Promise<void>): Promise<void> {
       /* a concurrent owner may be between create and write */
     }
     if (Number.isFinite(held) && isAlive(held)) return;
-    // A stale owner cannot remove a newer owner's lock: the exclusive retry below
-    // either wins exactly once or observes another contender and returns.
+    // Two contenders that both observed the dead pid can interleave here (one's
+    // rm deleting the other's fresh lock), so the lock alone narrows — but does
+    // not guarantee — a single drainer. drain()'s per-job rename claim is what
+    // makes a double drain harmless.
     rmSafely(lp);
     try {
       writeFileSync(lp, String(process.pid), { encoding: "utf8", flag: "wx" });

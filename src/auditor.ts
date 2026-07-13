@@ -384,6 +384,21 @@ function parseReply(raw: string): ParsedAuditReply | null {
 //     pointed at but couldn't itself execute.
 // ---------------------------------------------------------------------------
 
+function normalizeClaimText(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/** Exact match, or containment where the CONTAINED text is itself long enough to
+ *  be specific. Unguarded containment let a short generic claim ("tests pass") in
+ *  a later, unrelated turn inherit support from any remembered origin claim — the
+ *  false-"supported" direction the auditor exists to prevent. */
+function claimTextsMatch(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  return short.length >= 40 && long.includes(short);
+}
+
 function foldMechanical(claims: ClaimVerdict[], checks: MechanicalCheckResult[]): ClaimVerdict[] {
   const failed = checks.filter((c) => !c.passed);
   const passedDemands = checks.filter((c) => c.passed && c.gateId.startsWith("demand:") && c.originClaim);
@@ -395,11 +410,14 @@ function foldMechanical(claims: ClaimVerdict[], checks: MechanicalCheckResult[])
   );
   return claims.map((c) => {
     if (c.verdict === "unsupported") {
-      const normalize = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
-      const claim = normalize(c.claim);
+      const claim = normalizeClaimText(c.claim);
+      // Explicit linkage first (same convention as the overturn path below):
+      // a claim carrying law_ids is credited only through them, never by text.
       const remembered = passedDemands.find((check) => {
-        const origin = normalize(check.originClaim || "");
-        return origin === claim || (origin.length > 20 && (origin.includes(claim) || claim.includes(origin)));
+        if (c.law_ids?.length) {
+          return c.law_ids.includes(check.gateId) || (check.lawId ? c.law_ids.includes(check.lawId) : false);
+        }
+        return claimTextsMatch(normalizeClaimText(check.originClaim || ""), claim);
       });
       if (remembered) {
         return {
@@ -575,13 +593,10 @@ export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdi
   const demands: Demand[] = [];
   if (reply) {
     for (const d of reply.demands) {
-      const normalize = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
-      const origin = normalize(d.origin_claim);
-      const originAlreadySupported = claims.some((claim) => {
-        if (claim.verdict !== "supported") return false;
-        const text = normalize(claim.claim);
-        return text === origin || (origin.length > 20 && (origin.includes(text) || text.includes(origin)));
-      });
+      const origin = normalizeClaimText(d.origin_claim);
+      const originAlreadySupported = claims.some(
+        (claim) => claim.verdict === "supported" && claimTextsMatch(origin, normalizeClaimText(claim.claim)),
+      );
       if (originAlreadySupported) continue;
       if (urgeOnly) {
         if (d.accept?.trim()) demands.push(d);

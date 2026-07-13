@@ -43,6 +43,12 @@ jobs:
       - name: Test (hermetic vitest — no network, MockLlmClient)
         run: pnpm test
 
+      # Packed-tarball production seams (npm pack + install + npx layouts).
+      # Deliberately NOT part of the hermetic suite: it needs npm and registry
+      # access, which CI has and an offline `pnpm test` must not require.
+      - name: Test (packed production package — network)
+        run: pnpm test:package
+
       # Plugin manifest validation (SPEC §6.12): catches a version bump that
       # forgets to sync .claude-plugin/plugin.json before it ships.
       - name: Check plugin manifest (version sync)

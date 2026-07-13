@@ -100,9 +100,13 @@ describe.sequential("packed production surfaces", () => {
       }),
     });
     expect(result.exitCode).toBe(0);
-    // Installed Codex Stop is deliberately silent. Plain text is rejected by
-    // Codex's Stop contract, and feedback belongs on UserPromptSubmit.
-    expect(result.stdout).toBe("");
+    // The installed hook prints the R7 standing-law state line (the fixture law
+    // has one runnable gate and no green run yet). Plain text is rejected by
+    // Codex's Stop contract, so it must arrive as the documented non-blocking
+    // systemMessage field — never bare stdout.
+    expect(JSON.parse(result.stdout)).toEqual({
+      systemMessage: "veritaserum: 1 standing check(s) unverified against current tree",
+    });
     const files = readdirSync(qdir).filter((name) => name.includes("__") && name.endsWith(".json"));
     expect(files).toHaveLength(1);
     const job = JSON.parse(readFileSync(join(qdir, files[0]!), "utf8"));

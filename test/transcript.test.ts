@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { readLastAssistantMessage, readLastUserMessage, readReceiptsTail } from "../src/transcript.js";
 
 describe("Claude Code transcript reader", () => {
@@ -10,7 +11,7 @@ describe("Claude Code transcript reader", () => {
       JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "All done, tests pass!" }] } }),
     ].join("\n");
     // write to a temp file
-    const p = join(process.cwd(), `node_modules/.cache-transcript-${process.pid}.jsonl`);
+    const p = join(tmpdir(), `vs-cache-transcript-${process.pid}.jsonl`);
     require("node:fs").writeFileSync(p, lines);
     expect(readLastAssistantMessage(p)).toBe("All done, tests pass!");
     require("node:fs").rmSync(p, { force: true });
@@ -31,7 +32,7 @@ describe("Claude Code transcript reader", () => {
       JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", name: "Bash", input: { command: "npm test" } }] } }),
       JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "tool_result", content: output }] } }),
     ].join("\n");
-    const p = join(process.cwd(), `node_modules/.cache-receipts-${process.pid}.jsonl`);
+    const p = join(tmpdir(), `vs-cache-receipts-${process.pid}.jsonl`);
     require("node:fs").writeFileSync(p, lines);
     const tail = readReceiptsTail(p);
     require("node:fs").rmSync(p, { force: true });
@@ -69,7 +70,7 @@ describe("Claude Code transcript reader", () => {
       },
       { timestamp: "2026-07-13T17:05:42.000Z", type: "event_msg", payload: { type: "agent_message", message: "Fixed it; node --test passed." } },
     ];
-    const p = join(process.cwd(), `node_modules/.cache-codex-receipts-${process.pid}.jsonl`);
+    const p = join(tmpdir(), `vs-cache-codex-receipts-${process.pid}.jsonl`);
     require("node:fs").writeFileSync(p, lines.map((line) => JSON.stringify(line)).join("\n"));
     try {
       expect(readLastUserMessage(p)).toBe("fix the retry policy");

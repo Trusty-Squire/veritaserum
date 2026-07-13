@@ -10,6 +10,7 @@
 import { createHash } from "node:crypto";
 import {
   appendFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -86,6 +87,7 @@ interface WatchdogOptions {
   stopFile?: string;
   intervalMs: number;
   latencyBudgetMs: number;
+  maxRuntimeMs: number;
   once: boolean;
   allowedRepoPrefixes: string[];
 }
@@ -113,6 +115,7 @@ const opts: WatchdogOptions = {
   ...(argv.includes("--stop-file") ? { stopFile: resolve(option("stop-file")) } : {}),
   intervalMs: Number(option("interval-ms", "100")),
   latencyBudgetMs: Number(option("latency-budget-ms", "50")),
+  maxRuntimeMs: Number(option("max-runtime-ms", String(6 * 60 * 60 * 1000))),
   once: argv.includes("--once"),
   allowedRepoPrefixes: option("allow-repo-prefixes", "")
     .split(",")
@@ -245,22 +248,42 @@ function violation(invariant: string, message: string, telemetry?: TelemetryRow)
   appendFileSync(opts.violations, JSON.stringify(record) + "\n");
 }
 
+/** Parse `git status --porcelain=v1 -z` records. Rename/copy records carry a
+ *  second NUL-separated origin-path field; a plain NUL split would misread it
+ *  as a standalone prefixless record. */
+function porcelainRecords(stdout: string): Array<{ record: string; path: string }> {
+  const fields = stdout.split("\0");
+  const records: Array<{ record: string; path: string }> = [];
+  for (let i = 0; i < fields.length; i++) {
+    const record = fields[i];
+    if (!record) continue;
+    const hasPrefix = record.length > 3 && record[2] === " ";
+    const path = hasPrefix ? record.slice(3) : record;
+    if (hasPrefix && /[RC]/.test(record.slice(0, 2))) i++; // consume the origin-path field
+    records.push({ record, path });
+  }
+  return records;
+}
+
 function repoStatus(): string[] {
   const result = spawnSync("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
     cwd: repo,
     encoding: "utf8",
   });
   if (result.status !== 0) return [`<git-status-error:${(result.stderr || "").trim()}>`];
-  return (result.stdout || "")
-    .split("\0")
-    .filter(Boolean)
-    .filter((line) => !line.endsWith(" veritaserum.law.yaml"))
-    .filter((line) => {
-      const path = line.length > 3 ? line.slice(3) : line;
-      return !opts.allowedRepoPrefixes.some((prefix) => path.startsWith(prefix));
-    })
+  return porcelainRecords(result.stdout || "")
+    .filter(({ record }) => !record.endsWith(" veritaserum.law.yaml"))
+    .filter(({ path }) => !opts.allowedRepoPrefixes.some((prefix) => path.startsWith(prefix)))
+    .map(({ record }) => record)
     .sort();
 }
+
+// Re-executing every demand on each 100ms tick would starve the sample loop
+// (each script may block up to 30s). Signature changes trigger a pass, but
+// never more often than this floor — and an oracle whose own side effects
+// dirty the repo can no longer force a re-run feedback loop on every tick.
+const DEMAND_INSPECTION_MIN_INTERVAL_MS = 5_000;
+let lastDemandInspectionAt = 0;
 
 function inspectDemands(): void {
   const dir = join(queueDir, "demands");
@@ -280,8 +303,7 @@ function inspectDemands(): void {
       signature.update(`${name}\0missing\0`);
     }
   }
-  for (const record of (status.stdout || "").split("\0").filter(Boolean)) {
-    const relative = record.length > 3 && record[2] === " " ? record.slice(3) : record;
+  for (const { path: relative } of porcelainRecords(status.stdout || "")) {
     try {
       const stat = statSync(join(repo, relative), { bigint: true });
       signature.update(`${relative}\0${stat.size}\0${stat.mtimeNs}\0`);
@@ -291,45 +313,70 @@ function inspectDemands(): void {
   }
   const digest = signature.digest("hex");
   if (digest === lastDemandInspectionSignature) return;
+  if (Date.now() - lastDemandInspectionAt < DEMAND_INSPECTION_MIN_INTERVAL_MS) return;
   lastDemandInspectionSignature = digest;
+  lastDemandInspectionAt = Date.now();
 
-  for (const name of names) {
-    const path = join(dir, name);
-    const source = readFileSync(path, "utf8");
-    if (
-      /\b(?:veritaserum|ser)\s+demands\b/i.test(source) ||
-      /\b(?:spawnSync|spawn|execFileSync|execFile)\s*\([\s\S]{0,1200}?["'`]demands["'`]/i.test(source)
-    ) {
+  // Pure observer: oracles run against a disposable COPY of the repo with a
+  // minimal environment — a side-effecting oracle can neither mutate the
+  // watched tree (and be misattributed to the product by the non-interference
+  // baseline) nor read API keys out of the watchdog's inherited env.
+  const stage = join(outDir, `demand-stage-${process.pid}`);
+  rmSync(stage, { recursive: true, force: true });
+  try {
+    cpSync(repo, stage, { recursive: true });
+  } catch (error) {
+    violation("oracle-integrity", `could not stage repo copy for demand inspection: ${error instanceof Error ? error.message : String(error)}`);
+    rmSync(stage, { recursive: true, force: true });
+    return;
+  }
+  try {
+    for (const name of names) {
+      const path = join(dir, name);
+      const source = readFileSync(path, "utf8");
+      if (
+        /\b(?:veritaserum|ser)\s+demands\b/i.test(source) ||
+        /\b(?:spawnSync|spawn|execFileSync|execFile)\s*\([\s\S]{0,1200}?["'`]demands["'`]/i.test(source)
+      ) {
+        const statuses = demandStatuses.get(path) ?? new Set<number>();
+        statuses.add(1);
+        demandStatuses.set(path, statuses);
+        violation("oracle-integrity", `${name} recursively invokes the demand runner`);
+        continue;
+      }
+      const inputType = name.endsWith(".mjs") ? "module" : "commonjs";
+      const recursionSentinel = `${path}.watchdog-recursion-${process.pid}`;
+      const run = spawnSync(process.execPath, [`--input-type=${inputType}`], {
+        cwd: stage,
+        encoding: "utf8",
+        env: {
+          PATH: process.env.PATH ?? "",
+          HOME: home,
+          VS_DEMAND_PATH: path,
+          VS_REPO_DIR: stage,
+          VS_DEMAND_EVALUATION_SENTINEL: recursionSentinel,
+        },
+        input: source,
+        timeout: 30_000,
+      });
+      const code = run.status ?? (run.signal ? 128 : 127);
       const statuses = demandStatuses.get(path) ?? new Set<number>();
-      statuses.add(1);
+      statuses.add(code);
       demandStatuses.set(path, statuses);
-      violation("oracle-integrity", `${name} recursively invokes the demand runner`);
-      continue;
+      const stderr = run.stderr || "";
+      if (existsSync(recursionSentinel)) {
+        rmSync(recursionSentinel, { force: true });
+        violation("oracle-integrity", `${name} dynamically invoked the demand runner recursively`);
+      }
+      if (run.signal || run.error || (code !== 0 && code !== 1)) {
+        violation("oracle-integrity", `${name} did not exit 0 or 1 (code=${code}, signal=${run.signal ?? "none"})`);
+      }
+      if (/SyntaxError:|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|Cannot find module|bad interpreter|ReferenceError: require is not defined/i.test(stderr)) {
+        violation("oracle-integrity", `${name} crashed before testing its acceptance condition: ${stderr.slice(0, 500)}`);
+      }
     }
-    const inputType = name.endsWith(".mjs") ? "module" : "commonjs";
-    const recursionSentinel = `${path}.watchdog-recursion-${process.pid}`;
-    const run = spawnSync(process.execPath, [`--input-type=${inputType}`], {
-      cwd: repo,
-      encoding: "utf8",
-      env: { ...process.env, VS_DEMAND_PATH: path, VS_REPO_DIR: repo, VS_DEMAND_EVALUATION_SENTINEL: recursionSentinel },
-      input: source,
-      timeout: 30_000,
-    });
-    const code = run.status ?? (run.signal ? 128 : 127);
-    const statuses = demandStatuses.get(path) ?? new Set<number>();
-    statuses.add(code);
-    demandStatuses.set(path, statuses);
-    const stderr = run.stderr || "";
-    if (existsSync(recursionSentinel)) {
-      rmSync(recursionSentinel, { force: true });
-      violation("oracle-integrity", `${name} dynamically invoked the demand runner recursively`);
-    }
-    if (run.signal || run.error || (code !== 0 && code !== 1)) {
-      violation("oracle-integrity", `${name} did not exit 0 or 1 (code=${code}, signal=${run.signal ?? "none"})`);
-    }
-    if (/SyntaxError:|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|Cannot find module|bad interpreter|ReferenceError: require is not defined/i.test(stderr)) {
-      violation("oracle-integrity", `${name} crashed before testing its acceptance condition: ${stderr.slice(0, 500)}`);
-    }
+  } finally {
+    rmSync(stage, { recursive: true, force: true });
   }
 }
 
@@ -515,9 +562,19 @@ process.on("SIGINT", () => {
 if (opts.once) {
   finalize();
 } else {
+  // Orphan protection: if the harness dies without writing the stop file
+  // (SIGKILL, OOM), this process is reparented — detect that (or the hard
+  // runtime deadline) and finalize instead of sampling forever.
+  const initialParent = process.ppid;
+  const deadline = Date.now() + Math.max(60_000, opts.maxRuntimeMs);
   sample();
   setInterval(() => {
     if (opts.stopFile && existsSync(opts.stopFile)) {
+      finalize();
+      process.exit(0);
+    }
+    if (process.ppid !== initialParent || Date.now() > deadline) {
+      violation("termination", process.ppid !== initialParent ? "watchdog orphaned: parent process died without writing the stop file" : "watchdog exceeded its maximum runtime");
       finalize();
       process.exit(0);
     }

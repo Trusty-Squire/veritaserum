@@ -12,7 +12,7 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { commitPaths, currentTreeHash } from "./git.js";
-import { loadLaw, retireDemandLaw, retireLaw, runnableChecks, LAW_FILENAME } from "./law.js";
+import { loadLaw, readLawTreeSync, retireDemandLaw, retireLaw, runnableChecks, LAW_FILENAME } from "./law.js";
 import { resolveAuditor, doctorReport } from "./resolve.js";
 import { enqueue, queueRoot, lawCheckMarkerPath, takePendingFeedback, type AuditJob } from "./audit-runner.js";
 import { runDemands, retireDemand } from "./demands.js";
@@ -229,19 +229,26 @@ async function main(argv: string[]): Promise<number> {
       const lawId = rest[0];
       const reason = rest.slice(1).join(" ").trim();
       if (!lawId || !reason) return usage('retire <law-id|demand-slug> "<reason>"');
-      // Demands live in the state dir (docs/DEMANDS.md phase 1) — try there first.
-      if (retireDemand(dir, lawId)) {
-        if (await retireDemandLaw(dir, lawId, reason)) {
+      // A demand is two records — the state-dir script (this machine only) and the
+      // git-tracked law entry (every machine). Retire whichever exist, in either
+      // direction, so a slug retires the law gate even where the script is absent
+      // and a law-id retires the local script too.
+      const scriptRetired = retireDemand(dir, lawId);
+      const demandLawRetired = await retireDemandLaw(dir, lawId, reason);
+      if (scriptRetired || demandLawRetired) {
+        if (demandLawRetired) {
           await commitPaths(dir, [LAW_FILENAME], `ser: retire demand ${lawId} (${reason})`);
         }
         console.log(`retired demand ${lawId}: ${reason} (moved to retired/, never resurrected)`);
         return 0;
       }
+      const slugForLawId = readLawTreeSync(dir)?.gates.find((g) => g.id === lawId)?.lineage.params?.demandSlug;
       const ok = await retireLaw(dir, lawId, reason);
       if (!ok) {
         console.log(`no active law entry or demand "${lawId}" to retire`);
         return 0;
       }
+      if (typeof slugForLawId === "string" && slugForLawId) retireDemand(dir, slugForLawId);
       await commitPaths(dir, [LAW_FILENAME], `ser: retire law ${lawId} (${reason})`);
       console.log(`retired ${lawId}: ${reason} (recorded, not deleted)`);
       return 0;
@@ -464,6 +471,9 @@ async function main(argv: string[]): Promise<number> {
           finalMessage: session.finalAssistantMessage,
           userRequest: session.userRequest ?? "",
           ...(session.receiptsTail ? { receipts: session.receiptsTail } : {}),
+          harness: harnessName(),
+          schedulingMode: process.env.VS_AUDIT_MODE === "testbed" ? "testbed" : "live",
+          demandMode: process.env.VS_DEMAND_MODE === "urge" ? "urge" : "script",
         };
         const verdict = await audit(contentJob, auditor);
 

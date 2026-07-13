@@ -47,6 +47,12 @@ function loadTurnMaterial(job: AuditJob): { finalMessage: string; userRequest: s
     const receipts = readReceiptsTail(job.transcriptPath);
     return { finalMessage, userRequest, ...(receipts ? { receipts } : {}) };
   }
+  // A payload-supplied final message (codex's documented content field — "never
+  // discard") is authoritative even without a transcript path; only a job with
+  // neither falls through to goose's sessions.db.
+  if (typeof job.finalMessage === "string") {
+    return { finalMessage: job.finalMessage, userRequest: job.userRequest ?? "" };
+  }
   const session = readGooseSession(job.sessionId);
   return {
     finalMessage: session.finalAssistantMessage ?? "",
@@ -130,8 +136,11 @@ export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
     demandMode: job.demandMode || "script",
   };
   const verdict = await audit(contentJob, auditor);
+  // Count law-registered checks (demand law copies carry lawId) — the same set
+  // install-time writeHookLawState counts via runnableChecks(law), so the two
+  // writers of the cached R7 state always agree.
   writeHookLawState(job.dir, {
-    runnableCount: verdict.mechanicalChecks.filter((check) => !check.gateId.startsWith("demand:")).length,
+    runnableCount: verdict.mechanicalChecks.filter((check) => !check.gateId.startsWith("demand:") || check.lawId).length,
   });
   appendSessionWarnings(job.dir, job.sessionId, verdict.warnings);
 

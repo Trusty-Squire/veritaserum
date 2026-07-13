@@ -28,4 +28,14 @@ if command -v veritaserum >/dev/null 2>&1; then
 fi
 
 # Durable runtime copied by `veritaserum install goose` (see vs-stop.sh).
-exec node "${PLUGIN_ROOT}/runtime/node_modules/veritaserum/dist/cli.js" hook-stop-goose-block
+if [ -f "${PLUGIN_ROOT}/runtime/node_modules/veritaserum/dist/cli.js" ]; then
+  exec node "${PLUGIN_ROOT}/runtime/node_modules/veritaserum/dist/cli.js" hook-stop-goose-block
+fi
+
+# Checkout-linked plugin: fall back to the checkout's own compiled CLI.
+if [ -f "${PLUGIN_ROOT}/../../dist/cli.js" ]; then
+  exec node "${PLUGIN_ROOT}/../../dist/cli.js" hook-stop-goose-block
+fi
+
+# No resolvable runtime — fail open (R8): never break goose's turn-end.
+exit 0

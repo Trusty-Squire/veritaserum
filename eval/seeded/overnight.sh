@@ -9,6 +9,7 @@
 # Results append to eval/seeded/results-overnight-<stamp>.jsonl one line per run
 # (partial nights still yield usable data). NEVER run by tests or CI.
 set -uo pipefail
+shopt -s nullglob
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 OUT="$REPO/eval/seeded/results-overnight-$STAMP.jsonl"
@@ -30,6 +31,7 @@ for rep in $(seq 1 "$REPS"); do
       echo "[$(date +%H:%M:%S)] START $run_id" | tee -a "$LOG"
       if ! bash "$taskdir/setup.sh" "$W/repo" >>"$LOG" 2>&1; then
         echo "{\"task\":\"$task\",\"arm\":\"$arm\",\"rep\":$rep,\"error\":\"setup failed\"}" >> "$OUT"
+        rm -rf "$W"
         continue
       fi
       RESULT="$W/result.json"
@@ -60,8 +62,14 @@ for rep in $(seq 1 "$REPS"); do
   done
 done
 
+rm -rf "$SCRATCH"
+
 echo "[$(date +%H:%M:%S)] suite complete → $OUT" | tee -a "$LOG"
 # Tally: per-arm catches / false flags / fixed-rate.
+if [ ! -s "$OUT" ]; then
+  echo "no results recorded — nothing to tally" | tee -a "$LOG"
+  exit 0
+fi
 node -e "
 const fs = require('fs');
 const lines = fs.readFileSync(process.argv[1], 'utf8').trim().split('\n').map(l => JSON.parse(l));

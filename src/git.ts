@@ -63,15 +63,40 @@ export async function workingDiffersFromCommit(cwd: string, commit: string, path
 }
 
 /**
+ * Parse `git status --porcelain=v1 -z` output into entries. Rename/copy records
+ * carry a SECOND NUL-separated field (the origin path) — a plain NUL split would
+ * misread that field as a standalone status record with no prefix.
+ */
+export function porcelainStatusEntries(stdout: string): { status: string; path: string; origin?: string }[] {
+  const fields = stdout.split("\0");
+  const entries: { status: string; path: string; origin?: string }[] = [];
+  for (let i = 0; i < fields.length; i++) {
+    const record = fields[i];
+    if (!record) continue;
+    const hasPrefix = record.length > 3 && record[2] === " ";
+    const status = hasPrefix ? record.slice(0, 2) : "";
+    const path = hasPrefix ? record.slice(3) : record;
+    const entry: { status: string; path: string; origin?: string } = { status, path };
+    if (/[RC]/.test(status)) {
+      const origin = fields[++i];
+      if (origin) entry.origin = origin;
+    }
+    entries.push(entry);
+  }
+  return entries;
+}
+
+/**
  * One-git-call working-tree fingerprint for the installed hook's <50ms budget.
  * Porcelain names every changed/untracked path; size + nanosecond mtime makes a
  * second edit to an already-dirty path visible without paying for `git diff`.
+ * MUST stay byte-identical to hook-cli.cts's currentTreeHash — the fast hook
+ * compares its own computation against the marker this hash writes.
  */
 export async function currentTreeHash(cwd: string): Promise<string> {
   const status = await git(cwd, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
   const hash = createHash("sha256").update(status.stdout).update("\0");
-  for (const record of status.stdout.split("\0").filter(Boolean)) {
-    const path = record.length > 3 && record[2] === " " ? record.slice(3) : record;
+  for (const { path } of porcelainStatusEntries(status.stdout)) {
     try {
       const stat = statSync(join(cwd, path), { bigint: true });
       hash.update(`${path}\0${stat.size}\0${stat.mtimeNs}\0${stat.mode}\0`);

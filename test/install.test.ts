@@ -6,10 +6,19 @@
  * The claude-code branch is untouched (no coverage change here).
  */
 import { describe, it, expect, afterEach } from "vitest";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm, readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { installTarget } from "../src/install.js";
+
+// hookInvocation() resolves dist/hook-cli.cjs when built and falls back to the
+// veritaserum-hook bin name on a clean checkout — assert whichever shape THIS
+// checkout deterministically produces, not a build-state-dependent literal.
+const expectedHookRef = existsSync(fileURLToPath(new URL("../dist/hook-cli.cjs", import.meta.url)))
+  ? "hook-cli.cjs"
+  : "veritaserum-hook";
 
 let cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -28,7 +37,7 @@ describe("harness installs", () => {
       await installTarget("claude-code", {});
       await installTarget("claude-code", {});
       const settings = JSON.parse(await readFile(join(home, ".claude", "settings.json"), "utf8"));
-      expect(settings.hooks.Stop[0].hooks[0].command).toContain("hook-cli.cjs");
+      expect(settings.hooks.Stop[0].hooks[0].command).toContain(expectedHookRef);
       expect(settings.hooks.Stop).toHaveLength(1); // installing twice adds one hook, not two
       // VS_ADVISORY gated nothing (R5: the audit path never blocks), and the install
       // ceremony's "unset it to enable blocking" was false. It is not written any more.
@@ -42,7 +51,7 @@ describe("harness installs", () => {
     const home = await withHome();
     const res = await installTarget("codex", {});
     const settings = JSON.parse(await readFile(join(home, ".codex", "hooks.json"), "utf8"));
-    expect(settings.hooks.Stop[0].hooks[0].command).toContain("hook-cli.cjs");
+    expect(settings.hooks.Stop[0].hooks[0].command).toContain(expectedHookRef);
     expect(settings.hooks.Stop[0].hooks[0].command).not.toContain("VS_ADVISORY");
     expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).toContain("hook-prompt");
     expect(res.primaryFile).toBe(join(home, ".codex", "hooks.json"));

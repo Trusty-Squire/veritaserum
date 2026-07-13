@@ -17,6 +17,7 @@
  * git-tracked law register; the hidden executable bytes are not. First-green
  * review, distrust states, and a dedicated CI job remain deferred.
  */
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { execa } from "execa";
@@ -69,12 +70,18 @@ function slugify(s: string): string {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
+    .replace(/^-+|-+$/g, "");
 }
 
+/** Slugs are capped at 60 chars, but two distinct gap sentences can share their
+ *  first 60 characters — a bare truncation silently drops the second demand as a
+ *  "duplicate". A content hash suffix keeps truncated slugs stable AND distinct;
+ *  short slugs keep their historical unhashed form. */
 export function demandSlug(d: AuthoredDemand): string {
-  return slugify(d.gap) || slugify(d.origin_claim) || "demand";
+  const raw = slugify(d.gap) || slugify(d.origin_claim) || "demand";
+  if (raw.length <= 60) return raw;
+  const hash = createHash("sha256").update(raw).digest("hex").slice(0, 8);
+  return `${raw.slice(0, 51).replace(/-+$/, "")}-${hash}`;
 }
 
 /** Header lines are the demand's whole provenance record (register deferred).
@@ -152,14 +159,14 @@ function parseHeader(content: string): { remedy?: string; accept?: string; origi
 async function runScript(
   dir: string,
   scriptPath: string,
-): Promise<{ passed: boolean; exitCode: number; interpreterCrash: boolean }> {
+): Promise<{ passed: boolean; exitCode: number; interpreterCrash: boolean; timedOut: boolean }> {
   // Execute the state-owned source on stdin. For ESM, Node then assigns
   // `import.meta.url` to <repo>/[eval1]; for CommonJS, `__dirname` is `.`. That
   // makes the documented cwd contract true even when an authored script derives
   // its repository root from module location — a common real-auditor shape.
   const source = readFileSync(scriptPath, "utf8");
   if (selfInvokesDemandRunner(source)) {
-    return { passed: false, exitCode: 1, interpreterCrash: true };
+    return { passed: false, exitCode: 1, interpreterCrash: true, timedOut: false };
   }
   const inputType = scriptPath.endsWith(".mjs") ? "module" : "commonjs";
   const recursionSentinel = `${scriptPath}.recursion-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -182,7 +189,8 @@ async function runScript(
     /SyntaxError:|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|Cannot find module|bad interpreter|ReferenceError: require is not defined/i.test(
       stderr,
     );
-  return { passed: r.exitCode === 0, exitCode: r.exitCode ?? 1, interpreterCrash };
+  const timedOut = r.timedOut ?? false;
+  return { passed: r.exitCode === 0 && !timedOut, exitCode: r.exitCode ?? 1, interpreterCrash, timedOut };
 }
 
 /**
@@ -207,7 +215,9 @@ export async function materializeDemand(dir: string, d: AuthoredDemand): Promise
   writeFileSync(path, header(d, new Date()) + stripShebang(d.test_file), "utf8");
 
   const probe = await runScript(dir, path);
-  if (probe.interpreterCrash) {
+  if (probe.interpreterCrash || probe.timedOut) {
+    // A hung oracle is as useless as a crashing one — and once law-registered it
+    // would cost the full gate timeout on every subsequent audit.
     rmSync(path, { force: true });
     return { action: "discarded_invalid", path, slug };
   }
@@ -225,6 +235,11 @@ export async function materializeDemand(dir: string, d: AuthoredDemand): Promise
  * passing or copying a test into the user's repository.
  */
 export function demandLawCommand(slug: string): string {
+  // Mirrors runScript's guards — pre-execution self-invocation screening, a
+  // recursion sentinel, a 30s timeout, and the VS_DEMAND_* env contract — since
+  // once a demand is law-registered this embedded runner is its ONLY execution
+  // path. Must stay free of literal single quotes (the whole runner is
+  // single-quoted for the shell): a unicode escape stands in inside the regex.
   const runner = [
     'const fs=require("node:fs"),os=require("node:os"),path=require("node:path"),crypto=require("node:crypto"),cp=require("node:child_process");',
     'const cwd=process.cwd(),key=crypto.createHash("sha256").update(path.resolve(cwd)).digest("hex").slice(0,16);',
@@ -232,8 +247,14 @@ export function demandLawCommand(slug: string): string {
     'const base=path.join(root,key,"demands"),slug=process.argv[1];',
     'const file=[".cjs",".mjs",".js"].map(x=>path.join(base,slug+x)).find(fs.existsSync);',
     'if(!file)process.exit(1);',
+    'const src=fs.readFileSync(file,"utf8");',
+    'if(/\\b(?:veritaserum|ser)\\s+demands\\b/i.test(src)||/\\b(?:spawnSync|spawn|execFileSync|execFile)\\s*\\([\\s\\S]{0,1200}?["\\u0027`]demands["\\u0027`]/i.test(src))process.exit(1);',
     'const type=file.endsWith(".mjs")?"module":"commonjs";',
-    'const r=cp.spawnSync(process.execPath,["--input-type="+type],{cwd,input:fs.readFileSync(file),stdio:["pipe","inherit","inherit"]});',
+    'const sentinel=file+".recursion-"+process.pid+"-"+Date.now();',
+    'const r=cp.spawnSync(process.execPath,["--input-type="+type],{cwd,input:src,stdio:["pipe","inherit","inherit"],timeout:30000,env:{...process.env,VS_DEMAND_PATH:file,VS_REPO_DIR:cwd,VS_DEMAND_EVALUATION_SENTINEL:sentinel}});',
+    'const recursed=fs.existsSync(sentinel);',
+    'try{fs.rmSync(sentinel,{force:true})}catch{}',
+    'if(recursed)process.exit(1);',
     'process.exit(r.status??1);',
   ].join("");
   return `node -e '${runner}' '${slug}'`;

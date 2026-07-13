@@ -18,6 +18,7 @@ import {
   openSync,
   readFileSync,
   readdirSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -120,8 +121,20 @@ function seedCredential(relative: string): void {
 
 // Copy only credential material, never global config or hooks. The real files remain
 // untouched; all auditor/executor state is written beneath this run's scratch HOME.
-seedCredential(join(".codex", "auth.json"));
-seedCredential(join(".claude", ".credentials.json"));
+const seededCredentials = [join(".codex", "auth.json"), join(".claude", ".credentials.json")];
+for (const relative of seededCredentials) seedCredential(relative);
+
+// The scratch HOME persists for post-run inspection, but plaintext credential
+// copies must not accumulate across runs — scrub them the moment the run ends.
+function scrubSeededCredentials(): void {
+  for (const relative of seededCredentials) {
+    try {
+      rmSync(join(home, relative), { force: true });
+    } catch {
+      // Best-effort scrub.
+    }
+  }
+}
 
 async function run(
   id: string,
@@ -361,7 +374,20 @@ function repoStatus(repo: string): string[] {
     encoding: "utf8",
   });
   if (result.status !== 0) throw new Error(`git status failed: ${result.stderr || "unknown error"}`);
-  return (result.stdout || "").split("\0").filter(Boolean).filter((line) => !line.endsWith(" veritaserum.law.yaml")).sort();
+  // Rename/copy records carry a second NUL-separated origin-path field —
+  // consume it instead of misreading it as a standalone entry. MUST serialize
+  // exactly like the watchdog's repoStatus: the baseline this writes is
+  // compared byte-for-byte by the watchdog's non-interference check.
+  const fields = (result.stdout || "").split("\0");
+  const records: string[] = [];
+  for (let i = 0; i < fields.length; i++) {
+    const record = fields[i];
+    if (!record) continue;
+    const hasPrefix = record.length > 3 && record[2] === " ";
+    if (hasPrefix && /[RC]/.test(record.slice(0, 2))) i++;
+    records.push(record);
+  }
+  return records.filter((line) => !line.endsWith(" veritaserum.law.yaml")).sort();
 }
 
 function recordPid(kind: string, pid: number, command: string): void {
@@ -406,12 +432,21 @@ function startWatchdog(repo: string): { child: ChildProcess; baseline: string } 
 async function stopWatchdog(child: ChildProcess): Promise<void> {
   if (!child.pid) return;
   const exited = new Promise<void>((done) => child.once("exit", () => done()));
+  // Cleared timers everywhere: a pending grace timer would otherwise keep the
+  // event loop alive ~45s after every normal run.
+  const waitOrTimeout = async (ms: number): Promise<boolean> => {
+    let timer: NodeJS.Timeout | undefined;
+    const result = await Promise.race([
+      exited.then(() => true),
+      new Promise<false>((done) => {
+        timer = setTimeout(() => done(false), ms);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+    return result;
+  };
   writeFileSync(watchdogStopPath, "stop\n");
-  const stoppedGracefully = await Promise.race([
-    exited.then(() => true),
-    new Promise<false>((done) => setTimeout(() => done(false), 45_000)),
-  ]);
-  if (stoppedGracefully) return;
+  if (await waitOrTimeout(45_000)) return;
   // Explicit-PID safety contract: inspect the exact process before signaling it.
   let command = "";
   try {
@@ -422,6 +457,10 @@ async function stopWatchdog(child: ChildProcess): Promise<void> {
   appendJson(pidsPath, { ts: new Date().toISOString(), kind: "inspect-before-stop", pid: child.pid, command });
   if (!command.includes("invariant-watchdog.ts")) throw new Error(`refusing to signal unrecognized PID ${child.pid}: ${command}`);
   child.kill("SIGTERM");
+  // A watchdog wedged in a synchronous pass defers signal handling — never
+  // hang the harness on it.
+  if (await waitOrTimeout(15_000)) return;
+  child.kill("SIGKILL");
   await exited;
 }
 
@@ -501,6 +540,9 @@ async function manualPayloadMatrix(
 ): Promise<{ codexTranscript: string; codexFinal: string }> {
   const transcript = join(runRoot, "transcripts", "claude-scale.jsonl");
   const finalMessage = writeClaudeScaleTranscript(transcript);
+  // The >128 KiB-transcript arm exists to prove the E2BIG/STDIN fix audits the
+  // long session's CONTENT: assert a token from the transcript's final message
+  // in the audit row, not merely that some audit row exists.
   const claude = await invokeShellHook(
     "claude-code-scale",
     hooks.claudeHook,
@@ -508,8 +550,9 @@ async function manualPayloadMatrix(
     { session_id: "cc-scale-session", transcript_path: transcript, cwd: repo, stop_hook_active: false },
     "claude-code",
     { VS_AUDITOR: "codex", VS_HARNESS: "claude-code", VS_EXECUTOR: "claude" },
+    "benchmark this workload",
   );
-  // Add the expected final message after invokeShellHook's generic record.
+  // Record the full expected final message alongside the generic record.
   appendJson(expectedPath, {
     id: "claude-code-scale-content",
     harness: "claude-code",
@@ -519,7 +562,7 @@ async function manualPayloadMatrix(
     expectedAudit: false,
     hookExit: claude.exitCode,
     hookLatencyMs: claude.durationMs,
-    note: "content assertion for the scale turn",
+    note: "expected final-message content for the scale turn (asserted via claude-code-scale's expectedClaimToken)",
   } satisfies ExpectedTurn);
 
   const codexTranscript = join(runRoot, "transcripts", "codex-stop.jsonl");
@@ -776,10 +819,13 @@ async function liveSessions(repo: string, bin: string): Promise<number> {
     finding({ severity: "P2", invariant: "coverage", title: "Live Codex control could not be verified", reproduction: codex.command, evidence: codex.stderr || codex.stdout });
   }
 
+  // Same read-only discipline as the codex control's `-s read-only`: the
+  // control runs inside the watched matrix repo, and any write it made would
+  // be attributed to the product by the watchdog's non-interference baseline.
   const claude = await run(
     "live-claude-honest-control",
     "claude",
-    ["-p", honestPrompt],
+    ["-p", honestPrompt, "--allowedTools", "Bash(git status:*)"],
     { cwd: repo, env: { VS_AUDITOR: "codex" }, timeout: 300_000 },
   );
   if (claude.exitCode === 0) {
@@ -1006,11 +1052,29 @@ async function faultInjection(command: string): Promise<FaultResult[]> {
   const auditorPid = await waitForPidFile(pidFile);
   let killNote = "auditor PID file was not observed";
   if (auditorPid) {
-    const cmdline = readFileSync(`/proc/${auditorPid}/cmdline`, "utf8").replace(/\0/g, " ");
+    // The shim writes its pid BEFORE `exec sleep 30` replaces it, so a fast
+    // read can still see the shim path — poll until the exec lands instead of
+    // aborting the whole run on one early sample. Refusing to signal anything
+    // whose cmdline never shows the expected sleep also narrows PID reuse.
+    let cmdline = "";
+    const inspectDeadline = Date.now() + 5_000;
+    while (Date.now() < inspectDeadline) {
+      try {
+        cmdline = readFileSync(`/proc/${auditorPid}/cmdline`, "utf8").replace(/\0/g, " ");
+      } catch {
+        cmdline = "";
+        break;
+      }
+      if (cmdline.includes("sleep 30")) break;
+      await new Promise((done) => setTimeout(done, 25));
+    }
     recordPid("inspect-before-kill", auditorPid, cmdline);
-    if (!cmdline.includes("sleep 30")) throw new Error(`refusing to kill unexpected PID ${auditorPid}: ${cmdline}`);
-    process.kill(auditorPid, "SIGTERM");
-    killNote = `explicit inspected PID ${auditorPid} (${cmdline.trim()}) received SIGTERM`;
+    if (cmdline.includes("sleep 30")) {
+      process.kill(auditorPid, "SIGTERM");
+      killNote = `explicit inspected PID ${auditorPid} (${cmdline.trim()}) received SIGTERM`;
+    } else {
+      killNote = `refused to signal PID ${auditorPid}: cmdline never showed the expected shim sleep (${cmdline.trim() || "process gone"})`;
+    }
   }
   const killedObserved = await waitForAuditCount(killRepo, beforeAudits + 1, 45_000);
   results.push({
@@ -1236,9 +1300,11 @@ async function main(): Promise<void> {
   if (findings.some((item) => item.severity === "P0") && !keepGoing) process.exitCode = 1;
 }
 
-main().catch((error) => {
-  const message = error instanceof Error ? `${error.message}\n${error.stack || ""}` : String(error);
-  writeFileSync(join(reportsDir, "fatal.txt"), message + "\n");
-  process.stderr.write(message + "\n");
-  process.exitCode = 1;
-});
+main()
+  .catch((error) => {
+    const message = error instanceof Error ? `${error.message}\n${error.stack || ""}` : String(error);
+    writeFileSync(join(reportsDir, "fatal.txt"), message + "\n");
+    process.stderr.write(message + "\n");
+    process.exitCode = 1;
+  })
+  .finally(scrubSeededCredentials);
