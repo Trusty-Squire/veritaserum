@@ -68,28 +68,39 @@ function resolvePackageDir(fromDir: string, name: string): string | undefined {
   }
 }
 
+function copyPackageTree(source: string, dest: string): void {
+  mkdirSync(dest, { recursive: true });
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    if (entry.name === "node_modules") continue;
+    cpSync(join(source, entry.name), join(dest, entry.name), { recursive: true, force: true, dereference: true });
+  }
+}
+
 /** Copy the installed package plus the production-dependency closure into a
- * hook-owned runtime, hoisted beside the package (the layout node resolves from
- * <runtime>/node_modules/veritaserum/dist). Only the closure: a dev checkout's
- * node_modules also holds devDependencies (typescript, vitest — hundreds of MB)
- * that the hook never loads. */
-function copyPackageRuntime(runtimeModules: string): void {
+ * hook-owned runtime, laid out the same way Node resolves it from the package
+ * itself (nested `node_modules/<pkg>` entries, not a flat first-wins hoist).
+ * Only the closure: a dev checkout's node_modules also holds devDependencies
+ * (typescript, vitest — hundreds of MB) that the hook never loads. */
+export function copyPackageRuntimeFrom(packageDir: string, runtimeModules: string): void {
   mkdirSync(runtimeModules, { recursive: true });
   const runtimePackage = join(runtimeModules, "veritaserum");
-  mkdirSync(runtimePackage, { recursive: true });
-  cpSync(join(pkgRoot(), "dist"), join(runtimePackage, "dist"), { recursive: true, force: true });
-  copyFileSync(join(pkgRoot(), "package.json"), join(runtimePackage, "package.json"));
+  copyPackageTree(packageDir, runtimePackage);
 
-  const queue: Array<{ from: string; name: string }> = readPackageDependencies(pkgRoot()).map((name) => ({ from: pkgRoot(), name }));
+  const queue: Array<{ from: string; name: string; dest: string }> = readPackageDependencies(packageDir).map((name) => ({
+    from: packageDir,
+    name,
+    dest: join(runtimePackage, "node_modules", name),
+  }));
   const seen = new Set<string>();
   while (queue.length) {
-    const { from, name } = queue.shift()!;
-    if (seen.has(name)) continue;
+    const { from, name, dest } = queue.shift()!;
     const source = resolvePackageDir(from, name);
     if (!source) continue;
-    seen.add(name);
-    cpSync(source, join(runtimeModules, name), { recursive: true, force: true, dereference: true });
-    queue.push(...readPackageDependencies(source).map((dep) => ({ from: source, name: dep })));
+    const key = `${source}\0${dest}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    copyPackageTree(source, dest);
+    queue.push(...readPackageDependencies(source).map((dep) => ({ from: source, name: dep, dest: join(dest, "node_modules", dep) })));
   }
 }
 
@@ -100,7 +111,7 @@ let durableNpxRuntime: { cli: string; hook: string } | undefined;
 function npxRuntimeInvocations(): { cli: string; hook: string } {
   if (durableNpxRuntime) return durableNpxRuntime;
   const runtimeModules = join(homedir(), ".veritaserum", "runtime", "node_modules");
-  copyPackageRuntime(runtimeModules);
+  copyPackageRuntimeFrom(pkgRoot(), runtimeModules);
   const runtimePackage = join(runtimeModules, "veritaserum", "dist");
   durableNpxRuntime = {
     cli: `node ${shellQuote(join(runtimePackage, "cli.js"))}`,
@@ -357,7 +368,7 @@ function installGoose(project: boolean): InstallResult {
   // miss it), the plugin gets its own runtime; without one the hook scripts fail
   // open to PATH/checkout resolution.
   if (existsSync(join(pkgRoot(), "dist", "hook-cli.cjs"))) {
-    copyPackageRuntime(join(dest, "runtime", "node_modules"));
+    copyPackageRuntimeFrom(pkgRoot(), join(dest, "runtime", "node_modules"));
     steps.push(s.ok(`copied self-contained hook runtime → ${s.dim(join(dest, "runtime"))}`));
   }
 

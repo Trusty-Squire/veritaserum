@@ -267,6 +267,34 @@ function rmSafely(p: string): void {
   }
 }
 
+const CLAIM_RETRY_BACKOFF_MS = [25, 50, 100] as const;
+const RETRYABLE_FS_CODES = new Set(["EACCES", "EPERM", "EBUSY", "ENOTEMPTY", "EMFILE", "ENFILE"]);
+
+function fsErrorCode(err: unknown): string | undefined {
+  return typeof err === "object" && err !== null && "code" in err ? String((err as NodeJS.ErrnoException).code ?? "") : undefined;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function retryFilesystemClaim(op: () => void, label: string): Promise<boolean> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < CLAIM_RETRY_BACKOFF_MS.length; attempt++) {
+    try {
+      op();
+      return true;
+    } catch (err) {
+      const code = fsErrorCode(err);
+      if (code === "ENOENT" || code === "ENOTDIR") return false;
+      lastErr = err;
+      if (!code || !RETRYABLE_FS_CODES.has(code) || attempt === CLAIM_RETRY_BACKOFF_MS.length - 1) break;
+      await sleep(CLAIM_RETRY_BACKOFF_MS[attempt]!);
+    }
+  }
+  throw new Error(`${label} stalled after ${CLAIM_RETRY_BACKOFF_MS.length} attempt(s): ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`);
+}
+
 /** Move an errored job to dead/ with its error message alongside — never deleted. */
 function moveToDead(qdir: string, q: QueuedJob, err: unknown): void {
   const message = err instanceof Error ? err.message : String(err);
@@ -320,7 +348,10 @@ async function drain(qdir: string, runAudit: RunAudit): Promise<void> {
     const head = pending[0];
     if (!head) return;
     if (isSuperseded(head.job, pending.slice(1))) {
-      rmSafely(head.file); // superseded — dropped, not run, not an error
+      await retryFilesystemClaim(
+        () => rmSync(head.file, { force: true }),
+        `superseded job removal for ${head.job.sessionId}/${head.job.turnRef}`,
+      );
       continue;
     }
     // Claim via rename before running: the lockfile narrows concurrent drains
@@ -328,11 +359,11 @@ async function drain(qdir: string, runAudit: RunAudit): Promise<void> {
     // lock), and a rename succeeds for exactly one claimant — the same job is
     // never audited twice.
     const claimed = `${head.file}.claimed-${process.pid}`;
-    try {
-      renameSync(head.file, claimed);
-    } catch {
-      continue; // another runner claimed or removed it
-    }
+    const claimAcquired = await retryFilesystemClaim(
+      () => renameSync(head.file, claimed),
+      `claiming queued job ${head.job.sessionId}/${head.job.turnRef}`,
+    );
+    if (!claimAcquired) continue; // another runner claimed or removed it
     try {
       await runAudit(head.job);
       rmSafely(claimed);

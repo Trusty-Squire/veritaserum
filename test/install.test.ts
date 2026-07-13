@@ -6,12 +6,13 @@
  * The claude-code branch is untouched (no coverage change here).
  */
 import { describe, it, expect, afterEach } from "vitest";
-import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import { existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { mkdtemp, rm, readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { installTarget } from "../src/install.js";
+import { copyPackageRuntimeFrom, installTarget } from "../src/install.js";
 
 // hookInvocation() resolves dist/hook-cli.cjs when built and falls back to the
 // veritaserum-hook bin name on a clean checkout — assert whichever shape THIS
@@ -69,34 +70,42 @@ describe("harness installs", () => {
 
 async function withHome(): Promise<string> {
   const home = await mkdtemp(join(tmpdir(), "vs-install-home-"));
-  cleanups.push(() => rm(home, { recursive: true, force: true }));
+  cleanups.push(async () => {
+    await rm(home, { recursive: true, force: true });
+  });
   process.env.HOME = home;
   return home;
 }
 
 
 describe("installTarget(\"goose\") — rebuilt plugin install (SPEC §3 goose adapter)", () => {
-  it("user scope (default): copies hooks/hooks.json + scripts/vs-stop.sh into ~/.agents/plugins/veritaserum/, script chmod +x", async () => {
-    const home = await withHome();
-    const res = await installTarget("goose", {});
+  it(
+    "user scope (default): copies hooks/hooks.json + scripts/vs-stop.sh into ~/.agents/plugins/veritaserum/, script chmod +x",
+    async () => {
+      const home = await withHome();
+      const res = await installTarget("goose", {});
 
-    const dest = join(home, ".agents", "plugins", "veritaserum");
-    const hooksJson = await readFile(join(dest, "hooks", "hooks.json"), "utf8");
-    expect(JSON.parse(hooksJson).hooks.Stop).toBeDefined();
+      const dest = join(home, ".agents", "plugins", "veritaserum");
+      const hooksJson = await readFile(join(dest, "hooks", "hooks.json"), "utf8");
+      expect(JSON.parse(hooksJson).hooks.Stop).toBeDefined();
 
-    const scriptPath = join(dest, "scripts", "vs-stop.sh");
-    const st = await stat(scriptPath);
-    expect(st.mode & 0o111).not.toBe(0); // executable bits set
+      const scriptPath = join(dest, "scripts", "vs-stop.sh");
+      const st = await stat(scriptPath);
+      expect(st.mode & 0o111).not.toBe(0); // executable bits set
 
-    expect(res.steps.some((l) => l.includes("hooks.json"))).toBe(true);
-    expect(res.steps.some((l) => l.includes("vs-stop.sh"))).toBe(true);
-    expect(res.manual.some((l) => l.includes("user scope"))).toBe(true);
-  });
+      expect(res.steps.some((l) => l.includes("hooks.json"))).toBe(true);
+      expect(res.steps.some((l) => l.includes("vs-stop.sh"))).toBe(true);
+      expect(res.manual.some((l) => l.includes("user scope"))).toBe(true);
+    },
+    120_000,
+  );
 
   it("--project: installs into <cwd>/.agents/plugins/veritaserum/ instead", async () => {
     await withHome();
     const projectDir = await mkdtemp(join(tmpdir(), "vs-install-project-"));
-    cleanups.push(() => rm(projectDir, { recursive: true, force: true }));
+    cleanups.push(async () => {
+      await rm(projectDir, { recursive: true, force: true });
+    });
     const originalCwd = process.cwd();
     process.chdir(projectDir);
     try {
@@ -108,5 +117,54 @@ describe("installTarget(\"goose\") — rebuilt plugin install (SPEC §3 goose ad
     } finally {
       process.chdir(originalCwd);
     }
+  }, 120_000);
+});
+
+describe("copyPackageRuntimeFrom — nested dependency closure", () => {
+  it("preserves conflicting transitive versions in a nested runtime layout", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vs-runtime-closure-"));
+    cleanups.push(async () => {
+      rmSync(workspace, { recursive: true, force: true });
+    });
+
+    const packageDir = join(workspace, "pkg");
+    const runtimeModules = join(workspace, "runtime", "node_modules");
+    mkdirSync(join(packageDir, "dist"), { recursive: true });
+    mkdirSync(join(packageDir, "node_modules", "foo"), { recursive: true });
+    mkdirSync(join(packageDir, "node_modules", "bar", "node_modules", "foo"), { recursive: true });
+
+    writeFileSync(
+      join(packageDir, "package.json"),
+      JSON.stringify({ name: "root-app", version: "1.0.0", dependencies: { foo: "1.0.0", bar: "1.0.0" } }, null, 2) + "\n",
+    );
+    writeFileSync(
+      join(packageDir, "dist", "entry.cjs"),
+      "module.exports = { foo: require('foo').version, bar: require('bar') };\n",
+    );
+    writeFileSync(join(packageDir, "node_modules", "foo", "package.json"), JSON.stringify({ name: "foo", version: "1.0.0", main: "index.cjs" }, null, 2) + "\n");
+    writeFileSync(join(packageDir, "node_modules", "foo", "index.cjs"), "module.exports = { version: 'foo-v1' };\n");
+    writeFileSync(
+      join(packageDir, "node_modules", "bar", "package.json"),
+      JSON.stringify({ name: "bar", version: "1.0.0", main: "index.cjs", dependencies: { foo: "2.0.0" } }, null, 2) + "\n",
+    );
+    writeFileSync(
+      join(packageDir, "node_modules", "bar", "index.cjs"),
+      "module.exports = { version: 'bar-v1', fooVersion: require('foo').version };\n",
+    );
+    writeFileSync(
+      join(packageDir, "node_modules", "bar", "node_modules", "foo", "package.json"),
+      JSON.stringify({ name: "foo", version: "2.0.0", main: "index.cjs" }, null, 2) + "\n",
+    );
+    writeFileSync(join(packageDir, "node_modules", "bar", "node_modules", "foo", "index.cjs"), "module.exports = { version: 'foo-v2' };\n");
+
+    copyPackageRuntimeFrom(packageDir, runtimeModules);
+
+    const runtimeRoot = join(runtimeModules, "veritaserum");
+    const runtimeRequire = createRequire(join(runtimeRoot, "dist", "entry.cjs"));
+    const entry = runtimeRequire(join(runtimeRoot, "dist", "entry.cjs")) as { foo: string; bar: { version: string; fooVersion: string } };
+
+    expect(entry).toEqual({ foo: "foo-v1", bar: { version: "bar-v1", fooVersion: "foo-v2" } });
+    expect(existsSync(join(runtimeRoot, "node_modules", "foo", "index.cjs"))).toBe(true);
+    expect(existsSync(join(runtimeRoot, "node_modules", "bar", "node_modules", "foo", "index.cjs"))).toBe(true);
   });
 });

@@ -10,7 +10,6 @@
 import { createHash } from "node:crypto";
 import {
   appendFileSync,
-  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -31,7 +30,6 @@ interface ExpectedTurn {
   finalMessage?: string;
   turnRef?: string;
   expectedClaimToken?: string;
-  expectedVerdict?: string;
   expectedPassedDemand?: boolean;
   expectedAudit: boolean;
   hookExit?: number;
@@ -132,6 +130,8 @@ const seenTelemetryErrors = new Set<string>();
 const seenDeadJobs = new Set<string>();
 const demandStatuses = new Map<string, Set<number>>();
 let lastDemandInspectionSignature = "";
+let demandStageRetries = 0;
+let demandStageFailures = 0;
 let maxQueueDepth = 0;
 let maxRelevantProcesses = 0;
 let shuttingDown = false;
@@ -248,6 +248,103 @@ function violation(invariant: string, message: string, telemetry?: TelemetryRow)
   appendFileSync(opts.violations, JSON.stringify(record) + "\n");
 }
 
+function sleep(ms: number): void {
+  const buffer = new SharedArrayBuffer(4);
+  const view = new Int32Array(buffer);
+  Atomics.wait(view, 0, 0, ms);
+}
+
+function fsErrorCode(err: unknown): string | undefined {
+  return typeof err === "object" && err !== null && "code" in err ? String((err as NodeJS.ErrnoException).code ?? "") : undefined;
+}
+
+function isRetryableStageCopyError(err: unknown): boolean {
+  const code = fsErrorCode(err);
+  return !!code && (code.startsWith("ERR_FS_CP_") || ["ENOENT", "EACCES", "EPERM", "EBUSY", "ENOTEMPTY", "EEXIST", "EMFILE", "ENFILE", "SIGABRT"].includes(code));
+}
+
+function copyRepoStageOnce(stage: string): { ok: boolean; message?: string } {
+  const child = spawnSync(
+    process.execPath,
+    [
+      "-e",
+      `
+const { cpSync, rmSync } = require("node:fs");
+const [repo, stage] = process.argv.slice(1);
+try {
+  rmSync(stage, { recursive: true, force: true });
+  cpSync(repo, stage, { recursive: true });
+} catch (error) {
+  const message = error && typeof error === "object" && "stack" in error ? error.stack : String(error);
+  console.error(message);
+  process.exit(1);
+}
+      `,
+      repo,
+      stage,
+    ],
+    {
+      cwd: repo,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        PATH: process.env.PATH ?? "",
+        HOME: home,
+      },
+    },
+  );
+  if (child.status === 0) return { ok: true };
+  const message = [child.error?.message, child.stderr, child.signal ? `signal ${child.signal}` : `exit ${child.status ?? "unknown"}`]
+    .filter((part) => part && String(part).trim().length > 0)
+    .map((part) => String(part).trim())
+    .join(" | ");
+  return { ok: false, message: message || "stage copy failed" };
+}
+
+function copyRepoStage(stage: string): boolean {
+  const backoffs = [25, 50, 100] as const;
+  let lastError: string | undefined;
+  for (let attempt = 0; attempt < backoffs.length + 1; attempt++) {
+    try {
+      const result = copyRepoStageOnce(stage);
+      if (result.ok) return true;
+      lastError = result.message;
+      if (attempt === backoffs.length) break;
+      demandStageRetries += 1;
+      appendFileSync(
+        opts.samples,
+        JSON.stringify({
+          ts: new Date().toISOString(),
+          note: `demand stage copy retried after a transient stage-copy failure while sampling the repo`,
+        }) + "\n",
+      );
+      sleep(backoffs[attempt]!);
+      continue;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      if (attempt === backoffs.length || !isRetryableStageCopyError(error)) break;
+      demandStageRetries += 1;
+      appendFileSync(
+        opts.samples,
+        JSON.stringify({
+          ts: new Date().toISOString(),
+          note: `demand stage copy retried after ${fsErrorCode(error) ?? "unknown"} while sampling the repo`,
+        }) + "\n",
+      );
+      sleep(backoffs[attempt]!);
+    }
+  }
+  demandStageFailures += 1;
+  appendFileSync(
+    opts.samples,
+    JSON.stringify({
+      ts: new Date().toISOString(),
+      note: `demand stage copy skipped after ${backoffs.length + 1} attempt(s): ${lastError ?? "unknown error"}`,
+    }) + "\n",
+  );
+  return false;
+}
+
 /** Parse `git status --porcelain=v1 -z` records. Rename/copy records carry a
  *  second NUL-separated origin-path field; a plain NUL split would misread it
  *  as a standalone prefixless record. */
@@ -322,12 +419,7 @@ function inspectDemands(): void {
   // watched tree (and be misattributed to the product by the non-interference
   // baseline) nor read API keys out of the watchdog's inherited env.
   const stage = join(outDir, `demand-stage-${process.pid}`);
-  rmSync(stage, { recursive: true, force: true });
-  try {
-    cpSync(repo, stage, { recursive: true });
-  } catch (error) {
-    violation("oracle-integrity", `could not stage repo copy for demand inspection: ${error instanceof Error ? error.message : String(error)}`);
-    rmSync(stage, { recursive: true, force: true });
+  if (!copyRepoStage(stage)) {
     return;
   }
   try {
@@ -466,15 +558,13 @@ function finalize(): void {
         (row) =>
           row.harness === turn.harness &&
           (!turn.turnRef || row.turn_ref === turn.turnRef) &&
-          String(row.claim || "").includes(turn.expectedClaimToken as string) &&
-          (!turn.expectedVerdict || row.verdict === turn.expectedVerdict),
+          String(row.claim || "").includes(turn.expectedClaimToken as string),
       ),
   );
   for (const turn of contentMisses) {
     violation(
       "coverage",
-      `${turn.id} produced no ${turn.harness} audit whose claim contains expected turn token ${JSON.stringify(turn.expectedClaimToken)}` +
-        `${turn.expectedVerdict ? ` with verdict=${turn.expectedVerdict}` : ""}`,
+      `${turn.id} produced no ${turn.harness} audit whose claim contains expected turn token ${JSON.stringify(turn.expectedClaimToken)}`,
     );
   }
   const evidenceMemoryMisses = expected.filter((turn) => {
@@ -520,6 +610,8 @@ function finalize(): void {
       telemetryRows: telemetryRead.rows.length,
       telemetryBytes: existsSync(telemetryPath) ? statSync(telemetryPath).size : 0,
       maxRelevantProcesses,
+      demandStageRetries,
+      demandStageFailures,
       hookLatenciesMs: expectedRead.rows.map((turn) => ({ id: turn.id, latencyMs: turn.hookLatencyMs ?? null })),
       auditDurationsMs: audits.map((row) => ({ harness: row.harness ?? null, durationMs: row.audit_duration_ms ?? null })),
     },

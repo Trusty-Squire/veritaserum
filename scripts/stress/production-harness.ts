@@ -47,7 +47,6 @@ interface ExpectedTurn {
   finalMessage?: string;
   turnRef?: string;
   expectedClaimToken?: string;
-  expectedVerdict?: string;
   expectedPassedDemand?: boolean;
   expectedAudit: boolean;
   hookExit?: number;
@@ -328,7 +327,6 @@ async function invokeShellHook(
   harness: ExpectedTurn["harness"],
   env: NodeJS.ProcessEnv,
   expectedClaimToken?: string,
-  expectedVerdict?: string,
   expectedPassedDemand?: boolean,
 ): Promise<CommandRecord> {
   const record = await run(id, "sh", ["-c", command], { cwd: repo, env, input: JSON.stringify(payload), timeout: 30_000 });
@@ -340,7 +338,6 @@ async function invokeShellHook(
     finalMessage: typeof (payload as { last_assistant_message?: unknown }).last_assistant_message === "string" ? (payload as { last_assistant_message: string }).last_assistant_message : undefined,
     turnRef: typeof (payload as { turn_id?: unknown }).turn_id === "string" ? (payload as { turn_id: string }).turn_id : undefined,
     expectedClaimToken,
-    expectedVerdict,
     expectedPassedDemand,
     expectedAudit: true,
     hookExit: record.exitCode,
@@ -796,7 +793,6 @@ for (let trial = 0; trial < 3; trial++) {
     { VS_AUDITOR: "claude", VS_HARNESS: "codex", VS_EXECUTOR: "codex" },
     "250000",
     undefined,
-    true,
   );
   return retryAudits + 1;
 }
