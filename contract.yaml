@@ -213,4 +213,30 @@ gates:
       provenance: do goose and cursor too while you're at it
       source: user-word
       retired: false
+  - id: g5-1
+    run: null
+    checklist: "The live sentinel silently stopped auditing: the drain loop scans
+      every *.json in the queue root as a job, so it parsed the sync-path
+      watermark (last-audit.json) as an empty job, vacuously succeeded, and
+      deleted it — zero telemetry for real turns. Fix must guarantee: watermark
+      lives outside the drain's scan (state/ subdir), listPending only accepts
+      enqueue-pattern filenames that validate to a real job shape and never
+      deletes foreign JSON, and a real hook-stop → drain cycle on a scratch repo
+      leaves the watermark intact and produces at least one telemetry event —
+      post-turn silence is a failure, not a pass."
+    gatePaths: []
+    lineage:
+      pattern: checklist
+      params: {}
+      provenance: "The live sentinel silently stopped auditing: the drain loop scans
+        every *.json in the queue root as a job, so it parsed the sync-path
+        watermark (last-audit.json) as an empty job, vacuously succeeded, and
+        deleted it — zero telemetry for real turns. Fix must guarantee:
+        watermark lives outside the drain's scan (state/ subdir), listPending
+        only accepts enqueue-pattern filenames that validate to a real job shape
+        and never deletes foreign JSON, and a real hook-stop → drain cycle on a
+        scratch repo leaves the watermark intact and produces at least one
+        telemetry event — post-turn silence is a failure, not a pass."
+      source: user-word
+      retired: false
 repeats: []
