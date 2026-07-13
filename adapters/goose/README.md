@@ -11,9 +11,9 @@ ships last, once testbed numbers clear the R5 bar.
   a ~0ms "nothing to audit" check, a terse standing-law state line when due (never a
   block), then an async audit job enqueued and the turn released. No claim regex, no
   LLM on this path (R2/R3). See `src/cli.ts`'s `hook-stop` case for the exact steps.
-- **No `UserPromptSubmit` hook.** v3 deleted the prompt-time challenge (SPEC §4) — the
-  Knight's challenge only fires inside a live `contract_propose`/`contract_seal`
-  negotiation now, never injected from a hook.
+- **No `UserPromptSubmit` hook.** v3 deleted the prompt-time challenge (SPEC §4), and the
+  Knight that used to issue it is gone entirely (SPEC §4.1). goose also has no injection
+  channel at prompt time, so the verdict reaches it via telemetry + the law diff.
 
 ## Install
 

@@ -280,10 +280,10 @@ async function main(argv: string[]): Promise<number> {
       }
       console.log();
       console.log(style.divider());
-        console.log(style.ok(`${style.bold(target)} wired — veritaserum now watches every turn-end.`));
-        console.log(style.step(`week 1:  ${style.dim("export")} VS_ADVISORY=1   ${style.dim("# watch + log, never block")}`));
-        console.log(style.step(`read catches:  ${style.bold("veritaserum telemetry")}`));
-        console.log(style.step(`enable blocking later:  ${style.dim("unset")} VS_ADVISORY`));
+      console.log(style.ok(`${style.bold(target)} wired — veritaserum now audits every turn-end.`));
+      console.log(style.step(`warn-primary (R5): nothing blocks. A verdict lands as one line at your next prompt.`));
+      console.log(style.step(`read catches:  ${style.bold("veritaserum telemetry")}`));
+      console.log(style.step(`run demanded checks:  ${style.bold("veritaserum demands")}`));
       return 0;
     }
 

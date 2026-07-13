@@ -53,8 +53,10 @@ export function demandsCommand(): string {
 }
 
 function hookCommand(target: Target, sub: "hook-stop" | "hook-prompt" = "hook-stop"): string {
-  const advisory = process.env.VS_ADVISORY === "1" ? "VS_ADVISORY=1 " : "";
-  return `${advisory}VS_EXECUTOR=${VENDOR[target]} VS_HARNESS=${target} ${cliInvocation()} ${sub}`;
+  // No VS_ADVISORY prefix: nothing in the audit path blocks (R5 warn-primary), so an
+  // "advisory mode" env var gated nothing and the install ceremony's "unset it to enable
+  // blocking" was simply false. Blocking is per-law-entry and human-promoted, never a flag.
+  return `VS_EXECUTOR=${VENDOR[target]} VS_HARNESS=${target} ${cliInvocation()} ${sub}`;
 }
 
 /** Harnesses whose config dir exists on this machine (for a no-arg suggestion). */
@@ -123,9 +125,6 @@ function mergeHook(settings: Settings, event: HookEvent, cmd: string, matcher?: 
   settings.hooks = hooks;
   return true;
 }
-  "veritaserum MCP tool `contract_propose` with the settled spec, then `contract_seal`. Do it " +
-  "ONCE, at the plan→build transition (when the plan is settled and you are about to build), " +
-  "not during earlier planning.";
 
 async function installClaudeCode(hookCmd: string, global: boolean): Promise<InstallResult> {
   const file = global ? join(homedir(), ".claude", "settings.json") : join(process.cwd(), ".claude", "settings.json");

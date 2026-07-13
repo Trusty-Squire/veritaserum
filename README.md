@@ -1,123 +1,119 @@
 # veritaserum
 
-The truth serum for confabulating coding agents. A portable ground-truth layer:
-veritaserum turns a goal into checkable "done" conditions, refuses to let an agent
-end a turn on a false claim, and remembers your corrections — riding the harness's
-existing hooks. The command is `veritaserum`.
-See [DESIGN.md](https://github.com/Trusty-Squire/veritaserum/blob/main/DESIGN.md).
+The truth serum for confabulating coding agents.
 
-**It runs free.** Authoring uses your `claude` subscription; the cross-vendor judge uses
-`codex`↔`claude`; nothing metered unless you opt into OpenRouter.
+Agents confidently report "done," "tests pass," "implemented X" when it isn't true — most
+often deep in a long session, where they've drifted from ground truth and nobody is reading
+every line. That is what forces you to babysit the loop.
 
-## v3 (current)
-
-One mechanism: when a turn ends, an async **case-law auditor** — a fresh model from a
-different family than the executor — checks the load-bearing claims in what the agent
-just said against the only two sources of truth: read-only git probes computed now, and
-the harness's own record of what ran. A claim that needed an oracle that doesn't exist
-gets one **demanded**, and that demand persists as **case law** (`veritaserum.law.yaml`,
-git-tracked) — a standing, mechanically re-checked expectation from then on. No upfront
-contract, no claim regexes, no phase detection. See [SPEC.md](./SPEC.md).
-
-It proves out on the cheapest executor first — **goose + local ollama models**
-(`qwen2.5:3b`), the ollama testbed where confabulation reproduces overnight — before
-shipping to **Claude Code as the final target**, as a plugin (hooks + MCP + a skill, one
-manifest; see [docs/DISTRIBUTION.md](./docs/DISTRIBUTION.md)).
-
-## Quick start — the sentinel
-
-_The section below documents the v1 synchronous judge-primary mechanism, kept for
-existing installs; v3's case-law auditor (above) is async and needs no contract setup._
-
-One command wires veritaserum into your agent as a **confabulation sentinel**: on
-every turn-end, a fresh cross-vendor judge checks the agent's "done" claim against
-the actual repo state and flags anything unsupported ("claims tests pass but nothing
-ran", "claims implemented X but the diff is empty").
+A model cannot reliably catch its *own* confabulation: the grader and the generator share
+the blind spot. veritaserum puts an external check on your existing harness, automatically,
+at every turn-end.
 
 ```
-npx veritaserum install claude-code   # also: goose, codex   (--global for ~/.claude)
-export VS_ADVISORY=1                  # week 1: watch + log, never block
-# ...work normally...
-veritaserum telemetry                 # catches, would-blocks, false-flags, by harness
-unset VS_ADVISORY                    # then turn on real blocking
+npx veritaserum install claude-code     # also: goose, codex   (--global for ~/.claude)
 ```
 
-Judge-primary, no contract setup needed. **Fail-open**: no judge / LLM error /
-unparseable reply never blocks — only an explicit contradiction does.
+That's the whole install: two hooks in one config file. Nothing to approve, no server, no
+API key.
 
-## How it works
+## What it does
 
-Your agent finishes a turn and claims "done." veritaserum's Stop hook fires and
-hands that claim — plus the actual repo state (`git diff`, `git status`) — to a
-**fresh, cross-vendor judge**: a different LLM vendor than the one that wrote the
-code. It answers one question — *is this claim supported by what actually
-happened?* — and blocks the turn only on a clear contradiction.
+When your agent ends a turn, veritaserum's Stop hook fires and hands the turn to an
+**async, cross-family auditor** — a fresh model from a *different family* than the one that
+wrote the code, with no stake in it. The auditor picks out the load-bearing claims in what
+the agent just said and checks them against the only two sources of truth:
 
-- **Cross-vendor on purpose.** A model grading its own family's output is biased
-  toward passing it, and it shares the same blind spots. A fresh external judge
-  with no stake in the work catches what self-review structurally can't.
-- **Fail-open.** No judge, an LLM error, or an unparseable reply never blocks —
-  only a named, unsupported claim does. veritaserum never halts your agent over
-  its own hiccup.
-- **Two layers.** The judge is semantic and needs zero setup. For hard, runnable
-  checks you can also seal a `contract` of deterministic gates (shell exit codes,
-  run from their *committed* version so a tampered gate is inert) — the judge
-  rides on top.
+- **read-only git probes computed right now** (`git log`, `git status`, `git diff`) — what
+  the repo actually says, not what anyone remembers; and
+- **the harness's own record** of what actually ran (the receipts).
 
-## Why
+Each claim comes back **supported**, **unsupported** (nothing backs it), or **contradicted**
+(the evidence says it's false). The verdict arrives as a single line at your next prompt.
 
-Frontier agents confabulate: they confidently report "done," "tests pass,"
-"implemented X" when it isn't true — most often in long sessions where they've
-drifted from ground truth. It isn't rare (one 2026 study found ~11% of "solved"
-SWE-bench issues are actually wrong) and it's exactly what forces you to babysit a
-loop. A model can't reliably catch its *own* confabulation — the grader and the
-generator share the blind spot. An external, fresh, cross-vendor check can.
-veritaserum makes that check automatic on your existing harness, with a telemetry
-trail — so "done" means done, and you can let the loop run.
+Honest uncertainty is never punished. "I'd need to benchmark this" asserts nothing and is
+left alone — only a *confident, unbacked* assertion is the confabulation it's hunting.
+
+**Nothing blocks.** The audit is warn-primary: it flags, it never halts your agent — not on
+a false claim, not on its own outage. Blocking is earned per standing-law entry, on
+evidence, and promoted by a human. It is never a flag you flip.
+
+## Standing law: a demand is a failing test
+
+A claim that needed an oracle that doesn't exist gets one **demanded**. The auditor doesn't
+nag — it *writes the failing check itself*, and that demand persists as **case law**
+(`veritaserum.law.yaml`, git-tracked): a standing expectation, re-checked mechanically from
+then on, no LLM required. The first demand costs one auditor judgment; every later claim in
+its scope is settled by running a script. Precedent amortizes.
+
+Two properties make this safe rather than annoying:
+
+- **Demands are inert until you commit them.** The auditor writes to your working tree but
+  reads law from **git HEAD** — so a demand binds only once a human commits it. The law-file
+  commit *is* the veto moment: review the diff, drop what you reject. Consent by commit.
+- **The oracle is not the agent's to edit.** The demand's test file lives in veritaserum's
+  own state dir, never in your repo, so the executor can *run* the check but cannot read or
+  rewrite it. It has to fix the code, not the test.
+
+Law is a git-tracked file, so it branches with your code like everything else.
+
+## Why cross-family, and why after the fact
+
+**Cross-family on purpose.** Different checkpoints of one lineage share blind spots, and a
+model grading its own family's output is biased toward passing it. The auditor resolves to a
+different family than the executor; a same-family auditor is only ever a fallback, and is
+tagged as such so you can trust it less.
+
+**After the fact, not before.** No upfront contract, no claim regexes, no phase detection —
+one mechanism, firing at turn-end, where the claim actually gets made.
+
+**Push, not pull — which is why there is no MCP server.** MCP is a *pull* surface: the
+executor decides whether to call it. Ground truth cannot be opt-in. An agent skips a
+self-check exactly when it is confabulating, because a confabulating agent doesn't
+experience itself as guessing — it feels done. A voluntary "audit me" tool is therefore
+adversely selected: its cleanest green stamps arrive precisely when they are worth least. So
+the audit is **pushed** by the harness and the executor cannot decline it. For the genuinely
+voluntary surface — run my demands, show me what got caught — the executor already has a
+shell, and those are CLI commands (below).
+
+**It runs free.** The auditor uses your existing `claude`/`codex` subscriptions, or local
+ollama models. Nothing is metered unless you opt into OpenRouter yourself.
+
+**Fail-open.** No auditor, an LLM error, an unparseable reply, a corrupt law file — none of
+it stalls or blocks your agent. veritaserum never halts your work over its own hiccup.
+
+## CLI
+
+```
+veritaserum install <claude-code|goose|codex> [--global]   wire the auditor into a harness
+veritaserum telemetry                      what got caught — verdicts, by harness
+veritaserum demands                        run the failing checks the auditor authored
+veritaserum retire <law-id> "<reason>"     retire a standing law entry (recorded, never deleted)
+veritaserum doctor                         which auditor rule fired, and why
+```
+
+The executor learns that `veritaserum demands` exists exactly when it needs to: a demand's
+feedback line names the command. No standing instruction in your `CLAUDE.md`, no tool list
+burning context on every turn.
 
 ## Install from source
 ```
 pnpm install && pnpm build && npm link   # puts `veritaserum` on PATH
 ```
 
-## Why there is no MCP server (deliberate)
-MCP is **pull**: the executor decides whether to call. Ground truth cannot be opt-in — an
-agent skips the check exactly when it is confabulating, so a voluntary "audit me" tool is
-adversely selected. The audit is **pushed** by the harness at turn-end and the executor
-cannot decline it. For the genuinely voluntary surface (run my demands, show me the law,
-show me what got caught) the executor already has a shell: see the CLI below.
-
-## Use it as an enforcement hook (hard-block)
-`veritaserum hook-stop` blocks a turn iff the agent claimed done while a gate is red
-(honest incompleteness passes). `veritaserum hook-prompt` ratchets a correction.
-Adapters bundle these:
-- **Claude Code** (`adapters/claude-code`) — hard-block today
-- **Codex** (`adapters/codex`) — hard-block today
-- **goose** (`adapters/goose`) — hard-block once aaif-goose/goose#10296 merges
-
-One `veritaserum hook-stop` binary serves all three; the CLI normalizes each harness's payload.
-
-## CLI
-```
-veritaserum install <claude-code|goose|codex> [--global]   wire the sentinel into a harness
-veritaserum telemetry     catches / would-blocks / by harness — the in-the-wild measurement
-veritaserum demands       run the failing checks the auditor authored
-```
-
-## Guarantees
-- **R2 grader integrity** — gates run from their committed version; a tampered grader is
-  inert and flagged.
-- **Cross-vendor judge** — a semantic claim is judged by a vendor ≠ the executor
-  (self-preference bias); no cross-vendor sub → abstain to human, never a silent pass.
-- **Honest by construction** — a judge outage abstains; a malformed contract is a hard
-  error; corrections never regress.
+## Docs
+- [SPEC.md](./SPEC.md) — the mechanism, the rules it must not break, and what v3 deleted.
+- [docs/DEMANDS.md](./docs/DEMANDS.md) — a demand is a failing test: authoring, materialization, lifecycle.
+- [docs/DISTRIBUTION.md](./docs/DISTRIBUTION.md) — npm package + Claude Code plugin, from one repo.
+- [DESIGN.md](./DESIGN.md), [ASSUMPTIONS.md](./ASSUMPTIONS.md) — design *history*, superseded in part. SPEC.md wins.
 
 ## Dev
 ```
-pnpm test        # hermetic vitest (MockLlmClient — no network)
+pnpm test        # hermetic vitest — no network
 pnpm typecheck
 ```
 
-Status: P0–P3 complete. One role, not four: the Knight, Judge, and Transcriber are
-deleted (SPEC §4.1) — the auditor already ruled on claims AND authored the checks.
-The auditor runs cross-family on free local subscriptions; nothing is metered.
+**Status.** One role, not four. The Knight (authored gates from a goal), the Transcriber
+(authored gates from complaints), and the semantic Judge (ruled on gates) are deleted — they
+were special cases of the auditor, which already rules on a claim *and* authors the check
+when the evidence is missing (SPEC §4.1). One evaluator, one mechanism, one hook.

@@ -1,5 +1,10 @@
 # ASSUMPTIONS — ser P0
 
+> **⚠️ HISTORICAL — P0 decision record.** These were small calls made during P0. The
+> MockKnight / MockTranscriber / real-Knight / contract-ratchet machinery described below
+> **has been deleted** (SPEC §4.1): there is one role, the auditor. Kept for the record of
+> what was decided and why, not as a description of current behavior.
+
 Small calls made during P0 (per behavior policy: record, proceed). Real forks were
 surfaced to the owner, not decided here.
 
