@@ -110,6 +110,15 @@ temperature recorded per run; overnight runs budget auditor calls with backoff +
   channel exists: telemetry + law-file diff only, and §6.6 is scoped to catch-rate.
 - Floor: telemetry + the law diff.
 
+**Discoverability rides the demand line, and nothing else.** A demand's feedback line names
+the command that RUNS the check the auditor already wrote (`veritaserum demands`, resolved
+in whatever shape veritaserum was invoked) and tells the executor not to author its own
+oracle. That is the executor's only channel for learning the CLI exists — deliberately
+just-in-time: it arrives in the turn where it is actionable and says nothing on every other
+turn. No MCP tool list, no standing `CLAUDE.md` rule, no ambient prompt tax. The demand's
+test file lives in veritaserum's state dir, never the repo, so the executor can *run* the
+oracle but not read or rewrite it.
+
 ## 3. Adapter order and the ollama testbed
 
 **goose first.** Verified against current releases (hooks blog, 2026-05): goose ships

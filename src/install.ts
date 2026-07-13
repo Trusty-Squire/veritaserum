@@ -44,6 +44,14 @@ function cliInvocation(): string {
   return "veritaserum";
 }
 
+/** The command the executor should run to check a demand — resolved the same way the
+ *  installed hook is, so it is copy-pasteable in whatever shape veritaserum was invoked
+ *  (npx, a linked bin, or this checkout). The feedback line is the only place the
+ *  executor ever learns this exists (run-audit.ts's buildFeedbackLine). */
+export function demandsCommand(): string {
+  return `${cliInvocation()} demands`;
+}
+
 function hookCommand(target: Target, sub: "hook-stop" | "hook-prompt" = "hook-stop"): string {
   const advisory = process.env.VS_ADVISORY === "1" ? "VS_ADVISORY=1 " : "";
   return `${advisory}VS_EXECUTOR=${VENDOR[target]} VS_HARNESS=${target} ${cliInvocation()} ${sub}`;

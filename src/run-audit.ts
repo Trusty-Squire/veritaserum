@@ -25,6 +25,7 @@ import { dirname } from "node:path";
 import { readGooseSession } from "./goose.js";
 import { readLastAssistantMessage, readLastUserMessage, readReceiptsTail } from "./transcript.js";
 import { resolveAuditor } from "./resolve.js";
+import { demandsCommand } from "./install.js";
 import { audit, type AuditJob as AuditContentJob, type AuditVerdict } from "./auditor.js";
 import {
   appendSessionWarnings,
@@ -74,9 +75,19 @@ function buildFeedbackLine(verdict: AuditVerdict): string | null {
   // The demand line is the instruction, not a nudge (docs/DEMANDS.md §2.2):
   // remedy + accept verbatim, so the executor knows what to produce and what
   // will be accepted.
+  //
+  // It also names the command that runs the check. This is the ONLY discoverability
+  // channel the executor gets, and it is deliberately just-in-time: no standing
+  // CLAUDE.md rule, no MCP tool list, no ambient prompt tax — the instruction arrives
+  // in the turn where it is actionable, and says nothing on every other turn. The
+  // auditor already WROTE the failing check (in veritaserum's state dir, not the repo),
+  // so the executor's job is to run it, not to author its own oracle.
   const demand = verdict.demands[0];
-  const tail = demand ? `; DEMAND: ${demand.remedy || demand.gap} — accept: ${demand.accept}` : "";
-  return `veritaserum: ${head}${tail}`.slice(0, 500);
+  const tail = demand
+    ? `; DEMAND: ${demand.remedy || demand.gap} — accept: ${demand.accept}` +
+      `; the check is already written — run \`${demandsCommand()}\` (do not write your own)`
+    : "";
+  return `veritaserum: ${head}${tail}`.slice(0, 600);
 }
 
 /** Step 3: a GREEN mechanical recheck of every runnable standing-law entry
