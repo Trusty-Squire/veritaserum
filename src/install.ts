@@ -421,19 +421,3 @@ function installResolvedAdapter(target: "codex", hookCmd: string): InstallResult
     ],
   };
 }
-
-/** Replace-or-append one `[header]` table in TOML text. Line-based (the span
- *  runs from the header line to the line before the next `[` header) so every
- *  byte outside the veritaserum table survives verbatim — a TOML round-trip
- *  through a parser would drop the user's comments and formatting. */
-function upsertTomlTable(content: string, header: string, block: string): string {
-  const lines = content.split("\n");
-  const start = lines.findIndex((l) => l.trim() === header);
-  if (start !== -1) {
-    let end = start + 1;
-    while (end < lines.length && !lines[end]!.trim().startsWith("[")) end++;
-    lines.splice(start, end - start);
-  }
-  const rest = lines.join("\n").trimEnd();
-  return rest ? `${rest}\n\n${block}` : block;
-}
