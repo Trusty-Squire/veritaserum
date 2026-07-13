@@ -131,10 +131,19 @@ describe("feedback channel — emission (run-audit.ts)", () => {
     expect(line).toContain("unsupported");
   });
 
-  it("a demand is included in the pending feedback line", async () => {
+  it("a demand's remedy + accept are included verbatim in the pending feedback line (the instruction, not a nudge)", async () => {
     const codex = JSON.stringify({
       claims: [{ claim: "wrote an MCCFR solver, it's working well", verdict: "unsupported", basis: "no oracle test found", evidence: "" }],
-      demands: [{ description: "add a Kuhn-poker anchor test", rung: "oracle", origin_claim: "wrote an MCCFR solver, it's working well" }],
+      demands: [
+        {
+          origin_claim: "wrote an MCCFR solver, it's working well",
+          gap: "no oracle demonstrates convergence to the known Kuhn equilibrium",
+          remedy: "add a Kuhn-poker anchor test",
+          accept: "strategy within 1e-3 of the known values",
+          test_file: "process.exit(1);\n",
+          rung: "oracle",
+        },
+      ],
       unaccountable: false,
       note: "",
     });
@@ -142,7 +151,8 @@ describe("feedback channel — emission (run-audit.ts)", () => {
     await runAudit(job("s1", await transcript("Done — wrote an MCCFR solver, it's working well.")));
 
     const line = takePendingFeedback(repoDir);
-    expect(line).toContain("demanded: add a Kuhn-poker anchor test");
+    expect(line).toContain("DEMAND: add a Kuhn-poker anchor test");
+    expect(line).toContain("accept: strategy within 1e-3 of the known values");
   });
 
   it("a fully-supported verdict (nothing to warn about) writes NO pending feedback", async () => {

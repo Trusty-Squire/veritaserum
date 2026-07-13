@@ -498,7 +498,7 @@ async function main(argv: string[]): Promise<number> {
         const lines = [`veritaserum: ${n} claim(s) not backed by a verification receipt:`];
         for (const c of flagged) lines.push(`  - ${c.claim}: ${c.basis || c.evidence || "no basis given"}`);
         if (verdict.unaccountable) lines.push(`  - unaccountable work: ${verdict.note || "state what was done and how you know it works"}`);
-        for (const d of verdict.demands) lines.push(`  demand: ${d.description}${d.run ? ` (\`${d.run}\`)` : ""}`);
+        for (const d of verdict.demands) lines.push(`  demand: ${d.remedy || d.gap} — accept: ${d.accept}`);
         lines.push(`Run the actual check and correct or retract before finishing.`);
         console.error(lines.join("\n"));
         return 2;

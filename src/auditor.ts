@@ -18,7 +18,8 @@ import { runGate } from "./gate-run.js";
 import { logFiring } from "./telemetry.js";
 import { RUNGS, type Rung } from "./propose.js";
 import type { Auditor, AuditorTier } from "./resolve.js";
-import { loadLaw, appendDemand, runnableChecks, type DemandInput } from "./law.js";
+import { loadLaw, runnableChecks } from "./law.js";
+import { materializeDemand, runHeadDemands } from "./demands.js";
 
 export interface AuditJob {
   dir: string;
@@ -46,10 +47,16 @@ export interface ClaimVerdict {
 }
 
 export interface Demand {
-  description: string;
-  run?: string;
-  rung: Rung;
   origin_claim: string;
+  /** What current evidence fails to establish — concrete, never generic. */
+  gap: string;
+  /** Imperative instruction to the executor: what evidence to produce. */
+  remedy: string;
+  /** The acceptance condition as data: expected values, tolerances, known answers. */
+  accept: string;
+  /** Standalone exit-code test script embodying `accept`. Absent → unverifiable. */
+  test_file?: string;
+  rung: Rung;
 }
 
 export interface MechanicalCheckResult {
@@ -143,14 +150,32 @@ const RULES_BLOCK = [
   "receipts. Verdict stays supported; the staleness is a warning, nothing more. Only when proof",
   "is absent EVERYWHERE (no run, no doc) is the claim unsupported.",
   "",
-  "A claim that needed an oracle that doesn't exist — demand ONE: append it to `demands`",
-  "with an epistemic ladder rung: analytic > oracle > held-out > self-consistency >",
-  "unverifiable. Only the top three rungs (analytic, oracle, held-out) ever bind; record",
-  "lower rungs anyway, but they never bind.",
+  "A claim that needed an oracle that doesn't exist — MANUFACTURE one, do not point at one.",
+  "Author the demand with ALL of these fields:",
+  "- gap: one sentence naming precisely what current evidence fails to establish. Name the",
+  "  missing thing concretely ('the benchmark's timed path contains no signature verification,",
+  "  no consensus round, and executes no contracts'), never generically ('needs more testing').",
+  "  State why the agent's own existing tests do not count.",
+  "- remedy: an imperative instruction to the agent: what evidence to produce.",
+  "- accept: the acceptance condition AS DATA — expected values with tolerances, a property",
+  "  that must hold, an input whose output is known from theory or an external reference.",
+  "  If you cannot state accept, you have not designed an oracle: emit the demand WITHOUT",
+  "  test_file at rung unverifiable and say so in the note.",
+  "- test_file: the full content of a STANDALONE node script (no test framework, no imports",
+  "  beyond node builtins and the repo's own files) that embodies accept as executable checks",
+  "  and exits 0 only when accept is genuinely met, nonzero otherwise. It MUST FAIL against",
+  "  the current tree — a demand that would already pass discriminates nothing. Assume the",
+  "  thing checking it later sees pass/fail only and never reads your prose. It must be",
+  "  runnable by a stranger with zero context.",
+  "- rung: analytic > oracle > held-out > self-consistency > unverifiable. Only the top three",
+  "  bind; record lower rungs anyway.",
+  "NEVER demand execution of a file the agent already wrote — an existing artifact is either",
+  "sufficient evidence (then cite it and verdict the claim, no demand) or insufficient (then",
+  "your test must check what it does not).",
   "",
   "Reply ONLY with strict JSON, no prose before or after:",
   '{"claims":[{"claim":"","verdict":"supported|unsupported|contradicted","basis":"","evidence":"","law_ids":["<optional standing-law id(s) this claim satisfies>"]}],',
-  '"demands":[{"description":"","run":"<shell command, or omit>","rung":"analytic|oracle|held-out|self-consistency|unverifiable","origin_claim":""}],',
+  '"demands":[{"origin_claim":"","gap":"","remedy":"","accept":"","test_file":"<standalone node script, or omit>","rung":"analytic|oracle|held-out|self-consistency|unverifiable"}],',
   '"unaccountable":false,"note":""}',
 ].join("\n");
 
@@ -289,13 +314,15 @@ function parseReply(raw: string): ParsedAuditReply | null {
         .map((d): Demand | null => {
           if (!d || typeof d !== "object") return null;
           const o = d as Record<string, unknown>;
-          if (typeof o.description !== "string" || !o.description.trim()) return null;
+          if (typeof o.gap !== "string" || !o.gap.trim()) return null;
           const rung: Rung = (RUNGS as readonly string[]).includes(o.rung as string) ? (o.rung as Rung) : "unverifiable";
           return {
-            description: o.description,
-            ...(typeof o.run === "string" && o.run.trim() ? { run: o.run } : {}),
-            rung,
             origin_claim: typeof o.origin_claim === "string" ? o.origin_claim : "",
+            gap: o.gap,
+            remedy: typeof o.remedy === "string" ? o.remedy : "",
+            accept: typeof o.accept === "string" ? o.accept : "",
+            ...(typeof o.test_file === "string" && o.test_file.trim() ? { test_file: o.test_file } : {}),
+            rung,
           };
         })
         .filter((d): d is Demand => d !== null)
@@ -349,18 +376,9 @@ function foldMechanical(claims: ClaimVerdict[], checks: MechanicalCheckResult[])
   });
 }
 
-// ---------------------------------------------------------------------------
-// Demand -> case law (law.ts owns dedupe, atomic write, and the binding-rung
-// cutoff; we just shape one demand into its DemandInput).
-// ---------------------------------------------------------------------------
-
-function demandToInput(d: Demand): DemandInput {
-  return {
-    ...(d.run ? { run: d.run } : { checklist: d.description }),
-    rung: d.rung,
-    originClaim: `${d.description} — origin claim: "${d.origin_claim}"`,
-  };
-}
+// Demand materialization lives in demands.ts (docs/DEMANDS.md phase 1): a
+// demand becomes a failing standalone script under test/veritaserum/, not a
+// law-file entry. The old demandToInput/appendDemand path is gone with it.
 
 // ---------------------------------------------------------------------------
 // Telemetry
@@ -431,6 +449,16 @@ export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdi
       /* the mechanical runner never blocks the verdict (R8) */
     }
   }
+  // Committed demand tests run FROM HEAD (docs/DEMANDS.md phase 1): the oracle
+  // is the committed script, the subject is the working tree — an executor
+  // edit or deletion of the script cannot alter this run.
+  try {
+    for (const d of await runHeadDemands(job.dir)) {
+      mechanicalChecks.push({ gateId: `demand:${d.slug}`, command: `node ${d.path} (HEAD)`, passed: d.passed, exitCode: d.exitCode });
+    }
+  } catch {
+    /* never blocks the verdict (R8) */
+  }
 
   let reply: ParsedAuditReply | null = null;
   let error: string | undefined;
@@ -453,17 +481,31 @@ export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdi
 
   const claims = reply ? foldMechanical(reply.claims, mechanicalChecks) : [];
 
-  // Step 6: missing-oracle demands become case law. Dedupe/HEAD-safety is law.ts's
-  // job (atomic tmp+rename, normalized-command / slug-overlap dedupe) — we only
-  // report the ones it actually appended.
+  // Step 6 (docs/DEMANDS.md phase 1): missing-oracle demands become FAILING
+  // TESTS under test/veritaserum/ — materializeDemand dedupes by slug (tree
+  // and HEAD), verifies the script fails at authoring time (an already-passing
+  // demand discriminates nothing and is discarded), and records unverifiable
+  // demands (no accept/test_file) without binding anything. We only report the
+  // ones actually added.
   const demands: Demand[] = [];
   if (reply) {
     for (const d of reply.demands) {
       try {
-        const res = await appendDemand(job.dir, demandToInput(d));
+        const res = await materializeDemand(job.dir, d);
         if (res.action === "added") demands.push(d);
+        else if (res.action === "discarded_passing" || res.action === "unverifiable") {
+          logFiring({
+            harness: "audit-runner",
+            event: "audit",
+            claim: d.origin_claim.slice(0, 200),
+            verdict: "no-claim",
+            caught: `demand ${res.action}: ${d.gap.slice(0, 200)}`,
+            blocked: false,
+            dir: job.dir,
+          });
+        }
       } catch {
-        /* a law-append failure never blocks the verdict (R8) */
+        /* a demand-materialization failure never blocks the verdict (R8) */
       }
     }
   }
