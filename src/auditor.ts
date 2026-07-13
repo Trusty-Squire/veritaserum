@@ -19,7 +19,7 @@ import { logFiring } from "./telemetry.js";
 import { RUNGS, type Rung } from "./propose.js";
 import type { Auditor, AuditorTier } from "./resolve.js";
 import { loadLaw, runnableChecks } from "./law.js";
-import { materializeDemand, runHeadDemands } from "./demands.js";
+import { materializeDemand, runDemands } from "./demands.js";
 
 export interface AuditJob {
   dir: string;
@@ -449,12 +449,12 @@ export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdi
       /* the mechanical runner never blocks the verdict (R8) */
     }
   }
-  // Committed demand tests run FROM HEAD (docs/DEMANDS.md phase 1): the oracle
-  // is the committed script, the subject is the working tree — an executor
-  // edit or deletion of the script cannot alter this run.
+  // Demand tests run from veritaserum's own state dir (docs/DEMANDS.md phase
+  // 1): the oracle lives outside the repo, so nothing the executor does to
+  // the tree can alter the script — only meeting `accept` turns it green.
   try {
-    for (const d of await runHeadDemands(job.dir)) {
-      mechanicalChecks.push({ gateId: `demand:${d.slug}`, command: `node ${d.path} (HEAD)`, passed: d.passed, exitCode: d.exitCode });
+    for (const d of await runDemands(job.dir)) {
+      mechanicalChecks.push({ gateId: `demand:${d.slug}`, command: `node ${d.path}`, passed: d.passed, exitCode: d.exitCode });
     }
   } catch {
     /* never blocks the verdict (R8) */

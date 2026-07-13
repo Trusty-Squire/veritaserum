@@ -22,6 +22,7 @@ import { CONTRACT_FILENAME } from "./schema.js";
 import { verify, NotSealedError } from "./verify.js";
 import { resolveKnight, resolveJudge, resolveTranscriber, resolveAuditor, doctorReport } from "./resolve.js";
 import { enqueue, queueRoot, lawCheckMarkerPath, takePendingFeedback, type AuditJob } from "./audit-runner.js";
+import { runDemands, retireDemand } from "./demands.js";
 import { hasToolActivitySince, readGooseSession, defaultGooseSessionsDb } from "./goose.js";
 import { audit, type AuditJob as AuditContentJob } from "./auditor.js";
 import { logFiring, readFirings, summarize } from "./telemetry.js";
@@ -254,14 +255,34 @@ async function main(argv: string[]): Promise<number> {
     case "retire": {
       const lawId = rest[0];
       const reason = rest.slice(1).join(" ").trim();
-      if (!lawId || !reason) return usage('retire <law-id> "<reason>"');
+      if (!lawId || !reason) return usage('retire <law-id|demand-slug> "<reason>"');
+      // Demands live in the state dir (docs/DEMANDS.md phase 1) — try there first.
+      if (retireDemand(dir, lawId)) {
+        console.log(`retired demand ${lawId}: ${reason} (moved to retired/, never resurrected)`);
+        return 0;
+      }
       const ok = await retireLaw(dir, lawId, reason);
       if (!ok) {
-        console.log(`no active law entry "${lawId}" to retire`);
+        console.log(`no active law entry or demand "${lawId}" to retire`);
         return 0;
       }
       await commitPaths(dir, [LAW_FILENAME], `ser: retire law ${lawId} (${reason})`);
       console.log(`retired ${lawId}: ${reason} (recorded, not deleted)`);
+      return 0;
+    }
+
+    case "demands": {
+      // The demand store is invisible by design — this is the human window into it.
+      const results = await runDemands(dir);
+      if (!results.length) {
+        console.log("no standing demands for this repo");
+        return 0;
+      }
+      for (const d of results) {
+        console.log(`${d.passed ? "✓ met  " : "✗ unmet"}  ${d.slug}`);
+        if (d.remedy) console.log(`         ${d.remedy}${d.accept ? ` — accept: ${d.accept}` : ""}`);
+      }
+      console.log(`\nretire one: veritaserum retire <slug> "<reason>"`);
       return 0;
     }
 

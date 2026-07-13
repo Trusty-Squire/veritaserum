@@ -1,11 +1,21 @@
 # Demand redesign — tests enforce (from HEAD), a git-tracked register remembers
 
-Status: PHASE 1 IMPLEMENTED (2026-07-12) — demand authoring (gap/remedy/
-accept/test_file), failing-test materialization with authoring-time
-must-fail probe, HEAD-run enforcement, remedy+accept feedback line
-(src/demands.ts). Register, first-green review, distrust, CI job: DEFERRED
-until the testbed earns them (owner). Sections below are the full reviewed
-map, including deferred phases.
+Status: PHASE 1 IMPLEMENTED (2026-07-12, amended same day) — demand
+authoring (gap/remedy/accept/test_file), failing-test materialization with
+authoring-time must-fail probe, remedy+accept feedback line (src/demands.ts).
+
+AMENDMENT (owner, 2026-07-12): demand scripts live in **veritaserum's own
+state dir** (`<state>/<repoKey>/demands/`), NEVER in the user's repo.
+Rationale: an in-repo `test/veritaserum/` directory is visible vendor
+residue (adoption killer), and placing the oracle inside the defendant's
+tree is what FORCED the HEAD-run/pristine/consent-by-commit machinery — all
+deleted as unnecessary once the oracle left the repo. veritaserum is
+invisible: `git status` stays clean, nothing the executor does to the tree
+touches the oracle. Human window: `veritaserum demands` (list + status);
+veto: `veritaserum retire <slug> "<reason>"` (moved to retired/, recorded,
+never resurrected). Register, first-green review, distrust, CI job: still
+DEFERRED until the testbed earns them. Sections below are the full reviewed
+map and retain the superseded in-repo container for the record.
 Supersedes the law-file demand mechanism (SPEC.md §2 step 6, "Case law").
 Evidence base: the blockchain confabulation experiment (2026-07-11, gbrain:
 `blockchain-experiment-architectural-confab-boundary`) and its run-3

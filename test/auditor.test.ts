@@ -7,11 +7,21 @@ import { tempRepo, write } from "./helpers.js";
 import { audit, type AuditJob } from "../src/auditor.js";
 import type { Auditor, AuditorTier } from "../src/resolve.js";
 import { appendDemand, readLawTreeSync } from "../src/law.js";
+import { demandsDir, retireDemand } from "../src/demands.js";
 import { readFirings, type Firing } from "../src/telemetry.js";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 
 let cleanups: Array<() => Promise<void>> = [];
+const origQueueRoot = process.env.VS_QUEUE_ROOT;
+beforeEach(async () => {
+  // Demands live in the state dir (docs/DEMANDS.md phase 1) — isolate it.
+  process.env.VS_QUEUE_ROOT = await mkdtemp(join(tmpdir(), "vs-auditor-state-"));
+});
 afterEach(async () => {
+  const qr = process.env.VS_QUEUE_ROOT;
+  if (origQueueRoot === undefined) delete process.env.VS_QUEUE_ROOT;
+  else process.env.VS_QUEUE_ROOT = origQueueRoot;
+  if (qr) await rm(qr, { recursive: true, force: true });
   await Promise.all(cleanups.map((c) => c()));
   cleanups = [];
 });
@@ -181,9 +191,9 @@ describe("audit — demand -> failing test materialization (docs/DEMANDS.md phas
     test_file: "process.exit(1);\n",
     rung: "analytic",
   };
-  const kuhnPath = (dir: string) => join(dir, "test/veritaserum", "no-oracle-demonstrates-convergence-to-the-known-kuhn-poker-e.js");
+  const kuhnPath = (dir: string) => join(demandsDir(dir), "no-oracle-demonstrates-convergence-to-the-known-kuhn-poker-e.js");
 
-  it("materializes a demand as a failing script under test/veritaserum/ with provenance header — no law-file entry", async () => {
+  it("materializes a demand as a failing script in the STATE dir with provenance header — nothing in the repo, no law entry", async () => {
     const dir = await repo();
     const reply = JSON.stringify({
       claims: [{ claim: "wrote an MCCFR solver, working well", verdict: "unsupported", basis: "no oracle exists", evidence: "" }],
@@ -200,6 +210,9 @@ describe("audit — demand -> failing test materialization (docs/DEMANDS.md phas
     expect(content).toContain("within 1e-3");
     expect(content).toContain("process.exit(1);");
     expect(readLawTreeSync(dir)).toBeNull(); // demands no longer write case law
+    // Invisible by design: veritaserum leaves NOTHING in the user's repo.
+    const status = await execa("git", ["status", "--porcelain"], { cwd: dir });
+    expect(status.stdout.trim()).toBe("");
   });
 
   it("a duplicate demand (same slug already on disk) is not overwritten and is omitted from verdict.demands", async () => {
@@ -223,10 +236,10 @@ describe("audit — demand -> failing test materialization (docs/DEMANDS.md phas
     });
     const v = await audit(job(dir), fakeAuditor("agentic", reply));
     expect(v.demands).toHaveLength(0);
-    expect(existsSync(join(dir, "test/veritaserum"))).toBe(false);
+    expect(existsSync(demandsDir(dir))).toBe(false);
   });
 
-  it("an authored test that PASSES against the current tree is discarded — it discriminates nothing", async () => {
+  it("an authored test that PASSES against the current repo is discarded — it discriminates nothing", async () => {
     const dir = await repo();
     const reply = JSON.stringify({
       claims: [],
@@ -236,20 +249,24 @@ describe("audit — demand -> failing test materialization (docs/DEMANDS.md phas
     });
     const v = await audit(job(dir), fakeAuditor("agentic", reply));
     expect(v.demands).toHaveLength(0);
-    expect(existsSync(join(dir, "test/veritaserum", "a-passing-oracle.js"))).toBe(false);
+    expect(existsSync(join(demandsDir(dir), "a-passing-oracle.js"))).toBe(false);
   });
 
-  it("committed demand scripts run FROM HEAD: deleting the working-tree copy cannot dodge the check", async () => {
+  it("standing demands run every audit and nothing in the repo can dodge them; retire is the only exit", async () => {
     const dir = await repo();
-    await write(dir, "test/veritaserum/kuhn-anchor.js", "// accept: known values\nprocess.exit(1);\n");
-    await execa("git", ["add", "."], { cwd: dir });
-    await execa("git", ["commit", "-qm", "demand: kuhn anchor"], { cwd: dir });
-    rmSync(join(dir, "test/veritaserum/kuhn-anchor.js"), { force: true });
+    mkdirSync(demandsDir(dir), { recursive: true });
+    writeFileSync(join(demandsDir(dir), "kuhn-anchor.js"), "// remedy: add the anchor\n// accept: known values\nprocess.exit(1);\n");
 
     const v = await audit(job(dir), fakeAuditor("agentic", OK_REPLY));
     const check = v.mechanicalChecks.find((c) => c.gateId === "demand:kuhn-anchor");
     expect(check).toBeDefined();
     expect(check!.passed).toBe(false);
+
+    expect(retireDemand(dir, "kuhn-anchor")).toBe(true);
+    const v2 = await audit(job(dir), fakeAuditor("agentic", OK_REPLY));
+    expect(v2.mechanicalChecks.find((c) => c.gateId === "demand:kuhn-anchor")).toBeUndefined();
+    // Retired is recorded, not deleted — and never resurrected by a duplicate demand.
+    expect(existsSync(join(demandsDir(dir), "retired", "kuhn-anchor.js"))).toBe(true);
   });
 });
 
