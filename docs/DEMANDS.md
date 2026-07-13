@@ -165,18 +165,19 @@ Register transitions (codex #11, lifecycle defined):
 - Flip-detection state (per-test last-known HEAD-run status) is a
   non-authoritative cache; loss re-triggers at most one duplicate review.
 
-### 2.4 Unified authoring module (D5, scope corrected)
+### 2.4 Unified authoring module (D5) — RESOLVED BY DELETION
 
-The REAL inventory is three authoring paths (codex #8): `seed` (Knight
-manufactures gates), `contract_propose` (executor proposes, Knight grades),
-`ratchet` (transcriber turns corrections into gates). Unification means:
-one gate/demand SCHEMA (§2.1 fields + the statute path's existing gate
-kinds — semantic captures, checklists, evidence bundles survive; demands
-are the subset whose instrument is a test file, codex #9), one test-file
-emission path, one pristine-execution engine, and one grading core with
-role framings (author-from-goal / grade-proposal / transcribe-correction /
-author-from-claim). Knight and transcriber behavior is regression-locked
-(§4.9) — grading `contract_propose` proposals must not change semantics.
+This section planned to *unify* three authoring paths: `seed` (Knight manufactures
+gates), `contract_propose` (executor proposes, Knight grades), and `ratchet`
+(transcriber turns corrections into gates). The unification landed as a deletion
+instead (SPEC §4.1): all three paths, and the Knight/Judge/Transcriber roles behind
+them, are GONE. There is exactly one authoring path left — the auditor authors a
+demand from an observed gap (`law.ts`'s `appendDemand`, materialized as a failing
+test file by `demands.ts`) — because ruling on a claim and authoring the check that
+would settle it were always the same role wearing four names.
+
+The statute path survives as a **data file** (`contract.yaml`, human-edited); `loadLaw`
+unions its gates into the standing law. No negotiation machinery, no MCP tools.
 
 ## 3. Deliberately out of scope
 

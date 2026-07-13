@@ -35,7 +35,7 @@ the actual repo state and flags anything unsupported ("claims tests pass but not
 ran", "claims implemented X but the diff is empty").
 
 ```
-npx veritaserum install claude-code   # also: goose, codex, cursor   (--global for ~/.claude)
+npx veritaserum install claude-code   # also: goose, codex   (--global for ~/.claude)
 export VS_ADVISORY=1                  # week 1: watch + log, never block
 # ...work normally...
 veritaserum telemetry                 # catches, would-blocks, false-flags, by harness
@@ -77,26 +77,15 @@ trail — so "done" means done, and you can let the loop run.
 
 ## Install from source
 ```
-pnpm install && pnpm build && npm link   # puts `veritaserum` and `veritaserum-mcp` on PATH
+pnpm install && pnpm build && npm link   # puts `veritaserum` on PATH
 ```
 
-## Use it as an MCP harness (the ground-truth layer)
-Register the stdio server with any MCP host (Claude Code, Codex, …):
-```json
-{ "mcpServers": { "veritaserum": { "command": "veritaserum-mcp" } } }
-```
-Tools (the split API, DESIGN §4):
-
-| Tool | Effect |
-|---|---|
-| `contract_seed(goal, dir?)` | Knight authors + seals a fresh contract |
-| `contract_verify(dir?)` | run gates from **committed** graders (R2) vs the working tree; `isError` on a false "done"; semantic gates judged cross-vendor; abstain → human |
-| `contract_ratchet(complaint, dir?)` | turn a correction into a permanent gate (monotonic) |
-| `contract_amend(match, as, confirm, dir?)` | retire gates (the only weakening path; needs confirm) |
-| `contract_status(dir?)` | read-only summary |
-
-MCP is pull-only, so it is **not** the enforcement path — for hard-block enforcement,
-wire the CLI into the harness Stop hook (below).
+## Why there is no MCP server (deliberate)
+MCP is **pull**: the executor decides whether to call. Ground truth cannot be opt-in — an
+agent skips the check exactly when it is confabulating, so a voluntary "audit me" tool is
+adversely selected. The audit is **pushed** by the harness at turn-end and the executor
+cannot decline it. For the genuinely voluntary surface (run my demands, show me the law,
+show me what got caught) the executor already has a shell: see the CLI below.
 
 ## Use it as an enforcement hook (hard-block)
 `veritaserum hook-stop` blocks a turn iff the agent claimed done while a gate is red
@@ -110,12 +99,9 @@ One `veritaserum hook-stop` binary serves all three; the CLI normalizes each har
 
 ## CLI
 ```
-veritaserum install <claude-code|goose|codex|cursor> [--global]   wire the sentinel into a harness (cursor: MCP tools only)
+veritaserum install <claude-code|goose|codex> [--global]   wire the sentinel into a harness
 veritaserum telemetry     catches / would-blocks / by harness — the in-the-wild measurement
-veritaserum seed <goal>   author + seal a contract (Knight)
-veritaserum verify [--full]   run gates from pristine graders; exit 1 on a false "done"
-veritaserum ratchet <text>    append a gate from a correction (monotonic)
-veritaserum amend --retire --match <s> --as <s> [--confirm]   the only weakening path
+veritaserum demands       run the failing checks the auditor authored
 ```
 
 ## Guarantees
@@ -130,9 +116,8 @@ veritaserum amend --retire --match <s> --as <s> [--confirm]   the only weakening
 ```
 pnpm test        # hermetic vitest (MockLlmClient — no network)
 pnpm typecheck
-pnpm demo        # R2 proof · pnpm tsx scripts/{knight,mcp}-smoke.ts
 ```
 
-Status: P0–P3 complete. Knight/Judge/Transcriber are LLM-backed on free local
-subscriptions; the only metered piece is the visual VLM judge over filmstrips
-(opt-in, approval-gated), which abstains to human until configured.
+Status: P0–P3 complete. One role, not four: the Knight, Judge, and Transcriber are
+deleted (SPEC §4.1) — the auditor already ruled on claims AND authored the checks.
+The auditor runs cross-family on free local subscriptions; nothing is metered.

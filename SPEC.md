@@ -97,8 +97,11 @@ temperature recorded per run; overnight runs budget auditor calls with backoff +
 - **Demands are inert until committed**: the auditor writes demands to the tree but reads
   law from HEAD, so a demand binds only after a human commits it — the law-file commit IS
   the veto moment (review the diff, drop what you reject). Consent by commit.
-- The v1 negotiation tools (`contract_propose`/`contract_seal`) survive as the optional
-  statute path — same file, same schema. Nothing else depends on them.
+- **Statute path** (`contract.yaml`, optional): `loadLaw` unions its active gates into the
+  standing law, so a human-sealed gate binds exactly like an auditor-demanded precedent.
+  It is a **data file you edit** — same schema, no negotiation machinery. The v1 tools that
+  authored it (`contract_propose`/`contract_seal`, and the Knight behind them) are DELETED;
+  see §4.1.
 
 **Feedback channels (per harness, best available; the audit never depends on one — R8):**
 - Claude Code: `additionalContext` at next UserPromptSubmit; `systemMessage` to the human.
@@ -128,10 +131,11 @@ is the measurement engine — chode-class refactors, qwen2.5:3b under goose, TES
 mode, codex-exec auditor — where demand quality, verdict precision, and injection wording
 get tuned before Claude Code ever sees v3.
 
-**Claude Code last:** richest channels, shipped as the plugin (hooks + MCP + skill, one
-manifest) once testbed numbers clear R5's bar. Distribution pipeline is in scope for this
-phase: npm publish on version tag, `.claude-plugin/plugin.json` validated in CI,
-package/plugin version sync asserted, `docs/DISTRIBUTION.md`.
+**Claude Code last:** richest channels, shipped as the plugin (**hooks only** — one
+manifest, no MCP server, no skill) once testbed numbers clear R5's bar. Distribution
+pipeline is in scope for this phase: npm publish on version tag,
+`.claude-plugin/plugin.json` validated in CI, package/plugin version sync asserted,
+`docs/DISTRIBUTION.md`.
 
 ## 4. What v3 deletes — file-level manifest
 
@@ -143,8 +147,42 @@ package/plugin version sync asserted, `docs/DISTRIBUTION.md`.
 | `judge-verdict.ts`, `gate-run.ts` | **refactor into auditor** (mechanical check exec) | |
 | `cli.ts` hook-stop/hook-prompt cases | **replace** with sync-path + enqueue | |
 | goose/codex `adapters/` (v1 shapes) | **goose: rebuild** (first-class), codex: TODO 2 | |
-| `contract.ts`, `schema.ts`, `verify.ts`, `ratchet.ts`, `resolve.ts`, `llm.ts`, `telemetry.ts`, `propose.ts`, `mcp.ts` | **keep/extend** (law schema, statute path, vendor machinery + ollama client, telemetry fields) | |
+| `schema.ts`, `resolve.ts`, `llm.ts`, `telemetry.ts` | **keep/extend** (law schema + rung ladder, auditor resolution, ollama client, telemetry fields) | |
+| `contract.ts`, `verify.ts`, `ratchet.ts`, `propose.ts`, `seed.ts`, `mcp.ts` | **delete** (§4.1) | the contract system: one role, not four |
 Acceptance asserts deleted symbols are gone (§6).
+
+## 4.1 What v3 also deletes — the contract system (one role, not four)
+
+The Knight (author a gate from a goal), the Transcriber (author a gate from a complaint),
+and the semantic Judge (rule on a gate's claim over captured evidence) are **special cases
+of the auditor**, which already does both verbs: it rules on a claim against evidence, and
+when the evidence is missing it authors the check itself (`law.ts`'s `appendDemand` +
+`demands.ts` materializing a failing script). Four names, one job. Each carried its own
+vendor resolution, its own LLM client, and its own subprocess spawn path — 1537 lines the
+live audit path needed exactly two things from (the rung ladder and `activeGates`, both now
+in `schema.ts`).
+
+The duplication was not free: every defect found in the 2026-07-12 session lived in the
+second copy — the prompt-as-argv E2BIG ceiling existed in *two* spawn paths, and the MCP
+server (whose only tools were `contract_*`) silently exited under npm's bin shim, so
+veritaserum failed to connect in every repo but its own.
+
+Deleted: `contract.ts`, `propose.ts`, `seed.ts`, `verify.ts`, `ratchet.ts`, `judge.ts`,
+`judge-verdict.ts`, `knight-llm.ts`, `transcriber-llm.ts`, `pristine.ts`, `symptom.ts`,
+`mcp.ts`; the `seed`/`ratchet`/`amend`/`verify` CLI commands; the plan→build seal ceremony
+(hook + the `CLAUDE.md` rule the installer wrote); the `cursor` target (MCP-only — it
+installed no turn-end hook, so it never caught anything); the `veritaserum-mcp` bin.
+
+**No MCP surface, deliberately (R-push).** MCP is *pull*: the executor decides whether to
+call. Ground truth cannot be opt-in — an agent skips the check exactly when it is
+confabulating, so a voluntary audit tool is adversely selected and its green stamps are
+worth least when they matter most. The audit is *pushed* by the harness at turn-end and the
+executor cannot decline it. And for the genuinely voluntary surface — run my demands, show
+me the law, show me what got caught — the executor **already has a shell**: `veritaserum
+demands` / `retire` / `telemetry` are CLI commands it can call today. An MCP server would
+add a protocol, a server process, a registration, and a connect failure mode to wrap a
+binary that already works. `deletion-manifest.test.ts` asserts all twelve modules stay gone
+and that vendor resolution exposes exactly one role.
 
 ## 5. Non-goals (deliberate, user-litigated)
 Adversarial evasion of the auditor · omission-catching beyond standing law + R9 ·

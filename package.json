@@ -52,7 +52,6 @@
     "ser": "tsx src/cli.ts",
     "demo": "tsx scripts/demo.ts",
     "eval:fixtures": "tsx eval/run-fixtures.ts",
-    "mcp": "tsx src/mcp.ts",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
