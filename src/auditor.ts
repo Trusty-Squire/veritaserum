@@ -487,9 +487,17 @@ export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdi
   // demand discriminates nothing and is discarded), and records unverifiable
   // demands (no accept/test_file) without binding anything. We only report the
   // ones actually added.
+  // VS_DEMAND_MODE=urge (experiment arm, SPEC §6.6 two-arm suite): the demand
+  // is delivered as an instruction only — no oracle script is materialized.
+  // Default ("script") materializes the failing test as well.
+  const urgeOnly = process.env.VS_DEMAND_MODE === "urge";
   const demands: Demand[] = [];
   if (reply) {
     for (const d of reply.demands) {
+      if (urgeOnly) {
+        if (d.accept?.trim()) demands.push(d);
+        continue;
+      }
       try {
         const res = await materializeDemand(job.dir, d);
         if (res.action === "added") demands.push(d);
