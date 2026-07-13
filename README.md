@@ -6,6 +6,14 @@ Agents confidently report "done," "tests pass," "implemented X" when it isn't tr
 often deep in a long session, where they've drifted from ground truth and nobody is reading
 every line. That is what forces you to babysit the loop.
 
+It survives careful benchmarking, too. An empirical study of SWE-bench Verified found that
+**7.8% of patches count as correct while failing the developer's own test suite**, and that
+29.6% of accepted patches behave differently from the human fix — inflating reported
+resolution rates by **6.2 absolute percentage points**.[^1] Passing the tests you were given
+is not the same as being right.
+
+[^1]: [Are "Solved Issues" in SWE-bench Really Solved Correctly? An Empirical Study](https://arxiv.org/abs/2503.15223) (arXiv:2503.15223).
+
 A model cannot reliably catch its *own* confabulation: the grader and the generator share
 the blind spot. veritaserum puts an external check on your existing harness, automatically,
 at every turn-end.
