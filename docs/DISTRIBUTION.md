@@ -1,8 +1,9 @@
 # Distribution
 
-veritaserum ships two ways: an **npm package** (the CLI + MCP server, for goose/codex/any
-harness) and a **Claude Code plugin** (this same repo, installed directly — hooks + MCP +
-a skill, one manifest). Both come from this one repo; nothing is built or synced by hand.
+veritaserum ships two ways: an **npm package** (the CLI, for goose/codex/any harness) and
+a **Claude Code plugin** (this same repo, installed directly — hooks, one manifest). Both
+come from this one repo; nothing is built or synced by hand. There is no MCP server: the
+audit is pushed at turn-end, not pulled by the executor (SPEC §4.1).
 
 ## How releases work (tag → npm)
 
@@ -43,12 +44,11 @@ plugin manifest fails fast instead of shipping a mismatched plugin.
 ### npx (any harness: goose, codex, or a manual Claude Code hook)
 
 ```
-npx veritaserum install <claude-code|goose|codex|cursor>
+npx veritaserum install <claude-code|goose|codex>
 ```
 
 Wires the `Stop` (and, for Claude Code, `UserPromptSubmit`) hook into the target
-harness's own config, and — for `claude-code` — registers the MCP server via
-`claude mcp add`. This is the direct-install path: it edits `~/.claude/settings.json` (or
+harness's own config. This is the direct-install path: it edits `~/.claude/settings.json` (or
 `.claude/settings.json` with `--project`), goose's plugin directory, or a resolved codex
 config snippet. See each `adapters/<harness>/README.md` for what gets touched.
 
@@ -63,10 +63,8 @@ with:
 
 This is the richer path (SPEC.md §3 "Claude Code last"): one manifest
 (`.claude-plugin/plugin.json`) wires the `Stop` and `UserPromptSubmit` hooks (pointing at
-`${CLAUDE_PLUGIN_ROOT}/dist/cli.js`), `.mcp.json` registers the `veritaserum` MCP server
-(`contract_propose`/`contract_seal`/etc.), and `skills/contract-negotiation/SKILL.md`
-teaches the agent when to use the optional statute path. All three install together;
-nothing to configure by hand.
+`${CLAUDE_PLUGIN_ROOT}/dist/cli.js`). That is the whole plugin — no MCP server, no skill.
+Nothing to configure by hand.
 
 ### TODO: marketplace listing
 
