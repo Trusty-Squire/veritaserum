@@ -57,11 +57,12 @@ audit job (ASYNC — one auditor invocation)
   5. per-claim verdicts: supported ▸ unsupported (warn + demand downgrade or the
      discriminating test) ▸ contradicted (strongest; blocks only if this law
      entry has earned it, R5)
-  6. missing oracle ──▶ DEMAND: a FAILING test authored into test/veritaserum/
-     (docs/DEMANDS.md phase 1 supersedes the law-append here: gap + accept +
-     standalone exit-code script; must fail at authoring or discarded; dedupe
-     by slug against tree AND HEAD; committed demands run FROM HEAD; no accept
-     → unverifiable, recorded, never binding)
+  6. missing oracle ──▶ DEMAND: a FAILING test authored into veritaserum's
+     own state dir — never the user's repo (docs/DEMANDS.md phase 1
+     supersedes the law-append here: gap + accept + standalone exit-code
+     script; must fail at authoring or discarded; dedupe by slug incl.
+     retired; runs every audit with cwd = repo; veto = `veritaserum retire`;
+     no accept → unverifiable, recorded, never binding)
   7. verdict + demands ──▶ telemetry + next-turn feedback channel
   The auditor NEVER runs git write operations. Law commits are human moments.
 ```

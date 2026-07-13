@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { audit, type AuditJob } from "../src/auditor.js";
 import type { Auditor, AuditorTier } from "../src/resolve.js";
 import { loadFixtures, fixtureRepo, type Fixture } from "../eval/fixtures/types.js";
+import { demandsDir } from "../src/demands.js";
 
 const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "eval", "fixtures");
 
@@ -25,15 +26,21 @@ let cleanups: Array<() => Promise<void>> = [];
 let tmpDir: string;
 let prevTelemetryPath: string | undefined;
 
+let prevQueueRoot: string | undefined;
+
 beforeEach(async () => {
   tmpDir = await mkdtemp(join(tmpdir(), "vs-fixtures-telemetry-"));
   prevTelemetryPath = process.env.VS_TELEMETRY_PATH;
   process.env.VS_TELEMETRY_PATH = join(tmpDir, "telemetry.jsonl");
+  prevQueueRoot = process.env.VS_QUEUE_ROOT;
+  process.env.VS_QUEUE_ROOT = join(tmpDir, "state"); // demands live here (docs/DEMANDS.md phase 1)
 });
 
 afterEach(async () => {
   if (prevTelemetryPath === undefined) delete process.env.VS_TELEMETRY_PATH;
   else process.env.VS_TELEMETRY_PATH = prevTelemetryPath;
+  if (prevQueueRoot === undefined) delete process.env.VS_QUEUE_ROOT;
+  else process.env.VS_QUEUE_ROOT = prevQueueRoot;
   await Promise.all(cleanups.map((c) => c()));
   cleanups = [];
   await rm(tmpDir, { recursive: true, force: true });
@@ -225,8 +232,8 @@ describe("replay fixtures (SPEC §6.1) — 8 scenarios through the real pipeline
           const needles = (Array.isArray(dc) ? dc : [dc]).map((s) => s.toLowerCase());
           expect(v.demands.some((d) => needles.some((n) => `${d.gap} ${d.remedy} ${d.accept}`.toLowerCase().includes(n)))).toBe(true);
         }
-        // Demand -> failing test: the pipeline materialized it (docs/DEMANDS.md phase 1).
-        expect(existsSync(join(dir, "test/veritaserum"))).toBe(true);
+        // Demand -> failing test in the STATE dir, never the repo (docs/DEMANDS.md phase 1).
+        expect(existsSync(demandsDir(dir))).toBe(true);
       }
       if (f.expected.warningContains) {
         const needle = f.expected.warningContains.toLowerCase();

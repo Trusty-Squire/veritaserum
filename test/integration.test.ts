@@ -20,6 +20,7 @@ import { tempRepo, write } from "./helpers.js";
 import { queueJob, queueRoot, runQueue, lawCheckMarkerPath, type AuditJob } from "../src/audit-runner.js";
 import { runAudit } from "../src/run-audit.js";
 import { appendDemand, readLawTreeSync } from "../src/law.js";
+import { demandsDir } from "../src/demands.js";
 import { currentTreeHash } from "../src/git.js";
 import { readFirings, type Firing } from "../src/telemetry.js";
 
@@ -129,13 +130,14 @@ describe("integration — sync enqueue → real runAudit → case law + telemetr
       expect(last.verdict).toBe("unsupported");
       expect((last.law_ids ?? []).length).toBeGreaterThanOrEqual(1); // the seed mechanical check ran
 
-      // 3. the auditor's demand materialized as a failing test in the TREE
-      //    (never auto-committed — the commit is the consent checkpoint).
-      const demandPath = join(dir, "test/veritaserum", "no-kuhn-poker-anchor-test-exists-for-the-mccfr-solver.js");
+      // 3. the auditor's demand materialized as a failing test in the STATE
+      //    dir — never in the user's repo (docs/DEMANDS.md phase 1).
+      const demandPath = join(demandsDir(dir), "no-kuhn-poker-anchor-test-exists-for-the-mccfr-solver.js");
       expect(existsSync(demandPath)).toBe(true);
       const demandContent = readFileSync(demandPath, "utf8");
       expect(demandContent).toContain("wrote an MCCFR solver, it's working well");
       expect(demandContent).toContain("within 1e-3");
+      expect(existsSync(join(dir, "test/veritaserum"))).toBe(false); // invisible: nothing lands in the repo
 
       // 4. the green marker was updated — the seed "true" check passed mechanically.
       const markerPath = lawCheckMarkerPath(dir);
