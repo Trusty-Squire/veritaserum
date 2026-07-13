@@ -3,9 +3,16 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { execa } from "execa";
 import { tempRepo } from "./helpers.js";
-import { appendDemand, loadLaw, readLawTreeSync, retireLaw, runnableChecks, LAW_FILENAME } from "../src/law.js";
-import { saveContract } from "../src/contract.js";
-import { ContractFileSchema, type ContractFile } from "../src/schema.js";
+import { appendDemand, loadLaw, readLawTreeSync, retireDemandLaw, retireLaw, runnableChecks, LAW_FILENAME } from "../src/law.js";
+import { ContractFileSchema, CONTRACT_FILENAME, type ContractFile } from "../src/schema.js";
+import { writeFile } from "node:fs/promises";
+import { stringify as toYaml } from "yaml";
+
+/** Write contract.yaml (the optional statute file loadLaw unions in). Was
+ *  contract.ts's saveContract, which died with the knight/judge/transcriber. */
+async function saveContract(dir: string, c: ContractFile): Promise<void> {
+  await writeFile(join(dir, CONTRACT_FILENAME), toYaml(c), "utf8");
+}
 
 let cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -138,6 +145,23 @@ describe("appendDemand", () => {
     expect(results.filter((r) => r.action === "added")).toHaveLength(1);
     expect(results.filter((r) => r.action === "duplicate")).toHaveLength(9);
     expect(readLawTreeSync(dir)!.gates).toHaveLength(1);
+  });
+});
+
+describe("demand law pairing", () => {
+  it("retires the portable law record by its state-oracle slug", async () => {
+    const dir = await repo();
+    await appendDemand(dir, {
+      run: "true",
+      rung: "oracle",
+      originClaim: "measured throughput",
+      demandSlug: "measure-throughput",
+      demandGap: "no measurement receipt",
+      demandAccept: "a real timing run passes",
+    });
+    expect(await retireDemandLaw(dir, "measure-throughput", "superseded")).toBe(true);
+    expect(readLawTreeSync(dir)!.gates[0]!.lineage.retired).toBe(true);
+    expect(readLawTreeSync(dir)!.gates[0]!.retiredBy).toBe("superseded");
   });
 });
 

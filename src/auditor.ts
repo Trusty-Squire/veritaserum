@@ -9,20 +9,23 @@
  * missing oracles (tagged with an epistemic ladder rung), and never block by
  * default (R5 warn-primary) or throw (R8 fail-open).
  *
- * Case law is the auditor's own output: `demandToGate` turns a demand into a
- * ContractGate the human can later see/retire; `appendDemand`/`runnableChecks`
- * (law.ts) own dedupe, HEAD-vs-tree drift, and mechanical re-checking.
+ * Case law is the auditor's own output: a validated state-owned demand is
+ * copied into a portable ContractGate the human can later see/retire;
+ * `appendDemand`/`runnableChecks` (law.ts) own dedupe, HEAD-vs-tree drift,
+ * and mechanical re-checking.
  */
 import { execa } from "execa";
 import { runGate } from "./gate-run.js";
 import { logFiring } from "./telemetry.js";
-import { RUNGS, type Rung } from "./propose.js";
+import { RUNGS, type Rung } from "./schema.js";
 import type { Auditor, AuditorTier } from "./resolve.js";
-import { loadLaw, appendDemand, runnableChecks, type DemandInput } from "./law.js";
+import { appendDemand, loadLaw, runnableChecks } from "./law.js";
+import { demandLawCommand, materializeDemand, runDemands } from "./demands.js";
 
 export interface AuditJob {
   dir: string;
   sessionId: string;
+  turnRef?: string;
   /** The turn's final message — what the audit judges. */
   finalMessage: string;
   /** The user's request this turn is answering (claims are request-relative). */
@@ -31,6 +34,9 @@ export interface AuditJob {
   receipts?: string;
   /** Warnings already surfaced this session — same-claim duplicates are suppressed (R5). */
   priorWarnings?: string[];
+  harness?: string;
+  schedulingMode?: "live" | "testbed";
+  demandMode?: "script" | "urge";
 }
 
 export interface ClaimVerdict {
@@ -46,17 +52,27 @@ export interface ClaimVerdict {
 }
 
 export interface Demand {
-  description: string;
-  run?: string;
-  rung: Rung;
   origin_claim: string;
+  /** What current evidence fails to establish — concrete, never generic. */
+  gap: string;
+  /** Imperative instruction to the executor: what evidence to produce. */
+  remedy: string;
+  /** The acceptance condition as data: expected values, tolerances, known answers. */
+  accept: string;
+  /** Standalone exit-code test script embodying `accept`. Absent → unverifiable. */
+  test_file?: string;
+  rung: Rung;
 }
 
 export interface MechanicalCheckResult {
   gateId: string;
+  /** Canonical law id when gateId is the friendlier demand:<slug> key. */
+  lawId?: string;
   command: string;
   passed: boolean;
   exitCode: number;
+  originClaim?: string;
+  gap?: string;
 }
 
 export interface AuditVerdict {
@@ -74,6 +90,7 @@ export interface AuditVerdict {
   vendor: string;
   /** Set on any parse/infra failure. The verdict is otherwise empty-but-valid (R8: never throws). */
   error?: string;
+  auditDurationMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -143,14 +160,32 @@ const RULES_BLOCK = [
   "receipts. Verdict stays supported; the staleness is a warning, nothing more. Only when proof",
   "is absent EVERYWHERE (no run, no doc) is the claim unsupported.",
   "",
-  "A claim that needed an oracle that doesn't exist — demand ONE: append it to `demands`",
-  "with an epistemic ladder rung: analytic > oracle > held-out > self-consistency >",
-  "unverifiable. Only the top three rungs (analytic, oracle, held-out) ever bind; record",
-  "lower rungs anyway, but they never bind.",
+  "A claim that needed an oracle that doesn't exist — MANUFACTURE one, do not point at one.",
+  "Author the demand with ALL of these fields:",
+  "- gap: one sentence naming precisely what current evidence fails to establish. Name the",
+  "  missing thing concretely ('the benchmark's timed path contains no signature verification,",
+  "  no consensus round, and executes no contracts'), never generically ('needs more testing').",
+  "  State why the agent's own existing tests do not count.",
+  "- remedy: an imperative instruction to the agent: what evidence to produce.",
+  "- accept: the acceptance condition AS DATA — expected values with tolerances, a property",
+  "  that must hold, an input whose output is known from theory or an external reference.",
+  "  If you cannot state accept, you have not designed an oracle: emit the demand WITHOUT",
+  "  test_file at rung unverifiable and say so in the note.",
+  "- test_file: the full content of a STANDALONE node script (no test framework, no imports",
+  "  beyond node builtins and the repo's own files) that embodies accept as executable checks",
+  "  and exits 0 only when accept is genuinely met, nonzero otherwise. It MUST FAIL against",
+  "  the current tree — a demand that would already pass discriminates nothing. Assume the",
+  "  thing checking it later sees pass/fail only and never reads your prose. It must be",
+  "  runnable by a stranger with zero context.",
+  "- rung: analytic > oracle > held-out > self-consistency > unverifiable. Only the top three",
+  "  bind; record lower rungs anyway.",
+  "NEVER demand execution of a file the agent already wrote — an existing artifact is either",
+  "sufficient evidence (then cite it and verdict the claim, no demand) or insufficient (then",
+  "your test must check what it does not).",
   "",
   "Reply ONLY with strict JSON, no prose before or after:",
   '{"claims":[{"claim":"","verdict":"supported|unsupported|contradicted","basis":"","evidence":"","law_ids":["<optional standing-law id(s) this claim satisfies>"]}],',
-  '"demands":[{"description":"","run":"<shell command, or omit>","rung":"analytic|oracle|held-out|self-consistency|unverifiable","origin_claim":""}],',
+  '"demands":[{"origin_claim":"","gap":"","remedy":"","accept":"","test_file":"<standalone node script, or omit>","rung":"analytic|oracle|held-out|self-consistency|unverifiable"}],',
   '"unaccountable":false,"note":""}',
 ].join("\n");
 
@@ -172,7 +207,26 @@ function lawSummary(lawResult: Awaited<ReturnType<typeof loadLaw>> | undefined):
   return `law: ${n} gate(s) on file, read from git HEAD${driftNote(lawResult.drift)}.${idNote}${contractNote}`;
 }
 
-function buildAgenticPrompt(job: AuditJob, lawResult: Awaited<ReturnType<typeof loadLaw>> | undefined): string {
+function oracleEvidence(checks: MechanicalCheckResult[]): string {
+  const demands = checks.filter((check) => check.gateId.startsWith("demand:"));
+  if (!demands.length) return "";
+  return [
+    "DEMANDED ORACLE RESULTS (mechanical evidence remembered from prior audits):",
+    ...demands.map(
+      (check) =>
+        `- ${check.gateId}: ${check.passed ? "PASS" : "FAIL"} (exit ${check.exitCode})` +
+        `${check.originClaim ? `; origin claim: ${JSON.stringify(check.originClaim)}` : ""}` +
+        `${check.gap ? `; gap: ${check.gap}` : ""}`,
+    ),
+    "A passing demanded oracle is evidence for its origin claim. Do not call that same claim unsupported for the same missing oracle.",
+  ].join("\n");
+}
+
+function buildAgenticPrompt(
+  job: AuditJob,
+  lawResult: Awaited<ReturnType<typeof loadLaw>> | undefined,
+  checks: MechanicalCheckResult[],
+): string {
   return [
     RULES_BLOCK,
     "",
@@ -197,6 +251,7 @@ function buildAgenticPrompt(job: AuditJob, lawResult: Awaited<ReturnType<typeof 
     "",
     `AGENT'S FINAL MESSAGE (what you are auditing):\n"""${job.finalMessage}"""`,
     job.receipts ? `\nHARNESS RECEIPT TAIL (what actually ran, the harness's own record):\n"""${job.receipts}"""` : "",
+    oracleEvidence(checks),
   ]
     .filter((l) => l !== "")
     .join("\n");
@@ -222,7 +277,12 @@ async function gatherEvidence(dir: string, receipts: string | undefined): Promis
     .join("\n\n");
 }
 
-function buildPreGatheredPrompt(job: AuditJob, evidence: string, lawResult: Awaited<ReturnType<typeof loadLaw>> | undefined): string {
+function buildPreGatheredPrompt(
+  job: AuditJob,
+  evidence: string,
+  lawResult: Awaited<ReturnType<typeof loadLaw>> | undefined,
+  checks: MechanicalCheckResult[],
+): string {
   return [
     RULES_BLOCK,
     "",
@@ -237,6 +297,7 @@ function buildPreGatheredPrompt(job: AuditJob, evidence: string, lawResult: Awai
     `EVIDENCE (pre-gathered):\n${evidence}`,
     "",
     lawSummary(lawResult),
+    oracleEvidence(checks),
   ].join("\n");
 }
 
@@ -289,13 +350,15 @@ function parseReply(raw: string): ParsedAuditReply | null {
         .map((d): Demand | null => {
           if (!d || typeof d !== "object") return null;
           const o = d as Record<string, unknown>;
-          if (typeof o.description !== "string" || !o.description.trim()) return null;
+          if (typeof o.gap !== "string" || !o.gap.trim()) return null;
           const rung: Rung = (RUNGS as readonly string[]).includes(o.rung as string) ? (o.rung as Rung) : "unverifiable";
           return {
-            description: o.description,
-            ...(typeof o.run === "string" && o.run.trim() ? { run: o.run } : {}),
-            rung,
             origin_claim: typeof o.origin_claim === "string" ? o.origin_claim : "",
+            gap: o.gap,
+            remedy: typeof o.remedy === "string" ? o.remedy : "",
+            accept: typeof o.accept === "string" ? o.accept : "",
+            ...(typeof o.test_file === "string" && o.test_file.trim() ? { test_file: o.test_file } : {}),
+            rung,
           };
         })
         .filter((d): d is Demand => d !== null)
@@ -321,11 +384,50 @@ function parseReply(raw: string): ParsedAuditReply | null {
 //     pointed at but couldn't itself execute.
 // ---------------------------------------------------------------------------
 
+function normalizeClaimText(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/** Exact match, or containment where the CONTAINED text is itself long enough to
+ *  be specific. Unguarded containment let a short generic claim ("tests pass") in
+ *  a later, unrelated turn inherit support from any remembered origin claim — the
+ *  false-"supported" direction the auditor exists to prevent. */
+function claimTextsMatch(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  return short.length >= 40 && long.includes(short);
+}
+
 function foldMechanical(claims: ClaimVerdict[], checks: MechanicalCheckResult[]): ClaimVerdict[] {
   const failed = checks.filter((c) => !c.passed);
-  if (!failed.length) return claims;
-  const failedById = new Map(failed.map((f) => [f.gateId, f]));
+  const passedDemands = checks.filter((c) => c.passed && c.gateId.startsWith("demand:") && c.originClaim);
+  const failedById = new Map(
+    failed.flatMap((f) => [
+      [f.gateId, f] as const,
+      ...(f.lawId ? ([[f.lawId, f]] as const) : []),
+    ]),
+  );
   return claims.map((c) => {
+    if (c.verdict === "unsupported") {
+      const claim = normalizeClaimText(c.claim);
+      // Explicit linkage first (same convention as the overturn path below):
+      // a claim carrying law_ids is credited only through them, never by text.
+      const remembered = passedDemands.find((check) => {
+        if (c.law_ids?.length) {
+          return c.law_ids.includes(check.gateId) || (check.lawId ? c.law_ids.includes(check.lawId) : false);
+        }
+        return claimTextsMatch(normalizeClaimText(check.originClaim || ""), claim);
+      });
+      if (remembered) {
+        return {
+          ...c,
+          verdict: "supported",
+          basis: `${c.basis} — satisfied: ${remembered.gateId} passed (exit 0)`,
+          evidence: `${c.evidence}${c.evidence ? "; " : ""}${remembered.command}`,
+        };
+      }
+    }
     if (c.verdict !== "supported") return c;
 
     if (c.law_ids?.length) {
@@ -349,18 +451,9 @@ function foldMechanical(claims: ClaimVerdict[], checks: MechanicalCheckResult[])
   });
 }
 
-// ---------------------------------------------------------------------------
-// Demand -> case law (law.ts owns dedupe, atomic write, and the binding-rung
-// cutoff; we just shape one demand into its DemandInput).
-// ---------------------------------------------------------------------------
-
-function demandToInput(d: Demand): DemandInput {
-  return {
-    ...(d.run ? { run: d.run } : { checklist: d.description }),
-    rung: d.rung,
-    originClaim: `${d.description} — origin claim: "${d.origin_claim}"`,
-  };
-}
+// Demand materialization lives in demands.ts: the executable oracle lives in
+// veritaserum's state dir. Provenance and a generic state-oracle locator are
+// registered in veritaserum.law.yaml; the hidden executable bytes are not.
 
 // ---------------------------------------------------------------------------
 // Telemetry
@@ -388,7 +481,7 @@ function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict): void {
       : (verdict.auditorTier as "agentic" | "pre-gathered");
 
   logFiring({
-    harness: process.env.VS_HARNESS || "unknown",
+    harness: job.harness || "unknown",
     event: "audit",
     claim: job.finalMessage.slice(0, 400),
     verdict: overall,
@@ -397,9 +490,12 @@ function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict): void {
     dir: job.dir,
     verdict_basis: basis,
     auditor_tier: auditorTierTag,
-    scheduling_mode: process.env.VS_SCHEDULING_MODE === "testbed" ? "testbed" : "live",
+    scheduling_mode: job.schedulingMode || "live",
     law_ids: verdict.mechanicalChecks.map((c) => c.gateId),
+    passed_law_ids: verdict.mechanicalChecks.filter((c) => c.passed).map((c) => c.gateId),
+    turn_ref: job.turnRef || job.sessionId,
     vague_turn: verdict.unaccountable,
+    audit_duration_ms: verdict.auditDurationMs,
   });
 }
 
@@ -409,6 +505,7 @@ function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict): void {
 // ---------------------------------------------------------------------------
 
 export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdict> {
+  const auditStartedAt = Date.now();
   let lawResult: Awaited<ReturnType<typeof loadLaw>> | undefined;
   try {
     lawResult = await loadLaw(job.dir);
@@ -420,16 +517,46 @@ export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdi
   // no LLM, and regardless of auditor availability (R8: mechanical checks run
   // even when no LLM auditor exists at all).
   const mechanicalChecks: MechanicalCheckResult[] = [];
+  const registeredDemandSlugs = new Set<string>();
   if (lawResult) {
     try {
       for (const gate of runnableChecks(lawResult.law)) {
         if (!gate.run) continue;
         const r = await runGate(gate.run, job.dir);
-        mechanicalChecks.push({ gateId: gate.id, command: gate.run, passed: r.passed, exitCode: r.exitCode });
+        const demandSlug = typeof gate.lineage.params?.demandSlug === "string" ? gate.lineage.params.demandSlug : undefined;
+        if (demandSlug) registeredDemandSlugs.add(demandSlug);
+        const gap = typeof gate.lineage.params?.gap === "string" ? gate.lineage.params.gap : undefined;
+        mechanicalChecks.push({
+          gateId: demandSlug ? `demand:${demandSlug}` : gate.id,
+          ...(demandSlug ? { lawId: gate.id } : {}),
+          command: demandSlug ? `veritaserum demands (${demandSlug})` : gate.run,
+          passed: r.passed,
+          exitCode: r.exitCode,
+          ...(demandSlug ? { originClaim: gate.lineage.provenance } : {}),
+          ...(gap ? { gap } : {}),
+        });
       }
     } catch {
       /* the mechanical runner never blocks the verdict (R8) */
     }
+  }
+  // Demand tests run from veritaserum's own state dir (docs/DEMANDS.md phase
+  // 1): the oracle lives outside the repo, so nothing the executor does to
+  // the tree can alter the script — only meeting `accept` turns it green.
+  try {
+    for (const d of await runDemands(job.dir)) {
+      if (registeredDemandSlugs.has(d.slug)) continue; // the portable law copy already ran
+      mechanicalChecks.push({
+        gateId: `demand:${d.slug}`,
+        command: `node ${d.path}`,
+        passed: d.passed,
+        exitCode: d.exitCode,
+        ...(d.originClaim ? { originClaim: d.originClaim } : {}),
+        ...(d.gap ? { gap: d.gap } : {}),
+      });
+    }
+  } catch {
+    /* never blocks the verdict (R8) */
   }
 
   let reply: ParsedAuditReply | null = null;
@@ -441,8 +568,8 @@ export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdi
     try {
       const prompt =
         auditor.tier === "agentic"
-          ? buildAgenticPrompt(job, lawResult)
-          : buildPreGatheredPrompt(job, await gatherEvidence(job.dir, job.receipts), lawResult);
+          ? buildAgenticPrompt(job, lawResult, mechanicalChecks)
+          : buildPreGatheredPrompt(job, await gatherEvidence(job.dir, job.receipts), lawResult, mechanicalChecks);
       const raw = await auditor.invoke(prompt, job.dir);
       reply = parseReply(raw);
       if (!reply) error = "auditor reply did not parse as the expected JSON verdict";
@@ -453,17 +580,46 @@ export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdi
 
   const claims = reply ? foldMechanical(reply.claims, mechanicalChecks) : [];
 
-  // Step 6: missing-oracle demands become case law. Dedupe/HEAD-safety is law.ts's
-  // job (atomic tmp+rename, normalized-command / slug-overlap dedupe) — we only
-  // report the ones it actually appended.
+  // Step 6 (docs/DEMANDS.md phase 1): missing-oracle demands become failing
+  // tests in veritaserum's state dir. materializeDemand dedupes by slug,
+  // verifies the script fails at authoring time (an already-passing
+  // demand discriminates nothing and is discarded), and records unverifiable
+  // demands (no accept/test_file) without binding anything. We only report the
+  // ones actually added.
+  // VS_DEMAND_MODE=urge (experiment arm, SPEC §6.6 two-arm suite): the demand
+  // is delivered as an instruction only — no oracle script is materialized.
+  // Default ("script") materializes the failing test as well.
+  const urgeOnly = job.demandMode === "urge";
   const demands: Demand[] = [];
   if (reply) {
     for (const d of reply.demands) {
+      const origin = normalizeClaimText(d.origin_claim);
+      const originAlreadySupported = claims.some(
+        (claim) => claim.verdict === "supported" && claimTextsMatch(origin, normalizeClaimText(claim.claim)),
+      );
+      if (originAlreadySupported) continue;
+      if (urgeOnly) {
+        if (d.accept?.trim()) demands.push(d);
+        continue;
+      }
       try {
-        const res = await appendDemand(job.dir, demandToInput(d));
-        if (res.action === "added") demands.push(d);
+        const res = await materializeDemand(job.dir, d);
+        if (res.action === "added" && res.path && res.slug) {
+          await appendDemand(job.dir, {
+            run: demandLawCommand(res.slug),
+            rung: d.rung,
+            originClaim: d.origin_claim,
+            demandSlug: res.slug,
+            demandGap: d.gap,
+            demandAccept: d.accept,
+          });
+          demands.push(d);
+        }
+        // A rejected oracle is not a second audit. The turn's one authoritative
+        // telemetry row is emitted below; auxiliary event=audit rows break the
+        // exact one-Stop/one-row coverage invariant.
       } catch {
-        /* a law-append failure never blocks the verdict (R8) */
+        /* a demand-materialization failure never blocks the verdict (R8) */
       }
     }
   }
@@ -491,6 +647,7 @@ export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdi
     auditorTier: auditor.tier,
     sameFamily: auditor.sameFamily,
     vendor: auditor.vendor,
+    auditDurationMs: Date.now() - auditStartedAt,
     ...(error ? { error } : {}),
   };
 

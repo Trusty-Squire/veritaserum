@@ -104,3 +104,14 @@ export const ContractFileSchema = z
 export type ContractFile = z.infer<typeof ContractFileSchema>;
 
 export const CONTRACT_FILENAME = "contract.yaml";
+
+/** The epistemic ladder a gate's evidence sits on. Only the top three can bind.
+ *  (Lived in propose.ts until the knight/judge/transcriber roles were deleted —
+ *  the auditor is the only thing that ranks evidence now.) */
+export const RUNGS = ["analytic", "oracle", "held-out", "self-consistency", "unverifiable"] as const;
+export type Rung = (typeof RUNGS)[number];
+
+/** Gates still in force — the retired ones are recorded, never removed (R6). */
+export function activeGates(c: ContractFile): ContractGate[] {
+  return c.gates.filter((g) => !g.lineage.retired);
+}

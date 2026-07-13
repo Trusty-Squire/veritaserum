@@ -20,6 +20,7 @@ import { tempRepo, write } from "./helpers.js";
 import { queueJob, queueRoot, runQueue, lawCheckMarkerPath, type AuditJob } from "../src/audit-runner.js";
 import { runAudit } from "../src/run-audit.js";
 import { appendDemand, readLawTreeSync } from "../src/law.js";
+import { demandsDir } from "../src/demands.js";
 import { currentTreeHash } from "../src/git.js";
 import { readFirings, type Firing } from "../src/telemetry.js";
 
@@ -83,7 +84,16 @@ describe("integration — sync enqueue → real runAudit → case law + telemetr
 
     const CANNED_REPLY = JSON.stringify({
       claims: [{ claim: "wrote an MCCFR solver, it's working well", verdict: "unsupported", basis: "no Kuhn-anchor test found", evidence: "" }],
-      demands: [{ description: "add a Kuhn-poker anchor test for the MCCFR solver", rung: "oracle", origin_claim: "wrote an MCCFR solver, it's working well" }],
+      demands: [
+        {
+          origin_claim: "wrote an MCCFR solver, it's working well",
+          gap: "no Kuhn-poker anchor test exists for the MCCFR solver",
+          remedy: "add a Kuhn-poker anchor test for the MCCFR solver",
+          accept: "computed strategy within 1e-3 of the known Kuhn equilibrium values",
+          test_file: "process.exit(1);\n",
+          rung: "oracle",
+        },
+      ],
       unaccountable: false,
       note: "",
     });
@@ -120,12 +130,16 @@ describe("integration — sync enqueue → real runAudit → case law + telemetr
       expect(last.verdict).toBe("unsupported");
       expect((last.law_ids ?? []).length).toBeGreaterThanOrEqual(1); // the seed mechanical check ran
 
-      // 3. the auditor's demand landed in the law TREE copy (never auto-committed — R6).
-      const tree = readLawTreeSync(dir);
-      expect(tree).not.toBeNull();
-      const demandGate = tree!.gates.find((g) => g.lineage.provenance.includes("Kuhn-poker anchor test"));
-      expect(demandGate).toBeDefined();
-      expect(demandGate!.lineage.source).toBe("evaluator-demand");
+      // 3. the auditor's demand materialized as a failing test in the STATE
+      //    dir — never in the user's repo (docs/DEMANDS.md phase 1).
+      const demandPath = join(demandsDir(dir), "no-kuhn-poker-anchor-test-exists-for-the-mccfr-solver.cjs");
+      expect(existsSync(demandPath)).toBe(true);
+      const demandContent = readFileSync(demandPath, "utf8");
+      expect(demandContent).toContain("wrote an MCCFR solver, it's working well");
+      expect(demandContent).toContain("within 1e-3");
+      expect(existsSync(join(dir, "test/veritaserum"))).toBe(false); // invisible: nothing lands in the repo
+      const law = readLawTreeSync(dir)!;
+      expect(law.gates.some((gate) => gate.lineage.provenance.includes("MCCFR solver"))).toBe(true);
 
       // 4. the green marker was updated — the seed "true" check passed mechanically.
       const markerPath = lawCheckMarkerPath(dir);

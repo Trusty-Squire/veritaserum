@@ -22,10 +22,10 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as toYaml } from "yaml";
-import { activeGates } from "./contract.js";
+
 import { showFileAtCommit } from "./git.js";
-import type { Rung } from "./propose.js";
-import { CONTRACT_FILENAME, ContractFileSchema, type ContractFile, type ContractGate } from "./schema.js";
+
+import { CONTRACT_FILENAME, ContractFileSchema, activeGates, type ContractFile, type ContractGate, type Rung } from "./schema.js";
 
 export const LAW_FILENAME = "veritaserum.law.yaml";
 
@@ -118,6 +118,10 @@ export interface DemandInput {
   rung: Rung;
   /** The claim text that produced this demand — becomes lineage.provenance. */
   originClaim: string;
+  /** Stable state-oracle key when this gate records an authored demand. */
+  demandSlug?: string;
+  demandGap?: string;
+  demandAccept?: string;
 }
 
 export interface AppendOutcome {
@@ -196,7 +200,13 @@ export async function appendDemand(dir: string, demand: DemandInput): Promise<Ap
       gatePaths: demand.gatePaths ?? [],
       lineage: {
         pattern: "evaluator-demand",
-        params: { rung: demand.rung, binding },
+        params: {
+          rung: demand.rung,
+          binding,
+          ...(demand.demandSlug ? { demandSlug: demand.demandSlug } : {}),
+          ...(demand.demandGap ? { gap: demand.demandGap } : {}),
+          ...(demand.demandAccept ? { accept: demand.demandAccept } : {}),
+        },
         provenance: demand.originClaim,
         source: "evaluator-demand",
         retired: false,
@@ -221,6 +231,21 @@ export async function retireLaw(dir: string, lawId: string, reason: string): Pro
     const law = ContractFileSchema.parse(parseYaml(await readFile(p, "utf8")));
     const gate = law.gates.find((g) => g.id === lawId);
     if (!gate || gate.lineage.retired) return false;
+    gate.lineage.retired = true;
+    gate.retiredBy = reason;
+    writeLawAtomic(dir, law);
+    return true;
+  });
+}
+
+/** Retire the law record paired with a state-owned demand slug. */
+export async function retireDemandLaw(dir: string, slug: string, reason: string): Promise<boolean> {
+  return serialize(async () => {
+    const p = lawPath(dir);
+    if (!existsSync(p)) return false;
+    const law = ContractFileSchema.parse(parseYaml(await readFile(p, "utf8")));
+    const gate = law.gates.find((g) => g.lineage.params?.demandSlug === slug && !g.lineage.retired);
+    if (!gate) return false;
     gate.lineage.retired = true;
     gate.retiredBy = reason;
     writeLawAtomic(dir, law);

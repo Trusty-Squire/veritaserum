@@ -1,6 +1,12 @@
 # TODOS
 
-## 1. Ratchet governance (scoping, expiry, conflict handling)
+## 1. Ratchet governance (scoping, expiry, conflict handling) — SUPERSEDED 2026-07-13
+v3 deleted the ratchet entirely (SPEC §4.1: the Transcriber and its `ratchet`/`amend`
+commands are gone; the auditor is the one authoring path, and demands are retired with
+`veritaserum retire`). Revisit only if a legislated-gate authoring path ever returns.
+Original rationale kept below for context.
+
+### (original)
 - **What:** Per-gate hit/miss stats + a review command for ratcheted gates; possibly scoping/expiry.
 - **Why:** Monotonic durable gates from vague human complaints accumulate "bad law" — stale corrections bind forever, conflicts pile up, nobody prunes (Codex outside-voice finding, eng review 2026-07-08).
 - **Pros:** Keeps the contract trustworthy over months; the `repeats` counter already collects the needed data.
@@ -8,13 +14,12 @@
 - **Context:** v1 ratchet is monotonic by design; `amend --retire` is the only weakening path (deliberately narrow). The fix is visibility (stats + review), not auto-expiry.
 - **Depends on:** v2 shipped; real ratchet volume (trigger: >10 active gates).
 
-## 2. Codex harness adapter
-- **What:** Codex CLI adapter for the v3 case-law auditor. (Superseded in part, 2026-07-08: v3 inverted the order — **goose is now the FIRST adapter**, in-scope in SPEC.md §3, targeting the cheapest local ollama executors; Claude Code is the final target. Only the codex adapter remains deferred.)
-- **Why:** Full harness coverage for the layer thesis; v1 config-snippet machinery exists in `adapters/codex/`.
-- **Pros:** Third datapoint on adapter portability.
-- **Cons:** Codex hook trust flow is interactive; lowest marginal value while goose + Claude Code cover both ends of the capability spectrum.
-- **Context:** gbrain holds a "plumb harness capability matrix" entry — start there.
-- **Depends on:** v3 stable on goose and Claude Code.
+## 2. Codex harness adapter — SHIPPED 2026-07-13
+`veritaserum install codex` now writes the Stop + UserPromptSubmit hooks into
+`~/.codex/hooks.json` directly (`src/install.ts`), and the production stress matrix
+drives the packed codex hook with its real payload shape (`pnpm stress:production`).
+The v1 config-snippet machinery in `adapters/codex/` was deleted with the contract
+system. Remaining manual step: the user approves hook trust on codex's first run.
 
 ## 3. Hash-chained ledger (tamper detection) — SUPERSEDED 2026-07-08
 v3 deleted the ledger entirely (no second source of truth); the law file is git-tracked,

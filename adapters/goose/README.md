@@ -11,9 +11,9 @@ ships last, once testbed numbers clear the R5 bar.
   a ~0ms "nothing to audit" check, a terse standing-law state line when due (never a
   block), then an async audit job enqueued and the turn released. No claim regex, no
   LLM on this path (R2/R3). See `src/cli.ts`'s `hook-stop` case for the exact steps.
-- **No `UserPromptSubmit` hook.** v3 deleted the prompt-time challenge (SPEC §4) — the
-  Knight's challenge only fires inside a live `contract_propose`/`contract_seal`
-  negotiation now, never injected from a hook.
+- **No `UserPromptSubmit` hook.** v3 deleted the prompt-time challenge (SPEC §4), and the
+  Knight that used to issue it is gone entirely (SPEC §4.1). goose also has no injection
+  channel at prompt time, so the verdict reaches it via telemetry + the law diff.
 
 ## Install
 
@@ -38,11 +38,13 @@ Restart goose (plugin discovery runs at startup) and it's live — no `config.ya
 edit, no enable step beyond the plugin existing on disk and not being disabled in
 `plugins.enabledPlugins`/`disabledPlugins` settings.
 
-`scripts/vs-stop.sh` resolves the CLI as `command -v veritaserum` first (global/`npm
-link`), falling back to `node $PLUGIN_ROOT/../../dist/cli.js` — the package ships
-`dist/` and `adapters/` as sibling directories (`package.json` `files`), so the
-fallback resolves for a symlinked checkout, a plain copy, or an npm-installed package
-alike, with no build/link step required first.
+`scripts/vs-stop.sh` resolves a global `veritaserum-hook` first, then a global
+`veritaserum` (`hook-stop`), then the private runtime copied into the plugin by
+`veritaserum install goose`. The private copy is deliberate: an npm-exec cache and its
+bin shim may disappear as soon as installation ends, while a Goose plugin is durable.
+A checkout-linked plugin can still fall back to the checkout's compiled
+`dist/hook-cli.cjs`; with no resolvable runtime at all the script exits 0 — fail open
+(R8), never breaking goose's turn-end.
 
 `VS_EXECUTOR` defaults to `ollama` in `vs-stop.sh` (SPEC §3: goose + local ollama is
 the first testbed target) — override it per setup, e.g. `VS_EXECUTOR=ollama:qwen2.5:3b`,

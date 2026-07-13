@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { join } from "node:path";
-import { readLastAssistantMessage, readReceiptsTail } from "../src/transcript.js";
+import { tmpdir } from "node:os";
+import { readLastAssistantMessage, readLastUserMessage, readReceiptsTail } from "../src/transcript.js";
 
 describe("Claude Code transcript reader", () => {
   it("extracts the last assistant text from a JSONL transcript", () => {
@@ -10,7 +11,7 @@ describe("Claude Code transcript reader", () => {
       JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "All done, tests pass!" }] } }),
     ].join("\n");
     // write to a temp file
-    const p = join(process.cwd(), `node_modules/.cache-transcript-${process.pid}.jsonl`);
+    const p = join(tmpdir(), `vs-cache-transcript-${process.pid}.jsonl`);
     require("node:fs").writeFileSync(p, lines);
     expect(readLastAssistantMessage(p)).toBe("All done, tests pass!");
     require("node:fs").rmSync(p, { force: true });
@@ -31,7 +32,7 @@ describe("Claude Code transcript reader", () => {
       JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", name: "Bash", input: { command: "npm test" } }] } }),
       JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "tool_result", content: output }] } }),
     ].join("\n");
-    const p = join(process.cwd(), `node_modules/.cache-receipts-${process.pid}.jsonl`);
+    const p = join(tmpdir(), `vs-cache-receipts-${process.pid}.jsonl`);
     require("node:fs").writeFileSync(p, lines);
     const tail = readReceiptsTail(p);
     require("node:fs").rmSync(p, { force: true });
@@ -40,6 +41,47 @@ describe("Claude Code transcript reader", () => {
     expect(tail).toContain("exit code 0");
     // and the head is still there for context
     expect(tail).toContain("npm test");
+  });
+
+  it("reads the captured Codex response_item receipt shape", () => {
+    const lines = [
+      { timestamp: "2026-07-13T17:05:00.000Z", type: "event_msg", payload: { type: "user_message", message: "fix the retry policy" } },
+      {
+        timestamp: "2026-07-13T17:05:41.428Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call",
+          call_id: "call_7AeXS3bvObjcES2P13Jrxjnu",
+          name: "exec",
+          input: 'const r = await tools.exec_command({cmd:"node --test && git diff --check"}); text(r.output);',
+        },
+      },
+      {
+        timestamp: "2026-07-13T17:05:41.608Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call_output",
+          call_id: "call_7AeXS3bvObjcES2P13Jrxjnu",
+          output: [
+            { type: "input_text", text: "Script completed\nWall time 0.2 seconds\nOutput:\n" },
+            { type: "input_text", text: "✔ test/retry.test.js\nℹ tests 1\nℹ pass 1\nℹ fail 0\n" },
+          ],
+        },
+      },
+      { timestamp: "2026-07-13T17:05:42.000Z", type: "event_msg", payload: { type: "agent_message", message: "Fixed it; node --test passed." } },
+    ];
+    const p = join(tmpdir(), `vs-cache-codex-receipts-${process.pid}.jsonl`);
+    require("node:fs").writeFileSync(p, lines.map((line) => JSON.stringify(line)).join("\n"));
+    try {
+      expect(readLastUserMessage(p)).toBe("fix the retry policy");
+      expect(readLastAssistantMessage(p)).toBe("Fixed it; node --test passed.");
+      const receipts = readReceiptsTail(p);
+      expect(receipts).toContain("node --test && git diff --check");
+      expect(receipts).toContain("ℹ pass 1");
+      expect(receipts).toContain("ℹ fail 0");
+    } finally {
+      require("node:fs").rmSync(p, { force: true });
+    }
   });
 });
 

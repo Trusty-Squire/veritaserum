@@ -22,14 +22,24 @@ export VS_HARNESS=goose
 : "${VS_EXECUTOR:=ollama}"
 export VS_EXECUTOR
 
+if command -v veritaserum-hook >/dev/null 2>&1; then
+  exec veritaserum-hook
+fi
 if command -v veritaserum >/dev/null 2>&1; then
   exec veritaserum hook-stop
 fi
 
-# No global/npm-linked `veritaserum` on PATH — fall back to this package's own
-# bundled dist/. goose sets $PLUGIN_ROOT in the hook's environment (the same
-# value substituted into hooks.json's ${PLUGIN_ROOT}). package.json ships
-# "dist" and "adapters" as sibling directories under one package root, so this
-# resolves whether the plugin dir is a copy, a symlink into a repo checkout,
-# or an npm-installed package — see src/install.ts's pkgRoot() for the same logic.
-exec node "${PLUGIN_ROOT}/../../dist/cli.js" hook-stop
+# `npx`'s bin shim disappears after installation, so the installer copies the
+# package and its runtime dependency layout into the durable Goose plugin.
+if [ -f "${PLUGIN_ROOT}/runtime/node_modules/veritaserum/dist/hook-cli.cjs" ]; then
+  exec node "${PLUGIN_ROOT}/runtime/node_modules/veritaserum/dist/hook-cli.cjs"
+fi
+
+# Checkout-linked plugin (PLUGIN_ROOT = <checkout>/adapters/goose): fall back
+# to the checkout's own compiled entry point.
+if [ -f "${PLUGIN_ROOT}/../../dist/hook-cli.cjs" ]; then
+  exec node "${PLUGIN_ROOT}/../../dist/hook-cli.cjs"
+fi
+
+# No resolvable runtime — fail open (R8): never break goose's turn-end.
+exit 0

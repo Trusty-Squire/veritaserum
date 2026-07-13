@@ -94,15 +94,26 @@ function makeGooseDb(path: string, rows: { sessionId: string; role: string; cont
 }
 
 describe("hook-stop — nothing-to-audit gate (SPEC §2 sync step 1, ~0ms path)", () => {
-  it("goose: no tool-bearing message for the session → exit 0, silent, no job enqueued", async () => {
+  it("goose: no new message at all for the session → exit 0, silent, no job enqueued", async () => {
     const dir = await repo();
     const dbPath = join(dir, "sessions.db");
-    makeGooseDb(dbPath, [{ sessionId: "s-idle", role: "user", contentJson: JSON.stringify([{ type: "text", text: "hi" }]), ts: 1000 }]);
+    makeGooseDb(dbPath, [{ sessionId: "s-other", role: "user", contentJson: JSON.stringify([{ type: "text", text: "hi" }]), ts: 1000 }]);
 
     const r = await hookStop(dir, { event: "Stop", session_id: "s-idle", working_dir: dir }, { VS_GOOSE_SESSIONS_DB: dbPath });
     expect(r.code).toBe(0);
     expect(r.out).toBe("");
     expect(pendingJobs(dir)).toHaveLength(0);
+  });
+
+  it("goose: a text-only turn (zero tool calls) STILL enqueues — armchair misdiagnosis is auditable", async () => {
+    const dir = await repo();
+    blockRunner(dir);
+    const dbPath = join(dir, "sessions.db");
+    makeGooseDb(dbPath, [{ sessionId: "s-chat", role: "assistant", contentJson: JSON.stringify([{ type: "text", text: "the bottleneck is the parser" }]), ts: 1000 }]);
+
+    const r = await hookStop(dir, { event: "Stop", session_id: "s-chat", working_dir: dir }, { VS_GOOSE_SESSIONS_DB: dbPath });
+    expect(r.code).toBe(0);
+    expect(pendingJobs(dir)).toHaveLength(1);
   });
 
   it("Claude Code: an unreadable/missing transcript_path → exit 0, silent, no job enqueued", async () => {
@@ -140,7 +151,11 @@ describe("hook-stop — enqueue (SPEC §2 sync step 3, payload parsing across ha
   it("Claude Code payload shape ({transcript_path, cwd, stop_hook_active}) → job enqueued", async () => {
     const dir = await repo();
     blockRunner(dir);
-    const tpath = join(dir, "transcript.jsonl");
+    // Real harness transcripts live outside the audited repo. Keeping the
+    // fixture there avoids making transcript growth look like a tree change.
+    const transcriptDir = mkdtempSync(join(tmpdir(), "vs-sync-transcript-"));
+    cleanups.push(() => rm(transcriptDir, { recursive: true, force: true }));
+    const tpath = join(transcriptDir, "transcript.jsonl");
     writeFileSync(tpath, JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "done" }] } }) + "\n");
 
     const r = await hookStop(dir, { transcript_path: tpath, cwd: dir, stop_hook_active: false });
@@ -210,7 +225,10 @@ describe("hook-stop — standing-law state line (SPEC R7: terse, state-gated; pr
     await execa("git", ["add", "-A"], { cwd: dir });
     await execa("git", ["commit", "-q", "-m", "law"], { cwd: dir });
 
-    const tpath = join(dir, "transcript.jsonl");
+    // Harness-owned transcripts are not part of the audited working tree.
+    const transcriptDir = mkdtempSync(join(tmpdir(), "vs-sync-law-transcript-"));
+    cleanups.push(() => rm(transcriptDir, { recursive: true, force: true }));
+    const tpath = join(transcriptDir, "transcript.jsonl");
     writeFileSync(tpath, "turn 1\n");
     const EXPECTED = "veritaserum: 1 standing check(s) unverified against current tree";
 

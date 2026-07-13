@@ -70,30 +70,4 @@ describe("plugin manifest — .claude-plugin/plugin.json", () => {
   });
 });
 
-describe("plugin manifest — .mcp.json", () => {
-  it("exists, parses, and registers the veritaserum stdio server", () => {
-    const p = resolve(ROOT, ".mcp.json");
-    expect(existsSync(p)).toBe(true);
-    const mcp = JSON.parse(readFileSync(p, "utf8")) as { mcpServers?: Record<string, { command: string; args?: string[] }> };
-    const server = mcp.mcpServers?.veritaserum;
-    expect(server).toBeDefined();
-    expect(server!.args?.join(" ")).toContain("dist/mcp.js");
-  });
-});
 
-describe("plugin manifest — skills/contract-negotiation/SKILL.md", () => {
-  it("exists and has frontmatter naming it contract-negotiation", () => {
-    const p = resolve(ROOT, "skills", "contract-negotiation", "SKILL.md");
-    expect(existsSync(p)).toBe(true);
-    const content = readFileSync(p, "utf8");
-    expect(content).toMatch(/^---\n[\s\S]*name:\s*contract-negotiation/);
-  });
-
-  it("mentions the MCP tool and the epistemic ladder rungs", () => {
-    const content = readFileSync(resolve(ROOT, "skills", "contract-negotiation", "SKILL.md"), "utf8");
-    expect(content).toContain("contract_propose");
-    expect(content).toContain("contract_seal");
-    expect(content).toContain("analytic");
-    expect(content).toContain("held-out");
-  });
-});

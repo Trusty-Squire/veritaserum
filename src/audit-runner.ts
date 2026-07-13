@@ -12,7 +12,7 @@
  * NEVER throws — any internal error becomes an R8 telemetry error event.
  */
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -30,6 +30,16 @@ export interface AuditJob {
    *  (read via src/transcript.ts) apart from a goose turn (sessionId keys
    *  goose's own sessions.db, read via src/goose.ts). */
   transcriptPath?: string;
+  /** Codex Stop supplies the final text directly. Its transcript format is not a
+   * public contract, so never discard this documented payload field. */
+  finalMessage?: string;
+  userRequest?: string;
+  /** Resolution and telemetry context belongs to the turn, not to whichever
+   * detached runner wins the per-repo drain race. */
+  harness?: string;
+  executor?: string;
+  auditor?: string;
+  demandMode?: "script" | "urge";
 }
 export type RunAudit = (job: AuditJob) => Promise<void>;
 
@@ -174,7 +184,7 @@ function nextSeq(): string {
   // wall-clock primary key (cross-process rough ordering) + a monotonic
   // in-process counter tie-break (guarantees strict ordering for back-to-back
   // enqueues within one process, e.g. the same audit run enqueuing supersedes).
-  return `${Date.now().toString().padStart(14, "0")}-${seqCounter.toString().padStart(6, "0")}`;
+  return `${Date.now().toString().padStart(14, "0")}-${process.pid}-${seqCounter.toString().padStart(6, "0")}-${randomUUID().slice(0, 8)}`;
 }
 
 // --- enqueue ---------------------------------------------------------------------
@@ -260,7 +270,7 @@ function rmSafely(p: string): void {
 /** Move an errored job to dead/ with its error message alongside — never deleted. */
 function moveToDead(qdir: string, q: QueuedJob, err: unknown): void {
   const message = err instanceof Error ? err.message : String(err);
-  const base = q.file.slice(qdir.length + 1);
+  const base = q.file.slice(qdir.length + 1).replace(/\.claimed-\d+$/, "");
   try {
     renameSync(q.file, join(deadDir(qdir), base));
     writeFileSync(join(deadDir(qdir), `${base}.error.txt`), message, "utf8");
@@ -283,7 +293,28 @@ function isSuperseded(job: AuditJob, rest: QueuedJob[]): boolean {
   return job.mode === "live" && rest.some((q) => q.job.sessionId === job.sessionId);
 }
 
+/** A job claimed by a runner that died mid-audit must not be lost: rename it
+ *  back into the queue so the next drain retries it. */
+function reclaimOrphanedClaims(qdir: string): void {
+  let names: string[];
+  try {
+    names = readdirSync(qdir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    const m = name.match(/^(.+\.json)\.claimed-(\d+)$/);
+    if (!m || isAlive(Number(m[2]))) continue;
+    try {
+      renameSync(join(qdir, name), join(qdir, m[1]!));
+    } catch {
+      /* another runner reclaimed it first */
+    }
+  }
+}
+
 async function drain(qdir: string, runAudit: RunAudit): Promise<void> {
+  reclaimOrphanedClaims(qdir);
   for (;;) {
     const pending = listPending(qdir);
     const head = pending[0];
@@ -292,11 +323,21 @@ async function drain(qdir: string, runAudit: RunAudit): Promise<void> {
       rmSafely(head.file); // superseded — dropped, not run, not an error
       continue;
     }
+    // Claim via rename before running: the lockfile narrows concurrent drains
+    // but cannot fully exclude them (two runners can both reclaim a stale
+    // lock), and a rename succeeds for exactly one claimant — the same job is
+    // never audited twice.
+    const claimed = `${head.file}.claimed-${process.pid}`;
+    try {
+      renameSync(head.file, claimed);
+    } catch {
+      continue; // another runner claimed or removed it
+    }
     try {
       await runAudit(head.job);
-      rmSafely(head.file);
+      rmSafely(claimed);
     } catch (err) {
-      moveToDead(qdir, head, err);
+      moveToDead(qdir, { file: claimed, job: head.job }, err);
     }
   }
 }
@@ -309,12 +350,29 @@ async function drain(qdir: string, runAudit: RunAudit): Promise<void> {
  */
 async function withLock(qdir: string, fn: () => Promise<void>): Promise<void> {
   const lp = lockPath(qdir);
-  if (existsSync(lp)) {
-    const held = Number(readFileSync(lp, "utf8").trim());
-    if (Number.isFinite(held) && isAlive(held)) return; // another runner is active
-    // stale lock (dead pid) — fall through and reclaim it below.
+  try {
+    writeFileSync(lp, String(process.pid), { encoding: "utf8", flag: "wx" });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    let held = Number.NaN;
+    try {
+      held = Number(readFileSync(lp, "utf8").trim());
+    } catch {
+      /* a concurrent owner may be between create and write */
+    }
+    if (Number.isFinite(held) && isAlive(held)) return;
+    // Two contenders that both observed the dead pid can interleave here (one's
+    // rm deleting the other's fresh lock), so the lock alone narrows — but does
+    // not guarantee — a single drainer. drain()'s per-job rename claim is what
+    // makes a double drain harmless.
+    rmSafely(lp);
+    try {
+      writeFileSync(lp, String(process.pid), { encoding: "utf8", flag: "wx" });
+    } catch (retryErr) {
+      if ((retryErr as NodeJS.ErrnoException).code === "EEXIST") return;
+      throw retryErr;
+    }
   }
-  writeFileSync(lp, String(process.pid), "utf8");
   try {
     await fn();
   } finally {

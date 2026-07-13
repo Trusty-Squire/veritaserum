@@ -2,7 +2,7 @@
   "name": "veritaserum",
   "version": "0.2.1",
   "type": "module",
-  "description": "A portable ground-truth layer for coding agents — the truth serum for confabulating agents",
+  "description": "A portable ground-truth layer for coding agents \u2014 the truth serum for confabulating agents",
   "license": "MIT",
   "author": "Trusty Squire",
   "homepage": "https://github.com/Trusty-Squire/veritaserum#readme",
@@ -23,7 +23,6 @@
     "claude-code",
     "codex",
     "goose",
-    "mcp",
     "git-hooks"
   ],
   "engines": {
@@ -34,30 +33,29 @@
   },
   "bin": {
     "veritaserum": "./dist/cli.js",
-    "veritaserum-mcp": "./dist/mcp.js"
+    "veritaserum-hook": "./dist/hook-cli.cjs"
   },
   "files": [
     "dist",
     "adapters",
     ".claude-plugin",
-    ".mcp.json",
-    "skills",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js dist/mcp.js",
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js dist/hook-cli.cjs",
     "test": "vitest run",
+    "test:package": "VS_PACKAGE_TESTS=1 vitest run test/production-package.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "check:plugin": "tsx scripts/check-plugin.ts",
     "ser": "tsx src/cli.ts",
     "demo": "tsx scripts/demo.ts",
+    "stress:production": "tsx scripts/stress/production-harness.ts",
+    "stress:watchdog": "tsx scripts/stress/invariant-watchdog.ts",
     "eval:fixtures": "tsx eval/run-fixtures.ts",
-    "mcp": "tsx src/mcp.ts",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
     "execa": "^9.5.1",
     "yaml": "^2.6.1",
     "zod": "^3.24.1"

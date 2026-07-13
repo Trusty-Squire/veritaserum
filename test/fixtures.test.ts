@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { audit, type AuditJob } from "../src/auditor.js";
 import type { Auditor, AuditorTier } from "../src/resolve.js";
 import { loadFixtures, fixtureRepo, type Fixture } from "../eval/fixtures/types.js";
+import { demandsDir } from "../src/demands.js";
 
 const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "eval", "fixtures");
 
@@ -25,15 +26,21 @@ let cleanups: Array<() => Promise<void>> = [];
 let tmpDir: string;
 let prevTelemetryPath: string | undefined;
 
+let prevQueueRoot: string | undefined;
+
 beforeEach(async () => {
   tmpDir = await mkdtemp(join(tmpdir(), "vs-fixtures-telemetry-"));
   prevTelemetryPath = process.env.VS_TELEMETRY_PATH;
   process.env.VS_TELEMETRY_PATH = join(tmpDir, "telemetry.jsonl");
+  prevQueueRoot = process.env.VS_QUEUE_ROOT;
+  process.env.VS_QUEUE_ROOT = join(tmpDir, "state"); // demands live here (docs/DEMANDS.md phase 1)
 });
 
 afterEach(async () => {
   if (prevTelemetryPath === undefined) delete process.env.VS_TELEMETRY_PATH;
   else process.env.VS_TELEMETRY_PATH = prevTelemetryPath;
+  if (prevQueueRoot === undefined) delete process.env.VS_QUEUE_ROOT;
+  else process.env.VS_QUEUE_ROOT = prevQueueRoot;
   await Promise.all(cleanups.map((c) => c()));
   cleanups = [];
   await rm(tmpDir, { recursive: true, force: true });
@@ -118,10 +125,13 @@ const REPLIES: Record<string, string> = {
     ],
     demands: [
       {
-        description:
-          "Run a discriminating test: attempt the same request from an IP known to be allow-listed (or pull Trusty-Squire's block logs) to isolate an IP-wall cause from DNS/network/service failure.",
-        rung: "held-out",
         origin_claim: "Trusty-Squire's IP allow-list is blocking egress, causing the timeouts",
+        gap: "a bare timeout does not discriminate an IP-wall cause from DNS/network/service failure",
+        remedy:
+          "Run a discriminating test: attempt the same request from an IP known to be allow-listed (or pull Trusty-Squire's block logs) to isolate an IP-wall cause from DNS/network/service failure.",
+        accept: "the allow-listed IP request succeeds while this host times out, or the block log names this host's IP",
+        test_file: "process.exit(1);\n",
+        rung: "held-out",
       },
     ],
     unaccountable: false,
@@ -138,9 +148,12 @@ const REPLIES: Record<string, string> = {
     ],
     demands: [
       {
-        description: "Run a fresh probe of the live DB schema (e.g. compare its version to the expected migration state) instead of deferring to state.md.",
-        rung: "oracle",
         origin_claim: "the migration is complete and the DB schema is up to date",
+        gap: "state.md records the past — no fresh probe of the present DB state exists",
+        remedy: "Run a fresh probe of the live DB schema (e.g. compare its version to the expected migration state) instead of deferring to state.md.",
+        accept: "live schema_version equals the latest migration id",
+        test_file: "process.exit(1);\n",
+        rung: "oracle",
       },
     ],
     unaccountable: false,
@@ -157,10 +170,12 @@ const REPLIES: Record<string, string> = {
     ],
     demands: [
       {
-        description: "Kuhn anchor: the MCCFR solver must converge to the known analytic equilibrium strategy for Kuhn poker.",
-        run: "npm run kuhn-anchor",
-        rung: "analytic",
         origin_claim: "wrote an MCCFR solver for Kuhn poker and it's working well",
+        gap: "'working well' has no oracle — nothing demonstrates convergence to the known Kuhn poker equilibrium",
+        remedy: "Kuhn anchor: run the MCCFR solver on Kuhn poker and compare to the known analytic equilibrium strategy.",
+        accept: "computed equilibrium strategy within 1e-3 of the known Kuhn values",
+        test_file: "process.exit(1);\n",
+        rung: "analytic",
       },
     ],
     unaccountable: false,
@@ -215,10 +230,10 @@ describe("replay fixtures (SPEC §6.1) — 8 scenarios through the real pipeline
         if (f.expected.demand.descriptionContains) {
           const dc = f.expected.demand.descriptionContains;
           const needles = (Array.isArray(dc) ? dc : [dc]).map((s) => s.toLowerCase());
-          expect(v.demands.some((d) => needles.some((n) => d.description.toLowerCase().includes(n)))).toBe(true);
+          expect(v.demands.some((d) => needles.some((n) => `${d.gap} ${d.remedy} ${d.accept}`.toLowerCase().includes(n)))).toBe(true);
         }
-        // Demand -> case law: the pipeline actually appended it (SPEC §2 step 6).
-        expect(existsSync(join(dir, "veritaserum.law.yaml"))).toBe(true);
+        // Demand -> failing test in the STATE dir, never the repo (docs/DEMANDS.md phase 1).
+        expect(existsSync(demandsDir(dir))).toBe(true);
       }
       if (f.expected.warningContains) {
         const needle = f.expected.warningContains.toLowerCase();

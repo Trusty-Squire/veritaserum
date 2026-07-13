@@ -25,6 +25,7 @@ import { dirname } from "node:path";
 import { readGooseSession } from "./goose.js";
 import { readLastAssistantMessage, readLastUserMessage, readReceiptsTail } from "./transcript.js";
 import { resolveAuditor } from "./resolve.js";
+import { demandsCommand } from "./install.js";
 import { audit, type AuditJob as AuditContentJob, type AuditVerdict } from "./auditor.js";
 import {
   appendSessionWarnings,
@@ -35,15 +36,22 @@ import {
   type RunAudit,
 } from "./audit-runner.js";
 import { currentTreeHash } from "./git.js";
+import { writeHookLawState } from "./hook-state.js";
 
 /** Step 1: the turn's final message, the user's request, and a receipt tail —
  *  from goose's sessions.db (session id) or a Claude Code transcript (path). */
 function loadTurnMaterial(job: AuditJob): { finalMessage: string; userRequest: string; receipts?: string } {
   if (job.transcriptPath) {
-    const finalMessage = readLastAssistantMessage(job.transcriptPath);
-    const userRequest = readLastUserMessage(job.transcriptPath);
+    const finalMessage = job.finalMessage ?? readLastAssistantMessage(job.transcriptPath);
+    const userRequest = job.userRequest ?? readLastUserMessage(job.transcriptPath);
     const receipts = readReceiptsTail(job.transcriptPath);
     return { finalMessage, userRequest, ...(receipts ? { receipts } : {}) };
+  }
+  // A payload-supplied final message (codex's documented content field — "never
+  // discard") is authoritative even without a transcript path; only a job with
+  // neither falls through to goose's sessions.db.
+  if (typeof job.finalMessage === "string") {
+    return { finalMessage: job.finalMessage, userRequest: job.userRequest ?? "" };
   }
   const session = readGooseSession(job.sessionId);
   return {
@@ -71,9 +79,22 @@ function buildFeedbackLine(verdict: AuditVerdict): string | null {
   } else {
     head = verdict.warnings[0] ?? "new standing check appended";
   }
+  // The demand line is the instruction, not a nudge (docs/DEMANDS.md §2.2):
+  // remedy + accept verbatim, so the executor knows what to produce and what
+  // will be accepted.
+  //
+  // It also names the command that runs the check. This is the ONLY discoverability
+  // channel the executor gets, and it is deliberately just-in-time: no standing
+  // CLAUDE.md rule, no MCP tool list, no ambient prompt tax — the instruction arrives
+  // in the turn where it is actionable, and says nothing on every other turn. The
+  // auditor already WROTE the failing check (in veritaserum's state dir, not the repo),
+  // so the executor's job is to run it, not to author its own oracle.
   const demand = verdict.demands[0];
-  const tail = demand ? `; demanded: ${demand.description}` : "";
-  return `veritaserum: ${head}${tail}`.slice(0, 300);
+  const tail = demand
+    ? `; DEMAND: ${demand.remedy || demand.gap} — accept: ${demand.accept}` +
+      `; the check is already written — run \`${demandsCommand()}\` (do not write your own)`
+    : "";
+  return `veritaserum: ${head}${tail}`.slice(0, 600);
 }
 
 /** Step 3: a GREEN mechanical recheck of every runnable standing-law entry
@@ -95,8 +116,8 @@ async function markGreenIfAllPassed(job: AuditJob, verdict: Awaited<ReturnType<t
 export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
   const { finalMessage, userRequest, receipts } = loadTurnMaterial(job);
 
-  const executor = process.env.VS_EXECUTOR || "unknown";
-  const auditor = await resolveAuditor(executor);
+  const executor = job.executor || "unknown";
+  const auditor = await resolveAuditor(executor, job.auditor);
 
   // R5 (SPEC §6.5): load this session's already-surfaced warnings so the audit
   // never repeats a verbatim duplicate; append whatever's new once it's done.
@@ -105,12 +126,22 @@ export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
   const contentJob: AuditContentJob = {
     dir: job.dir,
     sessionId: job.sessionId,
+    turnRef: job.turnRef,
     finalMessage,
     userRequest,
     ...(receipts ? { receipts } : {}),
     ...(priorWarnings.length ? { priorWarnings } : {}),
+    harness: job.harness || "unknown",
+    schedulingMode: job.mode,
+    demandMode: job.demandMode || "script",
   };
   const verdict = await audit(contentJob, auditor);
+  // Count law-registered checks (demand law copies carry lawId) — the same set
+  // install-time writeHookLawState counts via runnableChecks(law), so the two
+  // writers of the cached R7 state always agree.
+  writeHookLawState(job.dir, {
+    runnableCount: verdict.mechanicalChecks.filter((check) => !check.gateId.startsWith("demand:") || check.lawId).length,
+  });
   appendSessionWarnings(job.dir, job.sessionId, verdict.warnings);
 
   // Feedback channel (SPEC §2, R7): a fresh warn/demand/unaccountable verdict

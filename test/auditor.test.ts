@@ -7,10 +7,21 @@ import { tempRepo, write } from "./helpers.js";
 import { audit, type AuditJob } from "../src/auditor.js";
 import type { Auditor, AuditorTier } from "../src/resolve.js";
 import { appendDemand, readLawTreeSync } from "../src/law.js";
+import { demandSlug, demandsDir, retireDemand, type AuthoredDemand } from "../src/demands.js";
 import { readFirings, type Firing } from "../src/telemetry.js";
+import { existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 
 let cleanups: Array<() => Promise<void>> = [];
+const origQueueRoot = process.env.VS_QUEUE_ROOT;
+beforeEach(async () => {
+  // Demands live in the state dir (docs/DEMANDS.md phase 1) — isolate it.
+  process.env.VS_QUEUE_ROOT = await mkdtemp(join(tmpdir(), "vs-auditor-state-"));
+});
 afterEach(async () => {
+  const qr = process.env.VS_QUEUE_ROOT;
+  if (origQueueRoot === undefined) delete process.env.VS_QUEUE_ROOT;
+  else process.env.VS_QUEUE_ROOT = origQueueRoot;
+  if (qr) await rm(qr, { recursive: true, force: true });
   await Promise.all(cleanups.map((c) => c()));
   cleanups = [];
 });
@@ -171,46 +182,97 @@ describe("audit — R9 unaccountable work", () => {
   });
 });
 
-describe("audit — demand -> case law lineage", () => {
-  it("appends a demand from the auditor's reply with the origin claim + rung in provenance", async () => {
+describe("audit — demand -> failing test materialization (docs/DEMANDS.md phase 1)", () => {
+  const KUHN_DEMAND: AuthoredDemand = {
+    origin_claim: "wrote an MCCFR solver, working well",
+    gap: "no oracle demonstrates convergence to the known Kuhn poker equilibrium",
+    remedy: "run the MCCFR solver on Kuhn poker and compare to the known analytic equilibrium",
+    accept: "computed strategy within 1e-3 of the known Kuhn equilibrium values",
+    test_file: "process.exit(1);\n",
+    rung: "analytic",
+  };
+  const kuhnSlug = demandSlug(KUHN_DEMAND);
+  const kuhnPath = (dir: string) => join(demandsDir(dir), `${kuhnSlug}.cjs`);
+
+  it("materializes the oracle in state and records a portable runnable copy in case law", async () => {
     const dir = await repo();
-    const reply =
-      '{"claims":[{"claim":"wrote an MCCFR solver, working well","verdict":"unsupported","basis":"no oracle exists","evidence":""}],' +
-      '"demands":[{"description":"Kuhn anchor: MCCFR converges to the known equilibrium","run":"npm run kuhn-anchor","rung":"oracle","origin_claim":"wrote an MCCFR solver, working well"}],' +
-      '"unaccountable":false,"note":""}';
-    const auditor = fakeAuditor("agentic", reply);
-    const v = await audit(job(dir), auditor);
+    const reply = JSON.stringify({
+      claims: [{ claim: "wrote an MCCFR solver, working well", verdict: "unsupported", basis: "no oracle exists", evidence: "" }],
+      demands: [KUHN_DEMAND],
+      unaccountable: false,
+      note: "",
+    });
+    const v = await audit(job(dir), fakeAuditor("agentic", reply));
     expect(v.demands).toHaveLength(1);
 
+    expect(existsSync(kuhnPath(dir))).toBe(true);
+    const content = readFileSync(kuhnPath(dir), "utf8");
+    expect(content).toContain("wrote an MCCFR solver, working well");
+    expect(content).toContain("within 1e-3");
+    expect(content).toContain("process.exit(1);");
     const law = readLawTreeSync(dir);
-    expect(law!.gates).toHaveLength(1);
-    const gate = law!.gates[0]!;
-    expect(gate.run).toBe("npm run kuhn-anchor");
-    expect(gate.lineage.source).toBe("evaluator-demand");
-    expect(gate.lineage.params.rung).toBe("oracle");
-    expect(gate.lineage.provenance).toContain("Kuhn anchor");
-    expect(gate.lineage.provenance).toContain("wrote an MCCFR solver, working well");
+    expect(law?.gates).toHaveLength(1);
+    expect(law?.gates[0]?.lineage.provenance).toBe(KUHN_DEMAND.origin_claim);
+    expect(law?.gates[0]?.lineage.params.demandSlug).toBe(kuhnSlug);
+    expect(law?.gates[0]?.run).toContain(".veritaserum");
+    expect(law?.gates[0]?.run).not.toContain("failing test IS the demand");
+    // The law register is the only allowed write in the user's repository.
+    const status = await execa("git", ["status", "--porcelain"], { cwd: dir });
+    expect(status.stdout.trim()).toBe("?? veritaserum.law.yaml");
   });
 
-  it("a duplicate demand (same normalized command) is not double-appended and is omitted from verdict.demands", async () => {
+  it("a duplicate demand (same slug already on disk) is not overwritten and is omitted from verdict.demands", async () => {
     const dir = await repo();
-    await appendDemand(dir, { run: "npm test", rung: "oracle", originClaim: "earlier claim" });
-    const reply =
-      '{"claims":[],"demands":[{"description":"tests must pass","run":"npm   test","rung":"oracle","origin_claim":"this turn claim"}],"unaccountable":false,"note":""}';
-    const auditor = fakeAuditor("agentic", reply);
-    const v = await audit(job(dir), auditor);
-    expect(v.demands).toHaveLength(0); // deduped by law.ts, never surfaced as newly-appended
-    expect(readLawTreeSync(dir)!.gates).toHaveLength(1);
+    const reply = JSON.stringify({ claims: [], demands: [KUHN_DEMAND], unaccountable: false, note: "" });
+    await audit(job(dir), fakeAuditor("agentic", reply));
+    const before = readFileSync(kuhnPath(dir), "utf8");
+
+    const v = await audit(job(dir), fakeAuditor("agentic", reply));
+    expect(v.demands).toHaveLength(0);
+    expect(readFileSync(kuhnPath(dir), "utf8")).toBe(before);
   });
 
-  it("a low-rung (unverifiable) demand is still recorded, tagged non-binding, by law.ts", async () => {
+  it("a demand without accept/test_file is unverifiable: nothing is written, nothing binds", async () => {
     const dir = await repo();
-    const reply =
-      '{"claims":[],"demands":[{"description":"vibes check","rung":"unverifiable","origin_claim":"c"}],"unaccountable":false,"note":""}';
-    const auditor = fakeAuditor("agentic", reply);
-    await audit(job(dir), auditor);
-    const gate = readLawTreeSync(dir)!.gates[0]!;
-    expect(gate.lineage.params.binding).toBe(false);
+    const reply = JSON.stringify({
+      claims: [],
+      demands: [{ origin_claim: "c", gap: "vibes check", remedy: "", accept: "", rung: "unverifiable" }],
+      unaccountable: false,
+      note: "",
+    });
+    const v = await audit(job(dir), fakeAuditor("agentic", reply));
+    expect(v.demands).toHaveLength(0);
+    expect(existsSync(demandsDir(dir))).toBe(false);
+  });
+
+  it("an authored test that PASSES against the current repo is discarded — it discriminates nothing", async () => {
+    const dir = await repo();
+    const reply = JSON.stringify({
+      claims: [],
+      demands: [{ ...KUHN_DEMAND, gap: "a passing oracle", test_file: "process.exit(0);\n" }],
+      unaccountable: false,
+      note: "",
+    });
+    const v = await audit(job(dir), fakeAuditor("agentic", reply));
+    expect(v.demands).toHaveLength(0);
+    expect(existsSync(join(demandsDir(dir), "a-passing-oracle.cjs"))).toBe(false);
+  });
+
+  it("standing demands run every audit and nothing in the repo can dodge them; retire is the only exit", async () => {
+    const dir = await repo();
+    mkdirSync(demandsDir(dir), { recursive: true });
+    writeFileSync(join(demandsDir(dir), "kuhn-anchor.js"), "// remedy: add the anchor\n// accept: known values\nprocess.exit(1);\n");
+
+    const v = await audit(job(dir), fakeAuditor("agentic", OK_REPLY));
+    const check = v.mechanicalChecks.find((c) => c.gateId === "demand:kuhn-anchor");
+    expect(check).toBeDefined();
+    expect(check!.passed).toBe(false);
+
+    expect(retireDemand(dir, "kuhn-anchor")).toBe(true);
+    const v2 = await audit(job(dir), fakeAuditor("agentic", OK_REPLY));
+    expect(v2.mechanicalChecks.find((c) => c.gateId === "demand:kuhn-anchor")).toBeUndefined();
+    // Retired is recorded, not deleted — and never resurrected by a duplicate demand.
+    expect(existsSync(join(demandsDir(dir), "retired", "kuhn-anchor.js"))).toBe(true);
   });
 });
 
