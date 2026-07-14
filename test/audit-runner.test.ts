@@ -1,12 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, writeFileSync, chmodSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { queueJob, queueRoot, runQueue, type AuditJob, type RunAudit } from "../src/audit-runner.js";
 
 let root: string;
+// chmod-based denial is a no-op for uid 0: the kernel ignores permission bits
+// for root, so these scenarios cannot be staged there.
+const runningAsRoot = process.getuid?.() === 0;
 const dir = "/fake/repo/for/audit-runner-tests"; // never touched as a real path — only hashed for the queue key
 const origRoot = process.env.VS_QUEUE_ROOT;
 
@@ -18,11 +21,26 @@ beforeEach(async () => {
 afterEach(async () => {
   if (origRoot === undefined) delete process.env.VS_QUEUE_ROOT;
   else process.env.VS_QUEUE_ROOT = origRoot;
+  try {
+    chmodSync(root, 0o755);
+  } catch {
+    /* best-effort cleanup */
+  }
   await rm(root, { recursive: true, force: true });
 });
 
 function job(sessionId: string, turnRef: string, mode: AuditJob["mode"]): AuditJob {
   return { dir, sessionId, turnRef, mode };
+}
+
+function addQueueNoise(qdir: string, count: number): void {
+  mkdirSync(qdir, { recursive: true });
+  for (let i = 0; i < count; i++) {
+    writeFileSync(
+      join(qdir, `${String(i).padStart(13, "0")}__noise__${i}.json`),
+      JSON.stringify({ noise: i, payload: "x".repeat(128) }),
+    );
+  }
 }
 
 describe("runQueue — TESTBED drain", () => {
@@ -115,6 +133,38 @@ describe("runQueue — crash safety (R8)", () => {
 });
 
 describe("runQueue — lock", () => {
+  function freezeQueueAfterLock(qdir: string) {
+    return spawn(
+      process.execPath,
+      [
+        "-e",
+        `
+const fs = require("node:fs");
+const path = require("node:path");
+const qdir = process.argv[1];
+const lock = path.join(qdir, ".lock");
+const deadline = Date.now() + 5000;
+(function poll() {
+  try {
+    if (fs.existsSync(lock)) {
+      fs.chmodSync(qdir, 0o555);
+      setTimeout(() => {
+        try { fs.chmodSync(qdir, 0o755); } catch {}
+        process.exit(0);
+      }, 650);
+      return;
+    }
+  } catch {}
+  if (Date.now() > deadline) process.exit(2);
+  setTimeout(poll, 1);
+})();
+        `,
+        qdir,
+      ],
+      { stdio: "ignore" },
+    );
+  }
+
   it("a stale lock (dead pid) is reclaimed rather than blocking forever", async () => {
     const qdir = queueRoot(dir);
     mkdirSync(qdir, { recursive: true });
@@ -152,6 +202,61 @@ describe("runQueue — lock", () => {
 
     expect(maxConcurrent).toBe(1); // never two jobs (or two drains) running at once
     expect(ran.sort()).toEqual(["t1", "t2"]); // both jobs still got processed by whichever runner held the lock
+  });
+
+  it.skipIf(runningAsRoot)("backs off and terminates when a real filesystem race blocks queue claiming", async () => {
+    const qdir = queueRoot(dir);
+    mkdirSync(qdir, { recursive: true });
+    addQueueNoise(qdir, 8000);
+    queueJob(dir, job("s1", "t1", "testbed"));
+
+    const freezer = freezeQueueAfterLock(qdir);
+    const exit = new Promise<number | null>((resolve) => {
+      freezer.once("exit", (code) => resolve(code));
+    });
+
+    const ran: string[] = [];
+    const started = Date.now();
+    await runQueue(dir, async (j) => {
+      ran.push(j.turnRef);
+    });
+    const elapsed = Date.now() - started;
+
+    freezer.kill("SIGKILL");
+    await exit;
+    chmodSync(qdir, 0o755);
+
+    expect(ran).toEqual([]);
+    expect(elapsed).toBeLessThan(2_000);
+    expect(readdirSync(qdir).some((name) => name.endsWith(".json"))).toBe(true);
+  });
+
+  it.skipIf(runningAsRoot)("backs off and terminates when a superseded head cannot be removed", async () => {
+    const qdir = queueRoot(dir);
+    mkdirSync(qdir, { recursive: true });
+    addQueueNoise(qdir, 8000);
+    queueJob(dir, job("s1", "t1", "live"));
+    queueJob(dir, job("s1", "t2", "live"));
+
+    const freezer = freezeQueueAfterLock(qdir);
+    const exit = new Promise<number | null>((resolve) => {
+      freezer.once("exit", (code) => resolve(code));
+    });
+
+    const ran: string[] = [];
+    const started = Date.now();
+    await runQueue(dir, async (j) => {
+      ran.push(j.turnRef);
+    });
+    const elapsed = Date.now() - started;
+
+    freezer.kill("SIGKILL");
+    await exit;
+    chmodSync(qdir, 0o755);
+
+    expect(ran).toEqual([]);
+    expect(elapsed).toBeLessThan(2_000);
+    expect(readdirSync(qdir).filter((name) => name.endsWith(".json")).length).toBeGreaterThan(0);
   });
 });
 

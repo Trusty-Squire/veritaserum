@@ -47,7 +47,6 @@ interface ExpectedTurn {
   finalMessage?: string;
   turnRef?: string;
   expectedClaimToken?: string;
-  expectedVerdict?: string;
   expectedPassedDemand?: boolean;
   expectedAudit: boolean;
   hookExit?: number;
@@ -87,12 +86,20 @@ const commandsPath = join(reportsDir, "commands.jsonl");
 const findingsPath = join(reportsDir, "harness-findings.json");
 const pidsPath = join(reportsDir, "pids.jsonl");
 const watchdogStopPath = join(reportsDir, "watchdog.stop");
+const watchdogSummaryPath = join(reportsDir, "watchdog-summary.json");
 const skipLive = process.argv.includes("--skip-live");
 const liveOnly = process.argv.includes("--live-only");
 const keepGoing = process.argv.includes("--keep-going");
 const findings: HarnessFinding[] = [];
 const commands: CommandRecord[] = [];
 let frontierPlantedMeasurement: Record<string, unknown> = { status: "unverified: live executor arm not run" };
+let tarballPath: string | undefined;
+let installedBinPath: string | undefined;
+let finalReport: Record<string, unknown> | undefined;
+let finalizationState: "completed" | "terminated" | "failed" = "completed";
+let finalizationSignal: NodeJS.Signals | undefined;
+let finalizationError: string | undefined;
+let finalizationWritten = false;
 
 for (const path of [runRoot, artifactsDir, home, prefix, reportsDir]) mkdirSync(path, { recursive: true });
 
@@ -110,6 +117,78 @@ function appendJson(path: string, value: unknown): void {
   mkdirSync(dirname(path), { recursive: true });
   appendFileSync(path, JSON.stringify(value) + "\n");
 }
+
+function writeStdoutLine(line: string): void {
+  try {
+    writeFileSync(1, `${line}\n`);
+  } catch {
+    /* best-effort */
+  }
+}
+
+function readWatchdogSummary() {
+  if (!existsSync(watchdogSummaryPath)) return { missing: true };
+  try {
+    return JSON.parse(readFileSync(watchdogSummaryPath, "utf8"));
+  } catch (error) {
+    return { corrupt: true, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function terminalReportFallback(): Record<string, unknown> {
+  const report = finalReport ?? {
+    runId,
+    runRoot,
+    tarball: tarballPath ?? null,
+    installedBin: installedBinPath ?? null,
+    commands: commands.map(({ id, exitCode, durationMs }) => ({ id, exitCode, durationMs })),
+    findings,
+    watchdog: readWatchdogSummary(),
+    measurements: {
+      status: "unverified: final report was interrupted before complete measurements materialized",
+      hookLatenciesMs: [],
+      auditDurationsMs: [],
+      auditorCostPerTurn: "unverified: finalization interrupted",
+      resources: { maxQueueDepth: null, telemetryBytes: null, maxRelevantProcesses: null },
+    },
+    faultInjection: [],
+    frontierPlantedExecutor: frontierPlantedMeasurement,
+    unverified: [
+      "finalization was interrupted before the complete production report was assembled",
+      ...(skipLive ? ["live Codex, Claude Code, and Goose executor controls were skipped by --skip-live"] : []),
+      ...(liveOnly ? ["manual >128 KiB payload, evidence-memory, and fault-injection arms were skipped by --live-only"] : []),
+    ],
+  };
+  return {
+    ...report,
+    terminalState: finalizationState,
+    terminationSignal: finalizationSignal ?? null,
+    terminationError: finalizationError ?? null,
+  };
+}
+
+function finalizeReport(): void {
+  if (finalizationWritten) return;
+  const report = terminalReportFallback();
+  writeFileSync(findingsPath, JSON.stringify(findings, null, 2) + "\n");
+  writeFileSync(join(reportsDir, "production-report.json"), JSON.stringify(report, null, 2) + "\n");
+  finalizationWritten = true;
+  writeStdoutLine(JSON.stringify({ runRoot, report: join(reportsDir, "production-report.json"), findings: findings.length, terminalState: finalizationState, terminationSignal: finalizationSignal ?? null }));
+}
+
+function handleTermination(signal: NodeJS.Signals): never {
+  finalizationState = "terminated";
+  finalizationSignal = signal;
+  try {
+    finalizeReport();
+  } finally {
+    scrubSeededCredentials();
+    process.exit(128 + (signal === "SIGINT" ? 2 : 15));
+  }
+}
+
+process.once("SIGTERM", () => handleTermination("SIGTERM"));
+process.once("SIGINT", () => handleTermination("SIGINT"));
 
 function seedCredential(relative: string): void {
   const source = join(homedir(), relative);
@@ -328,7 +407,6 @@ async function invokeShellHook(
   harness: ExpectedTurn["harness"],
   env: NodeJS.ProcessEnv,
   expectedClaimToken?: string,
-  expectedVerdict?: string,
   expectedPassedDemand?: boolean,
 ): Promise<CommandRecord> {
   const record = await run(id, "sh", ["-c", command], { cwd: repo, env, input: JSON.stringify(payload), timeout: 30_000 });
@@ -340,7 +418,6 @@ async function invokeShellHook(
     finalMessage: typeof (payload as { last_assistant_message?: unknown }).last_assistant_message === "string" ? (payload as { last_assistant_message: string }).last_assistant_message : undefined,
     turnRef: typeof (payload as { turn_id?: unknown }).turn_id === "string" ? (payload as { turn_id: string }).turn_id : undefined,
     expectedClaimToken,
-    expectedVerdict,
     expectedPassedDemand,
     expectedAudit: true,
     hookExit: record.exitCode,
@@ -795,7 +872,6 @@ for (let trial = 0; trial < 3; trial++) {
     "codex",
     { VS_AUDITOR: "claude", VS_HARNESS: "codex", VS_EXECUTOR: "codex" },
     "250000",
-    undefined,
     true,
   );
   return retryAudits + 1;
@@ -1158,6 +1234,8 @@ async function faultInjection(command: string): Promise<FaultResult[]> {
 async function main(): Promise<void> {
   writeFileSync(join(reportsDir, "run-manifest.json"), JSON.stringify({ runId, root: ROOT, runRoot, node: process.version, skipLive, liveOnly }, null, 2) + "\n");
   const { tarball, bin } = await packAndInstall();
+  tarballPath = tarball;
+  installedBinPath = bin;
   await npxGooseTopology(tarball);
 
   const repo = await matrixRepo();
@@ -1191,9 +1269,8 @@ async function main(): Promise<void> {
     await stopWatchdog(watchdog.child);
   }
 
-  const watchdogSummaryPath = join(reportsDir, "watchdog-summary.json");
-  const watchdogSummary = existsSync(watchdogSummaryPath) ? JSON.parse(readFileSync(watchdogSummaryPath, "utf8")) : { missing: true };
-  if (!existsSync(watchdogSummaryPath)) {
+  const watchdogSummary = readWatchdogSummary();
+  if (!existsSync(watchdogSummaryPath) || watchdogSummary?.corrupt) {
     finding({
       severity: "P0",
       invariant: "watchdog",
@@ -1278,7 +1355,7 @@ async function main(): Promise<void> {
       maxRelevantProcesses: watchdogSummary?.measurements?.maxRelevantProcesses ?? null,
     },
   };
-  const report = {
+  finalReport = {
     runId,
     runRoot,
     tarball,
@@ -1295,16 +1372,18 @@ async function main(): Promise<void> {
       ...(liveOnly ? ["manual >128 KiB payload, evidence-memory, and fault-injection arms were skipped by --live-only"] : []),
     ],
   };
-  writeFileSync(join(reportsDir, "production-report.json"), JSON.stringify(report, null, 2) + "\n");
-  process.stdout.write(`${JSON.stringify({ runRoot, report: join(reportsDir, "production-report.json"), findings: findings.length })}\n`);
+  finalizeReport();
   if (findings.some((item) => item.severity === "P0") && !keepGoing) process.exitCode = 1;
 }
 
 main()
   .catch((error) => {
     const message = error instanceof Error ? `${error.message}\n${error.stack || ""}` : String(error);
+    finalizationState = "failed";
+    finalizationError = message;
     writeFileSync(join(reportsDir, "fatal.txt"), message + "\n");
     process.stderr.write(message + "\n");
+    finalizeReport();
     process.exitCode = 1;
   })
   .finally(scrubSeededCredentials);

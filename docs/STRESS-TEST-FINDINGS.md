@@ -32,6 +32,18 @@ Post-normalization core run: `2026-07-13T18-10-38-850Z-701077`
 one P2 51 ms latency violation).
 The final combined run supersedes the earlier discovery runs for measurements.
 
+### Follow-up: termination finalization
+
+A later bounded run (`2026-07-14T00-24-53-572Z-2815132`) was cancelled with
+SIGTERM and exited without materializing `production-report.json` or
+`harness-findings.json`. The harness now finalizes both reports on
+SIGTERM/SIGINT with `terminalState: "terminated"`. Post-fix bounded rerun
+`2026-07-14T03-05-59-478Z-2940231`
+(`timeout -s TERM 8s pnpm stress:production -- --skip-live --keep-going`,
+exit 124) wrote both reports before exiting, and
+[production-harness-finalization.test.ts](../test/production-harness-finalization.test.ts)
+holds that exact timeout path as a regression.
+
 1. **Inertness:** normal window: 0/7 errored audits, 0 unrunnable demands, and
    0/7 turns never audited. Across all arms, 3/19 audit rows ended `error`
    (15.8%): exactly the explicitly injected absent, garbage, and killed auditor
