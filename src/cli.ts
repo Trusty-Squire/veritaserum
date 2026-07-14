@@ -22,7 +22,6 @@ import { logFiring, readFirings, summarize } from "./telemetry.js";
 import { installTarget, detectHarnesses, isTarget, TARGETS, type Target } from "./install.js";
 import { selfcheck } from "./selfcheck.js";
 import * as style from "./style.js";
-import { writeHookLawState } from "./hook-state.js";
 
 /** Which harness fired us (installer sets VS_HARNESS). */
 function harnessName(): string {
@@ -343,12 +342,6 @@ async function main(argv: string[]): Promise<number> {
         return 2;
       }
       const res = await installTarget(target, { global, project });
-      try {
-        const { law } = await loadLaw(dir);
-        writeHookLawState(dir, { runnableCount: runnableChecks(law).length });
-      } catch {
-        // A missing/empty/corrupt repo still gets a fail-open hook installation.
-      }
       for (const line of res.steps) console.log(line);
       if (res.manual.length) {
         console.log();

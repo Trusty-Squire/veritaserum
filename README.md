@@ -96,6 +96,7 @@ it stalls or blocks your agent. veritaserum never halts your work over its own h
 
 ```
 veritaserum install <claude-code|goose|codex> [--global]   wire the auditor into a harness
+veritaserum selfcheck                      prove the installed hook RUNS (and reaches the model)
 veritaserum telemetry                      what got caught — verdicts, by harness
 veritaserum demands                        run the failing checks the auditor authored
 veritaserum retire <law-id|slug> "<reason>"   retire a law entry or demand (recorded, never deleted)

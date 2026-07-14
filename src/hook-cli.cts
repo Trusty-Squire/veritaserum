@@ -96,45 +96,7 @@ function gooseActivity(sessionId: string, sinceMs: number): boolean {
   }
 }
 
-/** Mirrors src/git.ts's porcelainStatusEntries — rename/copy records carry a
- *  second NUL-separated origin-path field that a plain split would misread. */
-function porcelainStatusPaths(stdout: string): string[] {
-  const fields = stdout.split("\0");
-  const paths: string[] = [];
-  for (let i = 0; i < fields.length; i++) {
-    const record = fields[i];
-    if (!record) continue;
-    const hasPrefix = record.length > 3 && record[2] === " ";
-    paths.push(hasPrefix ? record.slice(3) : record);
-    if (hasPrefix && /[RC]/.test(record.slice(0, 2))) i++;
-  }
-  return paths;
-}
 
-/** MUST stay byte-identical to src/git.ts's currentTreeHash — this compares
- *  against the last-green marker src/run-audit.ts writes with that hash. */
-function currentTreeHash(dir: string): string | null {
-  try {
-    const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
-    const stdout = execFileSync("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
-      cwd: dir,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    const hash = createHash("sha256").update(stdout).update("\0");
-    for (const path of porcelainStatusPaths(stdout)) {
-      try {
-        const stat = statSync(join(dir, path), { bigint: true });
-        hash.update(`${path}\0${stat.size}\0${stat.mtimeNs}\0${stat.mode}\0`);
-      } catch {
-        hash.update(`${path}\0missing\0`);
-      }
-    }
-    return hash.digest("hex");
-  } catch {
-    return null;
-  }
-}
 
 
 function isAlive(pid: number): boolean {

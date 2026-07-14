@@ -36,7 +36,6 @@ import {
   type RunAudit,
 } from "./audit-runner.js";
 import { currentTreeHash } from "./git.js";
-import { writeHookLawState } from "./hook-state.js";
 
 /** Step 1: the turn's final message, the user's request, and a receipt tail —
  *  from goose's sessions.db (session id) or a Claude Code transcript (path). */
@@ -137,11 +136,6 @@ export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
   };
   const verdict = await audit(contentJob, auditor);
   // Count law-registered checks (demand law copies carry lawId) — the same set
-  // install-time writeHookLawState counts via runnableChecks(law), so the two
-  // writers of the cached R7 state always agree.
-  writeHookLawState(job.dir, {
-    runnableCount: verdict.mechanicalChecks.filter((check) => !check.gateId.startsWith("demand:") || check.lawId).length,
-  });
   appendSessionWarnings(job.dir, job.sessionId, verdict.warnings);
 
   // Feedback channel (SPEC §2, R7): a fresh warn/demand/unaccountable verdict
