@@ -225,23 +225,36 @@ function writeBlockCount(qdir: string, sessionId: string, count: number): void {
  * turn until an actual green run clears it, and again the moment the tree
  * next moves.
  */
-async function printLawStateLineIfDue(dir: string): Promise<void> {
-  const { law } = await loadLaw(dir);
-  const runnable = runnableChecks(law);
-  if (runnable.length === 0) return;
-  const hash = await currentTreeHash(dir);
-  let lastGreen = "";
+/**
+ * The standing-law state, computed FRESH at prompt time.
+ *
+ * This used to fire at Stop, and it was the wrong moment twice over. A Stop hook's output
+ * reaches the HUMAN and never the model on either harness (codex has no StopHookSpecificOutput;
+ * Claude Code shows Stop stdout in transcript view), so the agent was never told. And the
+ * signal is PREVENTION — "the standing checks have not been run against this tree" — which is
+ * worth nothing after the work is finished and the claim already made. A warning that arrives
+ * once it is too late to act on, addressed to someone who cannot act on it, is a log line.
+ *
+ * At UserPromptSubmit it is early, addressed to the executor, and true NOW rather than a
+ * replay of a stale snapshot taken at the end of the previous turn.
+ */
+async function lawStateLineIfDue(dir: string): Promise<string | null> {
   try {
-    lastGreen = readFileSync(lawCheckMarkerPath(dir), "utf8").trim();
+    const { law } = await loadLaw(dir);
+    const runnable = runnableChecks(law);
+    if (runnable.length === 0) return null;
+    const hash = await currentTreeHash(dir);
+    let lastGreen = "";
+    try {
+      lastGreen = readFileSync(lawCheckMarkerPath(dir), "utf8").trim();
+    } catch {
+      /* no green run recorded yet for this repo */
+    }
+    if (lastGreen === hash) return null;
+    return `veritaserum: ${runnable.length} standing check(s) unverified against this tree — run them before you claim done`;
   } catch {
-    /* no green run recorded yet for this repo */
+    return null; // advisory only (R8)
   }
-  if (lastGreen === hash) return;
-  const line = `veritaserum: ${runnable.length} standing check(s) unverified against current tree`;
-  // Codex Stop rejects plain stdout even on exit 0. `systemMessage` is the
-  // documented non-blocking common output field; Claude Code accepts the terse
-  // text directly.
-  console.log(harnessName() === "codex" ? JSON.stringify({ systemMessage: line }) : line);
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -406,13 +419,11 @@ async function main(argv: string[]): Promise<number> {
         // a. Nothing-to-audit: no tool activity since the last audit marker → PASS, ~0ms.
         if (!hasNewToolActivity(p, marker)) return 0;
 
-        // b. Standing-law state line (R7): terse, best-effort, never blocks even
-        //    on its own internal failure (a corrupt law file shouldn't cancel c).
-        try {
-          await printLawStateLineIfDue(wd);
-        } catch {
-          /* advisory only */
-        }
+        // b. NO law line here. It used to print at Stop, where it reached the human and
+        //    never the model (neither harness routes Stop output into model context) and
+        //    where prevention is already too late — the work is done, the claim is made.
+        //    It is computed FRESH at UserPromptSubmit now (lawStateLineIfDue), which is both
+        //    the only door into the executor's context and the moment it can still act.
 
         // c. Enqueue the async audit job; dispatch is fire-and-forget (audit-runner.js
         //    owns lockfile serialization + LIVE-supersede/TESTBED-drain scheduling).
@@ -561,8 +572,14 @@ async function main(argv: string[]): Promise<number> {
       try {
         const p = parsePayload(await readStdin());
         const wd = payloadDir(p, dir);
-        const line = takePendingFeedback(wd);
-        if (line) console.log(injectionFor(harnessName(), line));
+        // Two signals, one door. The verdict looks BACKWARD (what the last turn claimed —
+        // inherently next-turn news, since the audit is async). The law line looks FORWARD
+        // (what is unverified against the tree you are about to work on). Both belong here,
+        // at the only moment the executor can still act on either.
+        const verdict = takePendingFeedback(wd);
+        const law = await lawStateLineIfDue(wd);
+        const lines = [verdict, law].filter((l): l is string => Boolean(l));
+        if (lines.length) console.log(injectionFor(harnessName(), lines.join("\n")));
         return 0;
       } catch (err) {
         logFiring({

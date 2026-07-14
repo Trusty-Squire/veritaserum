@@ -474,7 +474,12 @@ function installResolvedAdapter(target: "codex", hookCmd: string): InstallResult
     manual.push(`press ${s.bold("t")} to trust: ${untrusted.join(", ")}`);
     manual.push("until then codex loads these hooks and runs none of them (no error, no warning)");
   } else {
-    steps.push(s.ok("hooks are trusted — codex will run them"));
+    // Careful with this claim: we check that a trust entry EXISTS for the slot and that we
+    // did not change the command under it. We cannot recompute codex's trusted_hash, so a
+    // record staled by something else (a manual edit, another tool) would still read as
+    // trusted here. Say what we actually know, and point at the authority.
+    steps.push(s.ok("codex has a trust record for these hooks"));
+    steps.push(s.step(`confirm with ${s.bold("/hooks")} in codex — the ${s.bold("Review")} column must read 0`));
   }
   manual.push("already-running codex sessions read hooks.json at startup — restart them");
 

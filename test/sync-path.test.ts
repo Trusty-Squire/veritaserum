@@ -57,6 +57,17 @@ async function hookStop(dir: string, payload: object, env: Record<string, string
   return { code: r.exitCode ?? 1, out: r.stdout, err: r.stderr };
 }
 
+/** The prompt hook: the ONLY door into the executor's context on either harness. */
+async function hookPrompt(dir: string, env: Record<string, string> = {}) {
+  const r = await execa(RUNNER, [CLI, "hook-prompt"], {
+    cwd: dir,
+    input: JSON.stringify({ cwd: dir }),
+    reject: false,
+    env,
+  });
+  return { code: r.exitCode ?? 1, out: r.stdout, err: r.stderr };
+}
+
 /** Block audit-runner's triggerRunner from spawning a detached drain process —
  *  a live pid at the lockfile makes it a no-op — so an enqueued job file stays
  *  put for inspection instead of racing a background drain. */
@@ -214,7 +225,7 @@ describe("hook-stop — standing-law state line (SPEC R7: terse, state-gated; pr
     }
   }
 
-  it("prints while unverified, falls silent once a GREEN mechanical run clears it, and resumes when the tree next moves", async () => {
+  it("Stop stays SILENT; the law line is delivered at prompt time, where the model can act on it", async () => {
     const dir = await repo();
     blockRunner(dir);
     await write(dir, "tracked.txt", "a");
@@ -225,40 +236,36 @@ describe("hook-stop — standing-law state line (SPEC R7: terse, state-gated; pr
     await execa("git", ["add", "-A"], { cwd: dir });
     await execa("git", ["commit", "-q", "-m", "law"], { cwd: dir });
 
-    // Harness-owned transcripts are not part of the audited working tree.
     const transcriptDir = mkdtempSync(join(tmpdir(), "vs-sync-law-transcript-"));
     cleanups.push(() => rm(transcriptDir, { recursive: true, force: true }));
     const tpath = join(transcriptDir, "transcript.jsonl");
     writeFileSync(tpath, "turn 1\n");
-    const EXPECTED = "veritaserum: 1 standing check(s) unverified against current tree";
 
-    // Due: nothing has ever confirmed this tree state green.
-    let r = await hookStop(dir, { transcript_path: tpath, cwd: dir });
-    expect(r.code).toBe(0);
-    expect(r.out.trim()).toBe(EXPECTED);
+    // Stop says NOTHING. It used to print this line, where it reached the human and never
+    // the model (no harness routes Stop output into model context) and where prevention is
+    // already too late — the work is done and the claim is made.
+    const stop = await hookStop(dir, { transcript_path: tpath, cwd: dir });
+    expect(stop.code).toBe(0);
+    expect(stop.out).toBe("");
 
-    // STILL due on a later turn at the SAME tree state — unlike the old
-    // once-per-hash print dedupe, nothing has actually verified this state
-    // yet, so the line keeps firing (this is "precise instead of once-only").
-    writeFileSync(tpath, "turn 1\nturn 2\n");
-    r = await hookStop(dir, { transcript_path: tpath, cwd: dir });
-    expect(r.out.trim()).toBe(EXPECTED);
+    // The executor is told at the START of the next turn, when it can still run them.
+    let prompt = await hookPrompt(dir);
+    expect(prompt.code).toBe(0);
+    expect(prompt.out).toContain("1 standing check(s) unverified");
+    expect(prompt.out).toContain("before you claim done");
 
-    // A real GREEN mechanical run (the async audit job) clears the marker for
-    // this exact tree state.
+    // It is computed FRESH each time, not replayed from a stale Stop-time snapshot: a real
+    // GREEN mechanical run clears it for this exact tree state.
     await runAuditHermetically({ dir, sessionId: "s1", turnRef: "t-green", mode: "live", transcriptPath: tpath });
     expect(readFileSync(lawCheckMarkerPath(dir), "utf8").trim()).toBe(await currentTreeHash(dir));
 
-    // Now silent at the same tree state — confirmed green.
-    writeFileSync(tpath, "turn 1\nturn 2\nturn 3\n");
-    r = await hookStop(dir, { transcript_path: tpath, cwd: dir });
-    expect(r.out).toBe("");
+    prompt = await hookPrompt(dir);
+    expect(prompt.out).toBe("");
 
-    // Tree moves — due again; the green marker is stale for the new state.
+    // Tree moves → unverified again, and the next prompt says so.
     await write(dir, "tracked.txt", "b");
-    writeFileSync(tpath, "turn 1\nturn 2\nturn 3\nturn 4\n");
-    r = await hookStop(dir, { transcript_path: tpath, cwd: dir });
-    expect(r.out.trim()).toBe(EXPECTED);
+    prompt = await hookPrompt(dir);
+    expect(prompt.out).toContain("1 standing check(s) unverified");
   });
 
   it("no runnable law entries → never prints, even with a dirty tree", async () => {
@@ -273,6 +280,8 @@ describe("hook-stop — standing-law state line (SPEC R7: terse, state-gated; pr
     writeFileSync(tpath, "turn 1\n");
     const r = await hookStop(dir, { transcript_path: tpath, cwd: dir });
     expect(r.out).toBe("");
+    const prompt = await hookPrompt(dir);
+    expect(prompt.out).toBe("");
   });
 });
 
