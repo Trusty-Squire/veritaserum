@@ -42,6 +42,24 @@ function queueRoot(dir: string): string {
   return join(process.env.VS_QUEUE_ROOT || join(home, ".veritaserum", "queue"), repoKey(dir));
 }
 
+/**
+ * Queue a line for injection at the next UserPromptSubmit — the only channel that reaches
+ * the MODEL on either harness. Refuses to overwrite an already-pending line, so a Stop-time
+ * advisory can never bury an unread audit verdict (the verdict is the stronger signal and
+ * overwrites this one freely, via run-audit's writePendingFeedback).
+ * Best-effort: a failure here just means no line this turn (R8).
+ */
+function queueForInjectionIfEmpty(dir: string, line: string): void {
+  try {
+    const p = join(queueRoot(dir), "feedback", "pending.json");
+    if (existsSync(p)) return; // an unread verdict already holds the channel
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, JSON.stringify({ ts: Date.now(), line }), "utf8");
+  } catch {
+    // Advisory only (R8).
+  }
+}
+
 function statePath(dir: string, name: string): string {
   return join(queueRoot(dir), "state", name);
 }
@@ -159,6 +177,19 @@ function printLawStateLineIfDue(dir: string): void {
     // Codex Stop rejects plain stdout even on exit 0; systemMessage is the
     // documented non-blocking output field. Claude Code accepts the terse text.
     process.stdout.write((process.env.VS_HARNESS === "codex" ? JSON.stringify({ systemMessage: line }) : line) + "\n");
+
+    // ...but BOTH of those reach only the HUMAN. codex's wire schema has no
+    // StopHookSpecificOutput, so `systemMessage` renders a warning banner on the user's
+    // screen and never enters the model's context; Claude Code likewise shows Stop stdout
+    // in transcript view, not to the model. Result: the executor was told nothing, and said
+    // so — "I did not see that stop-hook output." A warning the agent cannot read is not a
+    // warning, it is a log line.
+    //
+    // The ONLY door into model context is UserPromptSubmit, so queue the line for delivery
+    // there. Never clobber an unread verdict: an audit verdict is the stronger signal and
+    // overwrites this freely, while this line re-fires next turn if the tree is still
+    // unverified.
+    queueForInjectionIfEmpty(dir, line);
   } catch {
     // Advisory only (R8).
   }
