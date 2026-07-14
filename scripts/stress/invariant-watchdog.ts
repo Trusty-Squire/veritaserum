@@ -19,7 +19,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 interface ExpectedTurn {
@@ -132,7 +132,7 @@ const demandStatuses = new Map<string, Set<number>>();
 let lastDemandInspectionSignature = "";
 let demandStageRetries = 0;
 let demandStageFailures = 0;
-let demandOraclesObserved = false;
+const observedDemandPaths = new Set<string>();
 let maxQueueDepth = 0;
 let maxRelevantProcesses = 0;
 let shuttingDown = false;
@@ -369,7 +369,7 @@ function inspectDemands(): void {
   const dir = join(queueDir, "demands");
   if (!existsSync(dir)) return;
   const names = readdirSync(dir).filter((item) => /\.(?:cjs|mjs|js)$/.test(item)).sort();
-  if (names.length > 0) demandOraclesObserved = true;
+  for (const name of names) observedDemandPaths.add(join(dir, name));
   const status = spawnSync("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
     cwd: repo,
     encoding: "utf8",
@@ -521,6 +521,9 @@ function sample(): void {
 function finalize(): void {
   if (shuttingDown) return;
   shuttingDown = true;
+  // The last pass must not be lost to the inspection-interval floor: a demand
+  // queued moments before shutdown still deserves one inspection attempt.
+  lastDemandInspectionAt = 0;
   sample();
   const expectedRead = readJsonl<ExpectedTurn>(opts.expected);
   const expected = expectedRead.rows.filter((turn) => turn.expectedAudit && resolve(turn.repo) === repo);
@@ -575,14 +578,17 @@ function finalize(): void {
     violation("non-interference", `${turn.id} hook latency ${turn.hookLatencyMs}ms exceeded ${opts.latencyBudgetMs}ms budget`);
   }
   for (const turn of nonzeroHooks) violation("non-interference", `${turn.id} hook exited ${turn.hookExit}`);
-  if (demandOraclesObserved && demandStatuses.size === 0 && demandStageFailures > 0) {
+  for (const path of [...observedDemandPaths].sort()) {
+    if (demandStatuses.has(path)) continue;
     violation(
       "oracle-integrity",
-      `demand oracles were queued but never inspected: ${demandStageFailures} demand stage copy failure(s) and zero successful inspections`,
+      `demand oracle ${basename(path)} was queued but never inspected: ${demandStageFailures} demand stage copy failure(s)`,
     );
   }
 
-  const demandSummary = [...demandStatuses].map(([path, statuses]) => ({ path, exitCodesSeen: [...statuses].sort() }));
+  const demandSummary = [...observedDemandPaths]
+    .sort()
+    .map((path) => ({ path, exitCodesSeen: [...(demandStatuses.get(path) ?? [])].sort() }));
   const recordedViolations = readJsonl<Violation>(opts.violations).rows;
   const demandsSatisfiable = demandSummary.length === 0 ? "not-applicable" : demandSummary.every((item) => item.exitCodesSeen.includes(0)) ? "pass" : "unverified";
   const summary = {

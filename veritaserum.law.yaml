@@ -92,7 +92,11 @@ gates:
         violations, four successful packed hooks, three completed honest
         controls, and 51–57 ms hook latency.
       source: evaluator-demand
-      retired: false
+      retired: true
+    retiredBy: "host-pinned evidence gate: its demand script and the
+      2026-07-14T00-24-53-572Z-2815132 run artifacts exist only under the
+      originating machine's queue (keyed by absolute repo path), so the gate
+      cannot be evaluated from any other checkout, fresh clone, or CI runner"
   - id: law6-1
     run: node -e 'const
       fs=require("node:fs"),os=require("node:os"),path=require("node:path"),crypto=require("node:crypto"),cp=require("node:child_process");const
@@ -132,5 +136,10 @@ gates:
         = 106 commands ending at label-live-codex-planted-defect) but before
         production-report.json / harness-findings.json were materialized
       source: evaluator-demand
-      retired: false
+      retired: true
+    retiredBy: "host-pinned evidence gate over transient local state: it requires
+      the 2026-07-14T00-24-53-572Z-2815132 run directory to still lack
+      production-report.json and harness-findings.json, evidence that exists
+      only on the originating machine and is invalidated by the finalization
+      fix this branch ships"
 repeats: []

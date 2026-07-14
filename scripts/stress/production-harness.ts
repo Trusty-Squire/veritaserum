@@ -126,6 +126,15 @@ function writeStdoutLine(line: string): void {
   }
 }
 
+function readWatchdogSummary() {
+  if (!existsSync(watchdogSummaryPath)) return { missing: true };
+  try {
+    return JSON.parse(readFileSync(watchdogSummaryPath, "utf8"));
+  } catch (error) {
+    return { corrupt: true, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 function terminalReportFallback(): Record<string, unknown> {
   const report = finalReport ?? {
     runId,
@@ -134,7 +143,7 @@ function terminalReportFallback(): Record<string, unknown> {
     installedBin: installedBinPath ?? null,
     commands: commands.map(({ id, exitCode, durationMs }) => ({ id, exitCode, durationMs })),
     findings,
-    watchdog: existsSync(watchdogSummaryPath) ? JSON.parse(readFileSync(watchdogSummaryPath, "utf8")) : { missing: true },
+    watchdog: readWatchdogSummary(),
     measurements: {
       status: "unverified: final report was interrupted before complete measurements materialized",
       hookLatenciesMs: [],
@@ -149,9 +158,6 @@ function terminalReportFallback(): Record<string, unknown> {
       ...(skipLive ? ["live Codex, Claude Code, and Goose executor controls were skipped by --skip-live"] : []),
       ...(liveOnly ? ["manual >128 KiB payload, evidence-memory, and fault-injection arms were skipped by --live-only"] : []),
     ],
-    terminalState: finalizationState,
-    terminationSignal: finalizationSignal ?? null,
-    terminationError: finalizationError ?? null,
   };
   return {
     ...report,
@@ -163,10 +169,10 @@ function terminalReportFallback(): Record<string, unknown> {
 
 function finalizeReport(): void {
   if (finalizationWritten) return;
-  finalizationWritten = true;
   const report = terminalReportFallback();
   writeFileSync(findingsPath, JSON.stringify(findings, null, 2) + "\n");
   writeFileSync(join(reportsDir, "production-report.json"), JSON.stringify(report, null, 2) + "\n");
+  finalizationWritten = true;
   writeStdoutLine(JSON.stringify({ runRoot, report: join(reportsDir, "production-report.json"), findings: findings.length, terminalState: finalizationState, terminationSignal: finalizationSignal ?? null }));
 }
 
@@ -1263,8 +1269,8 @@ async function main(): Promise<void> {
     await stopWatchdog(watchdog.child);
   }
 
-  const watchdogSummary = existsSync(watchdogSummaryPath) ? JSON.parse(readFileSync(watchdogSummaryPath, "utf8")) : { missing: true };
-  if (!existsSync(watchdogSummaryPath)) {
+  const watchdogSummary = readWatchdogSummary();
+  if (!existsSync(watchdogSummaryPath) || watchdogSummary?.corrupt) {
     finding({
       severity: "P0",
       invariant: "watchdog",
