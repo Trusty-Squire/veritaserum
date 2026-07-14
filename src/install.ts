@@ -449,6 +449,7 @@ function installResolvedAdapter(target: "codex", hookCmd: string): InstallResult
     steps.push(s.ok(`backed up ${s.dim(out + ".vs-bak")}`));
   }
 
+  const before = previousCommands(settings);
   const addedStop = mergeHook(settings, "Stop", hookCmd);
   const addedPrompt = mergeHook(settings, "UserPromptSubmit", hookCommand("codex", "hook-prompt"));
   if (addedStop || addedPrompt) {
@@ -458,13 +459,73 @@ function installResolvedAdapter(target: "codex", hookCmd: string): InstallResult
   } else {
     steps.push(s.ok(`already installed — no change to ${s.dim(out)}`));
   }
-  return {
-    target,
-    hookCmd,
-    steps,
-    primaryFile: out,
-    manual: [
-      "approve the veritaserum hook when codex asks for hook trust on first run",
-    ],
-  };
+
+  // VERIFY, don't assume. codex will not RUN a hook until a human trusts it, and it keys
+  // that trust to a hash of the command string — so writing hooks.json installs a hook that
+  // does nothing. Worse, CHANGING a command (an upgrade, a new binary path) silently returns
+  // an already-trusted hook to "Review", where it is installed, reported nowhere, and inert.
+  // That is how veritaserum ran on codex for a day auditing nothing while telemetry looked
+  // green. An installer that cannot tell you its hook is switched off is not an installer.
+  const untrusted = untrustedHooks(out, settings, before);
+  const manual: string[] = [];
+  if (untrusted.length) {
+    steps.push(`  ${s.yellow(s.bold("!"))} ${s.yellow(`${untrusted.length} hook(s) installed but NOT ACTIVE — codex needs your trust`)}`);
+    manual.push(`in codex, run ${s.bold("/hooks")} — the ${s.bold("Review")} column must read 0`);
+    manual.push(`press ${s.bold("t")} to trust: ${untrusted.join(", ")}`);
+    manual.push("until then codex loads these hooks and runs none of them (no error, no warning)");
+  } else {
+    steps.push(s.ok("hooks are trusted — codex will run them"));
+  }
+  manual.push("already-running codex sessions read hooks.json at startup — restart them");
+
+  return { target, hookCmd, steps, primaryFile: out, manual };
+}
+
+/** The command currently wired for each hook slot, before we touch it. */
+function previousCommands(settings: Settings): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const [event, groups] of Object.entries(settings.hooks ?? {})) {
+    if (!Array.isArray(groups)) continue;
+    groups.forEach((group, gi) => {
+      (group as HookGroup).hooks?.forEach((hook, hi) => {
+        out.set(`${slotEvent(event)}:${gi}:${hi}`, hook.command);
+      });
+    });
+  }
+  return out;
+}
+
+/** codex's slot key casing: SessionStart -> session_start, UserPromptSubmit -> user_prompt_submit. */
+function slotEvent(event: string): string {
+  return event.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
+}
+
+/**
+ * Which of OUR hooks codex will refuse to run. Trust lives in ~/.codex/config.toml as a
+ * `trusted_hash` per slot; the hash is over the command, and we cannot recompute it — but we
+ * do not need to. A hook is inert iff it has no trust entry at all, or we just changed the
+ * command under an existing entry (which staled the hash). Both are decidable from the
+ * config plus the hooks.json we are replacing.
+ */
+function untrustedHooks(hooksPath: string, settings: Settings, before: Map<string, string>): string[] {
+  let config = "";
+  try {
+    config = readFileSync(join(homedir(), ".codex", "config.toml"), "utf8");
+  } catch {
+    // No config at all → nothing has ever been trusted.
+  }
+  const inert: string[] = [];
+  for (const event of ["Stop", "UserPromptSubmit"] as const) {
+    const groups = (settings.hooks?.[event] ?? []) as HookGroup[];
+    groups.forEach((group, gi) => {
+      group.hooks?.forEach((hook, hi) => {
+        if (!hook.command.includes("veritaserum") && !hook.command.includes("VS_HARNESS")) return;
+        const slot = `${slotEvent(event)}:${gi}:${hi}`;
+        const trusted = config.includes(`[hooks.state."${hooksPath}:${slot}"]`);
+        const changed = before.get(slot) !== undefined && before.get(slot) !== hook.command;
+        if (!trusted || changed) inert.push(event);
+      });
+    });
+  }
+  return [...new Set(inert)];
 }
