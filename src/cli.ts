@@ -28,6 +28,30 @@ function harnessName(): string {
   return process.env.VS_HARNESS || "unknown";
 }
 
+/**
+ * The verdict has to reach the MODEL, not just the human — and the two harnesses disagree
+ * about how.
+ *
+ * codex prints a Stop hook's output as a warning in its TUI and drops it on the floor: there
+ * is no StopHookSpecificOutput in its wire schema, so nothing a Stop hook says can ever enter
+ * the model's context. Its ONLY injection doors are SessionStart and UserPromptSubmit, and
+ * both require a structured envelope on stdout:
+ *   {"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"…"}}
+ * Plain stdout — which is what this hook emitted — is not context to codex. So a codex agent
+ * saw the warning banner on the user's screen and nothing in its own transcript, and said so:
+ * "I did not see that stop-hook output. It wasn't included in any terminal/tool output
+ * visible to me." Every verdict, every demand, silently addressed to no one.
+ *
+ * Claude Code takes bare stdout at UserPromptSubmit as additionalContext, and that path is
+ * proven working in the wild — so leave it exactly as it is and wrap only for codex.
+ */
+function injectionFor(harness: string, line: string): string {
+  if (harness !== "codex") return line;
+  return JSON.stringify({
+    hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: line },
+  });
+}
+
 /** Read the harness hook payload (JSON HookContext) from stdin. */
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
@@ -538,7 +562,7 @@ async function main(argv: string[]): Promise<number> {
         const p = parsePayload(await readStdin());
         const wd = payloadDir(p, dir);
         const line = takePendingFeedback(wd);
-        if (line) console.log(line);
+        if (line) console.log(injectionFor(harnessName(), line));
         return 0;
       } catch (err) {
         logFiring({

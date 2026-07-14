@@ -21,7 +21,7 @@ import { join } from "node:path";
 import { execa } from "execa";
 import { tempRepo } from "./helpers.js";
 import { runAudit } from "../src/run-audit.js";
-import { pendingFeedbackPath, takePendingFeedback, type AuditJob } from "../src/audit-runner.js";
+import { pendingFeedbackPath, takePendingFeedback, writePendingFeedback, type AuditJob } from "../src/audit-runner.js";
 
 const CLI = new URL("../src/cli.ts", import.meta.url).pathname;
 const RUNNER = new URL("../node_modules/.bin/tsx", import.meta.url).pathname;
@@ -264,5 +264,50 @@ describe("feedback channel — injection (cli.ts hook-prompt)", () => {
     const r = await hookPrompt();
     expect(r.code).toBe(0);
     expect(r.out.trim()).toBe("");
+  });
+});
+
+/**
+ * The verdict has to reach the MODEL, not just the human.
+ *
+ * codex renders a Stop hook's output as a TUI warning and drops it — its wire schema has no
+ * StopHookSpecificOutput, so nothing a Stop hook says can enter the model's context. Its only
+ * injection doors are SessionStart and UserPromptSubmit, and both require a structured
+ * envelope on stdout. This hook emitted bare text, which codex is not obliged to read — so a
+ * codex agent saw the warning banner on the user's screen and nothing in its own transcript:
+ * "I did not see that stop-hook output. It wasn't included in any terminal/tool output
+ * visible to me." Every verdict and demand was addressed to no one.
+ */
+describe("feedback channel — the injection envelope each harness actually reads", () => {
+  const VERDICT = /veritaserum:/;
+
+  async function hookPromptAs(harness: string): Promise<string> {
+    const r = await execa(RUNNER, [CLI, "hook-prompt"], {
+      cwd: repoDir,
+      input: JSON.stringify({ cwd: repoDir }),
+      env: { ...process.env, VS_HARNESS: harness },
+      reject: false,
+    });
+    return r.stdout;
+  }
+
+  it("codex gets a hookSpecificOutput envelope — its ONLY way into the model's context", async () => {
+    writePendingFeedback(repoDir, "veritaserum: last turn claimed \"tests pass\" — unsupported");
+    const out = await hookPromptAs("codex");
+
+    const parsed = JSON.parse(out) as {
+      hookSpecificOutput: { hookEventName: string; additionalContext: string };
+    };
+    // Shape is codex's, verbatim: additionalProperties:false, hookEventName is a const.
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
+    expect(parsed.hookSpecificOutput.additionalContext).toMatch(VERDICT);
+    expect(Object.keys(parsed.hookSpecificOutput).sort()).toEqual(["additionalContext", "hookEventName"]);
+  });
+
+  it("claude-code still gets bare stdout — the path proven in the wild; do not 'fix' it", async () => {
+    writePendingFeedback(repoDir, "veritaserum: last turn claimed \"tests pass\" — unsupported");
+    const out = await hookPromptAs("claude-code");
+    expect(out).toMatch(VERDICT);
+    expect(out.trim().startsWith("{")).toBe(false); // NOT wrapped
   });
 });
