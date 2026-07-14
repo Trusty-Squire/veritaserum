@@ -14,12 +14,10 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { copyPackageRuntimeFrom, installTarget } from "../src/install.js";
 
-// hookInvocation() resolves dist/hook-cli.cjs when built and falls back to the
-// veritaserum-hook bin name on a clean checkout — assert whichever shape THIS
-// checkout deterministically produces, not a build-state-dependent literal.
-const expectedHookRef = existsSync(fileURLToPath(new URL("../dist/hook-cli.cjs", import.meta.url)))
-  ? "hook-cli.cjs"
-  : "veritaserum-hook";
+// The harness only ever records the STABLE launcher path — never dist, never the
+// interpreter. Those move; the command must not, or codex revokes trust and the hook goes
+// silently inert. The volatile entry point lives inside the launcher script.
+const expectedHookRef = "vs-hook-stop";
 
 let cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -225,9 +223,60 @@ describe("hook commands pin the interpreter — never a bare `node`", () => {
 
     expect(commands.length).toBeGreaterThan(0);
     for (const command of commands) {
-      expect(command).toContain(process.execPath); // the interpreter, by absolute path
-      expect(command).not.toMatch(/(^|\s)node\s/); // never the PATH-resolved bare word
+      // The command names only the stable launcher — that string must never move (trust).
+      expect(command).toContain(join(home, ".veritaserum", "bin", "vs-hook"));
+      expect(command).not.toMatch(/(^|\s)node\s/); // never a PATH-resolved bare `node`
     }
-    expect(res.hookCmd).toContain(process.execPath);
+    // ...and the interpreter is pinned INSIDE the launcher, where it can change freely.
+    for (const sub of ["vs-hook-stop", "vs-hook-prompt"]) {
+      const body = await readFile(join(home, ".veritaserum", "bin", sub), "utf8");
+      expect(body).toContain(process.execPath);
+      expect(body).not.toMatch(/exec node\s/);
+    }
+    expect(res.hookCmd).toContain("vs-hook-stop");
+  });
+});
+
+/**
+ * codex hashes the hook COMMAND to decide trust. Any edit to that string — a pinned
+ * interpreter, a moved dist, an upgrade — silently returns the hook to "needs review",
+ * where codex loads it and runs NOTHING. No error, no warning. Veritaserum switched itself
+ * off on codex three times this way, each time while fixing something else. An installer
+ * whose every improvement disables the product is not viable.
+ *
+ * So the harness only ever sees a stable launcher path. Everything volatile lives inside it.
+ */
+describe("the hook command must survive an upgrade — trust is granted once", () => {
+  it("moving the interpreter and the dist rewrites the LAUNCHER, never the command", async () => {
+    const home = await withHome();
+
+    const first = await installTarget("codex", {});
+    const before = JSON.parse(await readFile(join(home, ".codex", "hooks.json"), "utf8"));
+    const cmdBefore: string = before.hooks.Stop[0].hooks[0].command;
+    const launcherBefore = await readFile(join(home, ".veritaserum", "bin", "vs-hook-stop"), "utf8");
+
+    // The harness records a path under the user's own state dir — not the dev tree, not an
+    // npx cache, not a version-pinned node. Those are the things that move.
+    expect(cmdBefore).toContain(join(home, ".veritaserum", "bin", "vs-hook-stop"));
+    expect(first.hookCmd).toBe(cmdBefore);
+
+    // Re-install (an upgrade). The launcher is rewritten; the command must not move.
+    await installTarget("codex", {});
+    const after = JSON.parse(await readFile(join(home, ".codex", "hooks.json"), "utf8"));
+    expect(after.hooks.Stop[0].hooks[0].command).toBe(cmdBefore);
+    expect(after.hooks.UserPromptSubmit[0].hooks[0].command).toBe(
+      before.hooks.UserPromptSubmit[0].hooks[0].command,
+    );
+
+    // ...and the launcher still points at a real, runnable entry point.
+    const launcherAfter = await readFile(join(home, ".veritaserum", "bin", "vs-hook-stop"), "utf8");
+    expect(launcherAfter).toMatch(/^#!\/bin\/sh/);
+    expect(launcherAfter).toContain("exec ");
+    expect(launcherAfter).toContain(process.execPath); // the volatile interpreter lives HERE
+    expect(launcherBefore).toContain(process.execPath);
+
+    // Installing twice must not accumulate hooks either.
+    expect(after.hooks.Stop).toHaveLength(1);
+    expect(after.hooks.UserPromptSubmit).toHaveLength(1);
   });
 });
