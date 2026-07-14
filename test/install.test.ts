@@ -205,3 +205,29 @@ describe("copyPackageRuntimeFrom — nested dependency closure", () => {
     expect(existsSync(join(runtimeRoot, "node_modules", "a", "node_modules", "b", "node_modules", "a"))).toBe(false);
   });
 });
+
+/**
+ * A hook runs in whatever environment the harness hands it. `node` on an interactive PATH is
+ * often NOT a stable binary — under fnm it is /run/user/<uid>/fnm_multishells/<pid>_<ts>/bin/node,
+ * a directory scoped to one shell that evaporates with it. A hook command that resolves the
+ * interpreter through PATH dies with exit 127 in exactly the situations the user cannot see
+ * (this is what "UserPromptSubmit hook (failed) — exited with code 127" was), and if some other
+ * node IS found it may be too old for the builtins we need (node:sqlite → 22+), which crashes
+ * differently. Pin the interpreter that ran the installer: it exists and is version-correct.
+ */
+describe("hook commands pin the interpreter — never a bare `node`", () => {
+  it("writes an absolute node path, so PATH cannot break the hook", async () => {
+    const home = await withHome();
+    const res = await installTarget("codex", {});
+    const settings = JSON.parse(await readFile(join(home, ".codex", "hooks.json"), "utf8"));
+    const commands: string[] = settings.hooks.Stop.concat(settings.hooks.UserPromptSubmit)
+      .flatMap((g: { hooks: Array<{ command: string }> }) => g.hooks.map((h) => h.command));
+
+    expect(commands.length).toBeGreaterThan(0);
+    for (const command of commands) {
+      expect(command).toContain(process.execPath); // the interpreter, by absolute path
+      expect(command).not.toMatch(/(^|\s)node\s/); // never the PATH-resolved bare word
+    }
+    expect(res.hookCmd).toContain(process.execPath);
+  });
+});

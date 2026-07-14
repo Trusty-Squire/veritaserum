@@ -35,6 +35,24 @@ function shellQuote(path: string): string {
   return `'${path.replace(/'/g, `'\\''`)}'`;
 }
 
+/**
+ * The interpreter, pinned by absolute path — NEVER a bare `node`.
+ *
+ * A hook runs in whatever environment the harness happens to hand it, and `node` on an
+ * interactive PATH is frequently not a stable binary: under fnm it is
+ * /run/user/<uid>/fnm_multishells/<pid>_<ts>/bin/node — a directory scoped to ONE shell,
+ * which evaporates when that shell (or the boot) goes away. A hook that resolves `node`
+ * through PATH therefore dies with exit 127 (command not found) in exactly the situations
+ * the user cannot see, and if some OTHER node is found instead it may be too old for the
+ * builtins we require (node:sqlite → node 22+), which crashes differently.
+ *
+ * process.execPath is the node that is running this installer: it exists, it is version-
+ * correct by construction, and it is a real path rather than a per-shell shim.
+ */
+function nodeBin(): string {
+  return shellQuote(process.execPath);
+}
+
 function readPackageDependencies(packageDir: string): string[] {
   try {
     const pkg = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")) as {
@@ -150,8 +168,8 @@ function npxRuntimeInvocations(): { cli: string; hook: string } {
   copyPackageRuntimeFrom(pkgRoot(), runtimeModules);
   const runtimePackage = join(runtimeModules, "veritaserum", "dist");
   durableNpxRuntime = {
-    cli: `node ${shellQuote(join(runtimePackage, "cli.js"))}`,
-    hook: `node ${shellQuote(join(runtimePackage, "hook-cli.cjs"))}`,
+    cli: `${nodeBin()} ${shellQuote(join(runtimePackage, "cli.js"))}`,
+    hook: `${nodeBin()} ${shellQuote(join(runtimePackage, "hook-cli.cjs"))}`,
   };
   return durableNpxRuntime;
 }
@@ -165,7 +183,7 @@ function cliInvocation(): string {
   const entry = process.argv[1] ? resolve(process.argv[1]) : "";
   if (/[\\/]_npx[\\/]/.test(entry)) return npxRuntimeInvocations().cli;
   const cliJs = join(pkgRoot(), "dist", "cli.js");
-  if (existsSync(cliJs)) return `node ${shellQuote(cliJs)}`;
+  if (existsSync(cliJs)) return `${nodeBin()} ${shellQuote(cliJs)}`;
   return "veritaserum";
 }
 
@@ -173,7 +191,7 @@ function hookInvocation(): string {
   const entry = process.argv[1] ? resolve(process.argv[1]) : "";
   if (/[\\/]_npx[\\/]/.test(entry)) return npxRuntimeInvocations().hook;
   const hookJs = join(pkgRoot(), "dist", "hook-cli.cjs");
-  if (existsSync(hookJs)) return `node ${shellQuote(hookJs)}`;
+  if (existsSync(hookJs)) return `${nodeBin()} ${shellQuote(hookJs)}`;
   return "veritaserum-hook";
 }
 
