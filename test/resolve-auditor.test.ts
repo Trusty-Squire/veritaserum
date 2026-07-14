@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveAuditor, doctorReport, executorFamily } from "../src/resolve.js";
+import { isExhausted, resolveAuditor, doctorReport, executorFamily } from "../src/resolve.js";
 
 // Hermetic: this sandbox has REAL codex/claude CLIs on the ambient PATH (used by
 // eval/ scripts), so every test pins PATH to a fresh shim dir + the bare minimum
@@ -210,5 +210,28 @@ describe("doctor cache — 24h TTL (SPEC §2 'auth-probed... cached')", () => {
     const after = await resolveAuditor("claude");
     expect(after.tier).toBe("absent");
     await rm(freshCache, { recursive: true, force: true });
+  });
+});
+
+/**
+ * A usage limit is not a broken auditor — it is an exhausted one, and the remedy is a
+ * different vendor, not a retry. This mattered: three codex turns were audited against a
+ * Claude account that had hit its limit, and every one recorded `verdict=error` with an
+ * EMPTY reason, because these CLIs print "You've reached your … limit" to STDOUT and exit 1
+ * while we captured only stderr. An audit that fails for no stated cause is indistinguishable
+ * from one that never ran.
+ */
+describe("auditor exhaustion — recognise it, report it, route around it", () => {
+  it("recognises a usage-limit refusal as exhaustion, not a generic failure", () => {
+    expect(isExhausted("claude -p failed (exit 1): You've reached your Fable 5 limit.")).toBe(true);
+    expect(isExhausted("codex exec failed (exit 1): rate limit exceeded")).toBe(true);
+    expect(isExhausted("429 Too Many Requests")).toBe(true);
+    expect(isExhausted("out of credits")).toBe(true);
+  });
+
+  it("does NOT mistake an ordinary failure for exhaustion (that would route around a real bug)", () => {
+    expect(isExhausted("claude -p failed (exit 1): no output")).toBe(false);
+    expect(isExhausted("codex exec failed (exit timeout):")).toBe(false);
+    expect(isExhausted("auditor reply did not parse as the expected JSON verdict")).toBe(false);
   });
 });

@@ -150,6 +150,19 @@ const CLAUDE_READONLY_TOOLS = "Read,Bash(git log:*),Bash(git status:*),Bash(git 
  *  tells veritaserum's hooks (cli.ts's isAuditorChild) that this process is the auditor.
  *  execa extends process.env at spawn time, so this must NOT snapshot it here. */
 const AUDITOR_CHILD_ENV = { VS_AUDIT_CHILD: "1" };
+
+/** Why a CLI auditor failed. These tools print the cause on stdout and exit non-zero. */
+function reasonFrom(r: { stdout?: string; stderr?: string }): string {
+  const text = `${r.stderr ?? ""} ${r.stdout ?? ""}`.trim();
+  return text ? text.slice(0, 300) : "no output";
+}
+
+/** A quota/limit refusal is not a broken auditor — it is an EXHAUSTED one. Same shape as an
+ *  outage from our side (the audit does not happen), but the remedy is a different vendor,
+ *  not a retry. Recognising it is what lets the audit fall back instead of giving up. */
+export function isExhausted(message: string): boolean {
+  return /reached your .*limit|usage limit|rate limit|quota|429|insufficient credit|out of credit/i.test(message);
+}
 // Real agentic CLI audits can legitimately exceed three minutes while making
 // read-only probes. They are detached from the hook; a five-minute async bound
 // preserves liveness without turning normal tool use into a false infra error.
@@ -182,7 +195,11 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
             timeout: timeoutMs ?? DEFAULT_AUDITOR_TIMEOUT_MS,
           });
           if (r.exitCode !== 0) {
-            throw new Error(`codex exec failed (exit ${r.exitCode ?? "timeout"}): ${(r.stderr ?? "").slice(0, 300)}`);
+            // The reason is often on STDOUT, not stderr: `claude -p` and `codex exec` print
+            // "You've reached your … limit" to stdout and exit 1. Capturing stderr alone
+            // recorded an error with an EMPTY reason — an audit that failed for no stated
+            // cause, which is indistinguishable from one that never ran.
+            throw new Error(`codex exec failed (exit ${r.exitCode ?? "timeout"}): ${reasonFrom(r)}`);
           }
           return (r.stdout ?? "").trim();
         },
@@ -204,7 +221,7 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
             timeout: timeoutMs ?? DEFAULT_AUDITOR_TIMEOUT_MS,
           });
           if (r.exitCode !== 0) {
-            throw new Error(`claude -p failed (exit ${r.exitCode ?? "timeout"}): ${(r.stderr ?? "").slice(0, 300)}`);
+            throw new Error(`claude -p failed (exit ${r.exitCode ?? "timeout"}): ${reasonFrom(r)}`);
           }
           return (r.stdout ?? "").trim();
         },

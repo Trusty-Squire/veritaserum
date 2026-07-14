@@ -460,6 +460,8 @@ function foldMechanical(claims: ClaimVerdict[], checks: MechanicalCheckResult[])
 // ---------------------------------------------------------------------------
 
 function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict): void {
+  // An `error` verdict with an empty `caught` is undebuggable — it is indistinguishable from
+  // an audit that never ran. Whatever went wrong, say so.
   const overall = verdict.error
     ? "error"
     : verdict.claims.some((c) => c.verdict === "contradicted")
@@ -485,7 +487,10 @@ function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict): void {
     event: "audit",
     claim: job.finalMessage.slice(0, 400),
     verdict: overall,
-    caught: verdict.warnings.join("; ").slice(0, 400),
+    // An `error` verdict with an empty `caught` is undebuggable — indistinguishable from an
+    // audit that never ran. That is exactly how a Claude usage limit hid for hours: three
+    // codex turns audited, all "error", no reason recorded anywhere. Say what broke.
+    caught: (verdict.error ? verdict.error : verdict.warnings.join("; ")).slice(0, 400),
     blocked: false, // R5: the audit never blocks by default
     dir: job.dir,
     verdict_basis: basis,

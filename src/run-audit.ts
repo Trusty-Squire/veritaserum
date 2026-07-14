@@ -24,9 +24,10 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { readGooseSession } from "./goose.js";
 import { readLastAssistantMessage, readLastUserMessage, readReceiptsTail } from "./transcript.js";
-import { resolveAuditor } from "./resolve.js";
+import { resolveAuditor, isExhausted } from "./resolve.js";
 import { demandsCommand } from "./install.js";
 import { audit, type AuditJob as AuditContentJob, type AuditVerdict } from "./auditor.js";
+import { logFiring } from "./telemetry.js";
 import {
   appendSessionWarnings,
   lawCheckMarkerPath,
@@ -134,7 +135,35 @@ export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
     schedulingMode: job.mode,
     demandMode: job.demandMode || "script",
   };
-  const verdict = await audit(contentJob, auditor);
+  let verdict = await audit(contentJob, auditor);
+
+  // FALL BACK, do not give up. The chosen auditor can be exhausted (a usage limit) or simply
+  // broken, and today that produced verdict=error with an empty reason — an audit that
+  // silently did not happen while telemetry looked busy. If the cross-family auditor cannot
+  // answer, ask the other vendor rather than dropping the turn on the floor. A same-family
+  // auditor is a weaker tier, not no tier, and it is TAGGED as such (SPEC rules 3/4) so its
+  // verdicts never inherit cross-family trust.
+  if (verdict.error?.startsWith("auditor invocation failed")) {
+    const other = auditor.vendor === "claude" ? "codex" : "claude";
+    try {
+      const fallback = await resolveAuditor(executor, other);
+      const second = await audit({ ...contentJob }, fallback);
+      if (!second.error) {
+        logFiring({
+          harness: "audit-runner",
+          event: "audit",
+          claim: "",
+          verdict: "error",
+          caught: `${auditor.vendor} unavailable (${isExhausted(verdict.error) ? "exhausted" : "failed"}) → fell back to ${other}`,
+          blocked: false,
+          dir: job.dir,
+        });
+        verdict = second;
+      }
+    } catch {
+      // No second vendor either — keep the first verdict (R8: the audit is best-effort).
+    }
+  }
   // Count law-registered checks (demand law copies carry lawId) — the same set
   appendSessionWarnings(job.dir, job.sessionId, verdict.warnings);
 
