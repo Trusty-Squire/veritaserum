@@ -280,7 +280,9 @@ function sleep(ms: number): Promise<void> {
 
 async function retryFilesystemClaim(op: () => void, label: string): Promise<boolean> {
   let lastErr: unknown;
-  for (let attempt = 0; attempt < CLAIM_RETRY_BACKOFF_MS.length; attempt++) {
+  let attempts = 0;
+  for (let attempt = 0; attempt < CLAIM_RETRY_BACKOFF_MS.length + 1; attempt++) {
+    attempts = attempt + 1;
     try {
       op();
       return true;
@@ -288,11 +290,11 @@ async function retryFilesystemClaim(op: () => void, label: string): Promise<bool
       const code = fsErrorCode(err);
       if (code === "ENOENT" || code === "ENOTDIR") return false;
       lastErr = err;
-      if (!code || !RETRYABLE_FS_CODES.has(code) || attempt === CLAIM_RETRY_BACKOFF_MS.length - 1) break;
+      if (!code || !RETRYABLE_FS_CODES.has(code) || attempt === CLAIM_RETRY_BACKOFF_MS.length) break;
       await sleep(CLAIM_RETRY_BACKOFF_MS[attempt]!);
     }
   }
-  throw new Error(`${label} stalled after ${CLAIM_RETRY_BACKOFF_MS.length} attempt(s): ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`);
+  throw new Error(`${label} stalled after ${attempts} attempt(s): ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`);
 }
 
 /** Move an errored job to dead/ with its error message alongside — never deleted. */

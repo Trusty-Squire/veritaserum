@@ -132,6 +132,7 @@ const demandStatuses = new Map<string, Set<number>>();
 let lastDemandInspectionSignature = "";
 let demandStageRetries = 0;
 let demandStageFailures = 0;
+let demandOraclesObserved = false;
 let maxQueueDepth = 0;
 let maxRelevantProcesses = 0;
 let shuttingDown = false;
@@ -254,15 +255,6 @@ function sleep(ms: number): void {
   Atomics.wait(view, 0, 0, ms);
 }
 
-function fsErrorCode(err: unknown): string | undefined {
-  return typeof err === "object" && err !== null && "code" in err ? String((err as NodeJS.ErrnoException).code ?? "") : undefined;
-}
-
-function isRetryableStageCopyError(err: unknown): boolean {
-  const code = fsErrorCode(err);
-  return !!code && (code.startsWith("ERR_FS_CP_") || ["ENOENT", "EACCES", "EPERM", "EBUSY", "ENOTEMPTY", "EEXIST", "EMFILE", "ENFILE", "SIGABRT"].includes(code));
-}
-
 function copyRepoStageOnce(stage: string): { ok: boolean; message?: string } {
   const child = spawnSync(
     process.execPath,
@@ -322,16 +314,7 @@ function copyRepoStage(stage: string): boolean {
       continue;
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
-      if (attempt === backoffs.length || !isRetryableStageCopyError(error)) break;
-      demandStageRetries += 1;
-      appendFileSync(
-        opts.samples,
-        JSON.stringify({
-          ts: new Date().toISOString(),
-          note: `demand stage copy retried after ${fsErrorCode(error) ?? "unknown"} while sampling the repo`,
-        }) + "\n",
-      );
-      sleep(backoffs[attempt]!);
+      break;
     }
   }
   demandStageFailures += 1;
@@ -386,6 +369,7 @@ function inspectDemands(): void {
   const dir = join(queueDir, "demands");
   if (!existsSync(dir)) return;
   const names = readdirSync(dir).filter((item) => /\.(?:cjs|mjs|js)$/.test(item)).sort();
+  if (names.length > 0) demandOraclesObserved = true;
   const status = spawnSync("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
     cwd: repo,
     encoding: "utf8",
@@ -420,6 +404,7 @@ function inspectDemands(): void {
   // baseline) nor read API keys out of the watchdog's inherited env.
   const stage = join(outDir, `demand-stage-${process.pid}`);
   if (!copyRepoStage(stage)) {
+    lastDemandInspectionSignature = "";
     return;
   }
   try {
@@ -590,6 +575,12 @@ function finalize(): void {
     violation("non-interference", `${turn.id} hook latency ${turn.hookLatencyMs}ms exceeded ${opts.latencyBudgetMs}ms budget`);
   }
   for (const turn of nonzeroHooks) violation("non-interference", `${turn.id} hook exited ${turn.hookExit}`);
+  if (demandOraclesObserved && demandStatuses.size === 0 && demandStageFailures > 0) {
+    violation(
+      "oracle-integrity",
+      `demand oracles were queued but never inspected: ${demandStageFailures} demand stage copy failure(s) and zero successful inspections`,
+    );
+  }
 
   const demandSummary = [...demandStatuses].map(([path, statuses]) => ({ path, exitCodesSeen: [...statuses].sort() }));
   const recordedViolations = readJsonl<Violation>(opts.violations).rows;

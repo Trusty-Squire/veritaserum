@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -50,6 +50,10 @@ async function makeRepo(workspace: string): Promise<string> {
   return repo;
 }
 
+// chmod-based denial is a no-op for uid 0: the kernel ignores permission bits
+// for root, so the staging failure cannot be provoked there.
+const runningAsRoot = process.getuid?.() === 0;
+
 describe("invariant watchdog demand staging", () => {
   const cleanups: Array<() => void> = [];
   afterEach(() => {
@@ -63,7 +67,7 @@ describe("invariant watchdog demand staging", () => {
     }
   });
 
-  it("treats a real repo-copy failure as a harness note, not oracle-integrity failure", async () => {
+  it.skipIf(runningAsRoot)("retries a real repo-copy failure, then escalates when demands were never inspected", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vs-watchdog-race-"));
     cleanups.push(() => rmSync(workspace, { recursive: true, force: true }));
     const repo = await makeRepo(workspace);
@@ -108,9 +112,16 @@ describe("invariant watchdog demand staging", () => {
       measurements: { demandStageRetries: number; demandStageFailures: number };
       invariants: { oracleInterpreterIntegrity: string };
     };
-    expect(summary.invariants.oracleInterpreterIntegrity).toBe("pass");
     expect(summary.measurements.demandStageRetries).toBeGreaterThan(0);
     expect(summary.measurements.demandStageFailures).toBe(1);
-    expect(existsSync(join(out, "violations.jsonl"))).toBe(false);
+    // The failure is fail-open during sampling (retries + a note, exit 0) but
+    // must not stay silent: demands that were queued yet never once inspected
+    // surface as an oracle-integrity floor violation at finalize.
+    expect(summary.invariants.oracleInterpreterIntegrity).toBe("fail");
+    const violations = readFileSync(join(out, "violations.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { invariant: string; message: string });
+    expect(violations.some((v) => v.invariant === "oracle-integrity" && v.message.includes("never inspected"))).toBe(true);
   }, 30_000);
 });

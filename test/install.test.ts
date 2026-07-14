@@ -167,4 +167,41 @@ describe("copyPackageRuntimeFrom — nested dependency closure", () => {
     expect(existsSync(join(runtimeRoot, "node_modules", "foo", "index.cjs"))).toBe(true);
     expect(existsSync(join(runtimeRoot, "node_modules", "bar", "node_modules", "foo", "index.cjs"))).toBe(true);
   });
+
+  it("terminates on a dependency cycle — the cyclic dep resolves to its ancestor copy", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vs-runtime-cycle-"));
+    cleanups.push(async () => {
+      rmSync(workspace, { recursive: true, force: true });
+    });
+
+    const packageDir = join(workspace, "pkg");
+    const runtimeModules = join(workspace, "runtime", "node_modules");
+    mkdirSync(join(packageDir, "dist"), { recursive: true });
+    mkdirSync(join(packageDir, "node_modules", "a"), { recursive: true });
+    mkdirSync(join(packageDir, "node_modules", "b"), { recursive: true });
+
+    writeFileSync(
+      join(packageDir, "package.json"),
+      JSON.stringify({ name: "root-app", version: "1.0.0", dependencies: { a: "1.0.0" } }, null, 2) + "\n",
+    );
+    writeFileSync(join(packageDir, "dist", "entry.cjs"), "module.exports = require('a');\n");
+    writeFileSync(
+      join(packageDir, "node_modules", "a", "package.json"),
+      JSON.stringify({ name: "a", version: "1.0.0", main: "index.cjs", dependencies: { b: "1.0.0" } }, null, 2) + "\n",
+    );
+    writeFileSync(join(packageDir, "node_modules", "a", "index.cjs"), "module.exports = { name: 'a', b: require('b').name };\n");
+    writeFileSync(
+      join(packageDir, "node_modules", "b", "package.json"),
+      JSON.stringify({ name: "b", version: "1.0.0", main: "index.cjs", dependencies: { a: "1.0.0" } }, null, 2) + "\n",
+    );
+    writeFileSync(join(packageDir, "node_modules", "b", "index.cjs"), "module.exports = { name: 'b' };\n");
+
+    copyPackageRuntimeFrom(packageDir, runtimeModules);
+
+    const runtimeRoot = join(runtimeModules, "veritaserum");
+    const runtimeRequire = createRequire(join(runtimeRoot, "dist", "entry.cjs"));
+    expect(runtimeRequire(join(runtimeRoot, "dist", "entry.cjs"))).toEqual({ name: "a", b: "b" });
+    expect(existsSync(join(runtimeRoot, "node_modules", "a", "node_modules", "b"))).toBe(true);
+    expect(existsSync(join(runtimeRoot, "node_modules", "a", "node_modules", "b", "node_modules", "a"))).toBe(false);
+  });
 });

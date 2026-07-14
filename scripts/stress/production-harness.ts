@@ -792,7 +792,7 @@ for (let trial = 0; trial < 3; trial++) {
     "codex",
     { VS_AUDITOR: "claude", VS_HARNESS: "codex", VS_EXECUTOR: "codex" },
     "250000",
-    undefined,
+    true,
   );
   return retryAudits + 1;
 }

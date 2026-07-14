@@ -68,11 +68,40 @@ function resolvePackageDir(fromDir: string, name: string): string | undefined {
   }
 }
 
-function copyPackageTree(source: string, dest: string): void {
+function copyPackageTree(source: string, dest: string, only?: ReadonlySet<string>): void {
   mkdirSync(dest, { recursive: true });
   for (const entry of readdirSync(source, { withFileTypes: true })) {
     if (entry.name === "node_modules") continue;
+    if (only && !only.has(entry.name)) continue;
     cpSync(join(source, entry.name), join(dest, entry.name), { recursive: true, force: true, dereference: true });
+  }
+}
+
+/** The top-level entries the package actually publishes (its package.json
+ * `files` field, plus package.json itself). From an npm install this matches
+ * the whole directory; from a dev checkout it excludes .git, src/, test/ and
+ * the rest of the repo the hook never loads. */
+function publishedRootEntries(packageDir: string): Set<string> | undefined {
+  try {
+    const pkg = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")) as { files?: unknown };
+    if (!Array.isArray(pkg.files) || pkg.files.length === 0) return undefined;
+    const entries = new Set<string>(["package.json"]);
+    for (const pattern of pkg.files) {
+      if (typeof pattern !== "string" || pattern.startsWith("!")) continue;
+      const top = pattern.replace(/^\.\//, "").split("/")[0];
+      if (top) entries.add(top);
+    }
+    return entries;
+  } catch {
+    return undefined;
+  }
+}
+
+function realDir(dir: string): string {
+  try {
+    return realpathSync(dir);
+  } catch {
+    return dir;
   }
 }
 
@@ -80,27 +109,34 @@ function copyPackageTree(source: string, dest: string): void {
  * hook-owned runtime, laid out the same way Node resolves it from the package
  * itself (nested `node_modules/<pkg>` entries, not a flat first-wins hoist).
  * Only the closure: a dev checkout's node_modules also holds devDependencies
- * (typescript, vitest — hundreds of MB) that the hook never loads. */
+ * (typescript, vitest — hundreds of MB) that the hook never loads. A dep whose
+ * resolved source already appears in its branch's ancestry is skipped — Node's
+ * upward node_modules walk resolves it to the ancestor copy — so dependency
+ * cycles terminate instead of nesting forever. */
 export function copyPackageRuntimeFrom(packageDir: string, runtimeModules: string): void {
   mkdirSync(runtimeModules, { recursive: true });
   const runtimePackage = join(runtimeModules, "veritaserum");
-  copyPackageTree(packageDir, runtimePackage);
+  copyPackageTree(packageDir, runtimePackage, publishedRootEntries(packageDir));
 
-  const queue: Array<{ from: string; name: string; dest: string }> = readPackageDependencies(packageDir).map((name) => ({
+  const queue: Array<{ from: string; name: string; dest: string; ancestry: readonly string[] }> = readPackageDependencies(packageDir).map((name) => ({
     from: packageDir,
     name,
     dest: join(runtimePackage, "node_modules", name),
+    ancestry: [realDir(packageDir)],
   }));
   const seen = new Set<string>();
   while (queue.length) {
-    const { from, name, dest } = queue.shift()!;
+    const { from, name, dest, ancestry } = queue.shift()!;
     const source = resolvePackageDir(from, name);
     if (!source) continue;
+    const sourceReal = realDir(source);
+    if (ancestry.includes(sourceReal)) continue;
     const key = `${source}\0${dest}`;
     if (seen.has(key)) continue;
     seen.add(key);
     copyPackageTree(source, dest);
-    queue.push(...readPackageDependencies(source).map((dep) => ({ from: source, name: dep, dest: join(dest, "node_modules", dep) })));
+    const childAncestry = [...ancestry, sourceReal];
+    queue.push(...readPackageDependencies(source).map((dep) => ({ from: source, name: dep, dest: join(dest, "node_modules", dep), ancestry: childAncestry })));
   }
 }
 

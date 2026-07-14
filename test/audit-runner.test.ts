@@ -7,6 +7,9 @@ import { join } from "node:path";
 import { queueJob, queueRoot, runQueue, type AuditJob, type RunAudit } from "../src/audit-runner.js";
 
 let root: string;
+// chmod-based denial is a no-op for uid 0: the kernel ignores permission bits
+// for root, so these scenarios cannot be staged there.
+const runningAsRoot = process.getuid?.() === 0;
 const dir = "/fake/repo/for/audit-runner-tests"; // never touched as a real path — only hashed for the queue key
 const origRoot = process.env.VS_QUEUE_ROOT;
 
@@ -201,7 +204,7 @@ const deadline = Date.now() + 5000;
     expect(ran.sort()).toEqual(["t1", "t2"]); // both jobs still got processed by whichever runner held the lock
   });
 
-  it("backs off and terminates when a real filesystem race blocks queue claiming", async () => {
+  it.skipIf(runningAsRoot)("backs off and terminates when a real filesystem race blocks queue claiming", async () => {
     const qdir = queueRoot(dir);
     mkdirSync(qdir, { recursive: true });
     addQueueNoise(qdir, 8000);
@@ -228,7 +231,7 @@ const deadline = Date.now() + 5000;
     expect(readdirSync(qdir).some((name) => name.endsWith(".json"))).toBe(true);
   });
 
-  it("backs off and terminates when a superseded head cannot be removed", async () => {
+  it.skipIf(runningAsRoot)("backs off and terminates when a superseded head cannot be removed", async () => {
     const qdir = queueRoot(dir);
     mkdirSync(qdir, { recursive: true });
     addQueueNoise(qdir, 8000);
