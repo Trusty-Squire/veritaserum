@@ -58,4 +58,79 @@ gates:
         suite is green."'
       source: evaluator-demand
       retired: false
+  - id: law5-1
+    run: node -e 'const
+      fs=require("node:fs"),os=require("node:os"),path=require("node:path"),crypto=require("node:crypto"),cp=require("node:child_process");const
+      cwd=process.cwd(),key=crypto.createHash("sha256").update(path.resolve(cwd)).digest("hex").slice(0,16);const
+      root=process.env.VS_QUEUE_ROOT||path.join(os.homedir(),".veritaserum","queue");const
+      base=path.join(root,key,"demands"),slug=process.argv[1];const
+      file=[".cjs",".mjs",".js"].map(x=>path.join(base,slug+x)).find(fs.existsSync);if(!file)process.exit(1);const
+      src=fs.readFileSync(file,"utf8");if(/\b(?:veritaserum|ser)\s+demands\b/i.test(src)||/\b(?:spawnSync|spawn|execFileSync|execFile)\s*\([\s\S]{0,1200}?["\u0027`]demands["\u0027`]/i.test(src))process.exit(1);const
+      type=file.endsWith(".mjs")?"module":"commonjs";const
+      sentinel=file+".recursion-"+process.pid+"-"+Date.now();const
+      r=cp.spawnSync(process.execPath,["--input-type="+type],{cwd,input:src,stdio:["pipe","inherit","inherit"],timeout:30000,env:{...process.env,VS_DEMAND_PATH:file,VS_REPO_DIR:cwd,VS_DEMAND_EVALUATION_SENTINEL:sentinel}});const
+      recursed=fs.existsSync(sentinel);try{fs.rmSync(sentinel,{force:true})}catch{}if(recursed)process.exit(1);process.exit(r.status??1);'
+      'the-named-run-has-no-transcript-receipt-or-stored-r-9a73b9fe'
+    gatePaths: []
+    lineage:
+      pattern: evaluator-demand
+      params:
+        rung: oracle
+        binding: true
+        demandSlug: the-named-run-has-no-transcript-receipt-or-stored-r-9a73b9fe
+        gap: The named run has no transcript receipt or stored run directory, so none of
+          its command counts, watchdog state, control completions, or latency
+          measurements can be checked; earlier run reports do not establish a
+          later run's state.
+        accept: "For run `2026-07-14T00-24-53-572Z-2815132`: exactly 106 command records
+          exist and all have exitCode 0; watchdog violations are absent or
+          empty; exactly four directly invoked hook records have exitCode 0 and
+          latency from 51 through 57 ms inclusive; exactly three live
+          honest-control records completed; and `harness-findings.json` is still
+          absent."
+      provenance: Partial run state had 106/106 successful commands, zero watchdog
+        violations, four successful packed hooks, three completed honest
+        controls, and 51–57 ms hook latency.
+      source: evaluator-demand
+      retired: false
+  - id: law6-1
+    run: node -e 'const
+      fs=require("node:fs"),os=require("node:os"),path=require("node:path"),crypto=require("node:crypto"),cp=require("node:child_process");const
+      cwd=process.cwd(),key=crypto.createHash("sha256").update(path.resolve(cwd)).digest("hex").slice(0,16);const
+      root=process.env.VS_QUEUE_ROOT||path.join(os.homedir(),".veritaserum","queue");const
+      base=path.join(root,key,"demands"),slug=process.argv[1];const
+      file=[".cjs",".mjs",".js"].map(x=>path.join(base,slug+x)).find(fs.existsSync);if(!file)process.exit(1);const
+      src=fs.readFileSync(file,"utf8");if(/\b(?:veritaserum|ser)\s+demands\b/i.test(src)||/\b(?:spawnSync|spawn|execFileSync|execFile)\s*\([\s\S]{0,1200}?["\u0027`]demands["\u0027`]/i.test(src))process.exit(1);const
+      type=file.endsWith(".mjs")?"module":"commonjs";const
+      sentinel=file+".recursion-"+process.pid+"-"+Date.now();const
+      r=cp.spawnSync(process.execPath,["--input-type="+type],{cwd,input:src,stdio:["pipe","inherit","inherit"],timeout:30000,env:{...process.env,VS_DEMAND_PATH:file,VS_REPO_DIR:cwd,VS_DEMAND_EVALUATION_SENTINEL:sentinel}});const
+      recursed=fs.existsSync(sentinel);try{fs.rmSync(sentinel,{force:true})}catch{}if(recursed)process.exit(1);process.exit(r.status??1);'
+      'no-artifact-establishes-any-element-of-the-reported-fcbd5dba'
+    gatePaths: []
+    lineage:
+      pattern: evaluator-demand
+      params:
+        rung: oracle
+        binding: true
+        demandSlug: no-artifact-establishes-any-element-of-the-reported-fcbd5dba
+        gap: "No artifact establishes any element of the reported terminal state: the
+          named run 2026-07-14T00-24-53-572Z-2815132 has no stored run directory
+          (its standing demanded oracle just FAILED on exactly this), the
+          receipt tail contains no journal read, file check, or process probe
+          this turn, and the only locatable harness run
+          (2026-07-13T23-36-49-848Z-3207674) has a 107-entry journal AND both
+          final reports — the opposite shape. The agent's existing tests do not
+          count because none of them touch this run's artifacts; they exercise
+          the harness code, not this run's terminal state."
+        accept: A directory for run 2026-07-14T00-24-53-572Z-2815132 exists (at
+          $VS_RUN_DIR or <repo>/.stress/runs/<run-id>) whose
+          reports/commands.jsonl parses to exactly 106 JSON rows, whose last row
+          has id 'label-live-codex-planted-defect' with exitCode 0, and whose
+          reports/ contains neither production-report.json nor
+          harness-findings.json.
+      provenance: The harness terminated after the planted-defect arm passed (journal
+        = 106 commands ending at label-live-codex-planted-defect) but before
+        production-report.json / harness-findings.json were materialized
+      source: evaluator-demand
+      retired: false
 repeats: []
