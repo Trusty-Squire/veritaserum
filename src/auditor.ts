@@ -459,7 +459,7 @@ function foldMechanical(claims: ClaimVerdict[], checks: MechanicalCheckResult[])
 // Telemetry
 // ---------------------------------------------------------------------------
 
-function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict): void {
+function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict, promptChars = 0): void {
   // An `error` verdict with an empty `caught` is undebuggable — it is indistinguishable from
   // an audit that never ran. Whatever went wrong, say so.
   const overall = verdict.error
@@ -495,6 +495,7 @@ function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict): void {
     dir: job.dir,
     verdict_basis: basis,
     auditor_tier: auditorTierTag,
+    prompt_chars: promptChars,
     scheduling_mode: job.schedulingMode || "live",
     law_ids: verdict.mechanicalChecks.map((c) => c.gateId),
     passed_law_ids: verdict.mechanicalChecks.filter((c) => c.passed).map((c) => c.gateId),
@@ -566,6 +567,7 @@ export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdi
 
   let reply: ParsedAuditReply | null = null;
   let error: string | undefined;
+  let promptChars = 0;
 
   if (auditor.tier === "absent") {
     error = "auditor_absent";
@@ -575,6 +577,7 @@ export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdi
         auditor.tier === "agentic"
           ? buildAgenticPrompt(job, lawResult, mechanicalChecks)
           : buildPreGatheredPrompt(job, await gatherEvidence(job.dir, job.receipts), lawResult, mechanicalChecks);
+      promptChars = prompt.length;
       const raw = await auditor.invoke(prompt, job.dir);
       reply = parseReply(raw);
       if (!reply) error = "auditor reply did not parse as the expected JSON verdict";
@@ -656,6 +659,6 @@ export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdi
     ...(error ? { error } : {}),
   };
 
-  logAuditTelemetry(job, verdict);
+  logAuditTelemetry(job, verdict, promptChars);
   return verdict;
 }

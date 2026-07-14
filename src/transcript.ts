@@ -125,7 +125,32 @@ function toolLine(part: TranscriptPart): string | null {
   return null;
 }
 
-const RECEIPTS_TAIL_CAP_BYTES = 256 * 1024;
+/**
+ * How much of the harness's record we hand the auditor, per audit.
+ *
+ * This was 256 KiB — about 65k tokens — sent on EVERY turn with tool activity. Across ~1000
+ * real audits in a day that is ~60M input tokens BEFORE the agentic multiplier (the auditor
+ * runs its own probes, and every internal tool call re-sends the whole context). It emptied
+ * a Fable quota, and nothing in the product made that cost visible.
+ *
+ * It also contradicted the design: R4 says evidence is LAZY — "under an agentic auditor this
+ * is an instruction, not a pipeline". We were pre-stuffing a quarter-megabyte AND telling the
+ * auditor to gather its own evidence. We paid twice for the same thing.
+ *
+ * 64 KiB, chosen by MEASUREMENT, not taste. Swept against real transcripts for the thing that
+ * actually matters — does the tail still contain the verification receipt (the test run and
+ * its exit code) that a "tests pass" claim must be judged against?
+ *
+ *     32 KiB → 2/4 receipts kept   ← drops them. Cheaper, and it INVENTS false flags:
+ *                                     the auditor would report "no test run in the receipts"
+ *                                     for a turn that ran tests. Cost paid in trust.
+ *     64 KiB → 4/4 receipts kept   ← ~4x cheaper than before, evidence intact.
+ *
+ * Truncating evidence to save tokens is not a trade you get to make quietly: the auditor
+ * cannot flag what it cannot see, and a confabulation detector that manufactures false
+ * accusations is worse than none. If this needs tuning, tune it with the sweep, not a guess.
+ */
+const RECEIPTS_TAIL_CAP_BYTES = Number(process.env.VS_RECEIPTS_CAP_KB ?? 64) * 1024;
 
 /**
  * Last ~256KB of tool_use/tool_result activity in a Claude Code transcript

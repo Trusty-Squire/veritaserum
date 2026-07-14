@@ -170,6 +170,23 @@ const DEFAULT_AUDITOR_TIMEOUT_MS = 300_000;
 const DEFAULT_METERED_MODEL = "glm-4.2";
 const DEFAULT_OLLAMA_MODEL = "qwen2.5:3b";
 
+/**
+ * The auditor's model, pinned — NOT the user's default.
+ *
+ * We passed no --model, so `claude -p` ran on whatever the user's default was. For a Fable
+ * subscriber that is the frontier model, on EVERY turn with tool activity: ~1000 audits in a
+ * day, each re-reading the receipts, each running its own tool loop. It drained the quota,
+ * and because nothing recorded the cost, the first symptom was the auditor dying with "you've
+ * reached your limit" — which then looked like a veritaserum bug.
+ *
+ * A tool that silently spends your most expensive quota is not free, whatever the README says.
+ * The auditor's job — does this claim follow from these receipts — is a judgment task, not a
+ * frontier-reasoning one, so default to the mid tier and let the user pay up if they want to:
+ *   VS_AUDITOR=claude:opus  ·  VS_AUDITOR=claude:haiku  ·  VS_AUDITOR=codex:gpt-5.6
+ * Choose with the seeded eval (catch rate vs false-flag rate per model), not with taste.
+ */
+const DEFAULT_CLAUDE_AUDITOR_MODEL = process.env.VS_AUDITOR_MODEL || "sonnet";
+
 function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTier, sameFamily: boolean): Auditor {
   switch (vendor) {
     case "codex":
@@ -204,16 +221,19 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
           return (r.stdout ?? "").trim();
         },
       };
-    case "claude":
+    case "claude": {
+      // Pin the model. With no --model, `claude -p` inherits the USER's default — for a Fable
+      // subscriber, the frontier model, on every turn. That is what drained the quota.
+      const claudeModel = model ?? DEFAULT_CLAUDE_AUDITOR_MODEL;
       return {
         tier,
         vendor,
-        model,
+        model: claudeModel,
         sameFamily,
         async invoke(prompt, dir, timeoutMs) {
           // Prompt over STDIN, not argv — same MAX_ARG_STRLEN (128 KiB) ceiling as the
           // codex path above; a long session's prompt exceeds it and execve fails E2BIG.
-          const r = await execa("claude", ["-p", "--allowedTools", CLAUDE_READONLY_TOOLS, ...(model ? ["--model", model] : [])], {
+          const r = await execa("claude", ["-p", "--allowedTools", CLAUDE_READONLY_TOOLS, "--model", claudeModel], {
             cwd: dir,
             input: prompt,
             env: AUDITOR_CHILD_ENV,
@@ -226,6 +246,8 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
           return (r.stdout ?? "").trim();
         },
       };
+    }
+
     case "ollama": {
       const m = model || DEFAULT_OLLAMA_MODEL;
       return {

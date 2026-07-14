@@ -25,6 +25,11 @@ export interface Firing {
   /** True when VS_ADVISORY was set: logged only, the agent was not actually stopped. */
   advisory?: boolean;
   dir: string;
+  /** How big the auditor's prompt was, in chars. The audit is an LLM call on every turn with
+   *  tool activity; at a 256 KiB receipts cap that was ~65k tokens EACH, and nothing recorded
+   *  it — so a quota drained with no trace of what drained it. Cost you cannot see is cost
+   *  you cannot control. */
+  prompt_chars?: number;
   /** v3 (SPEC §7): what grounded the verdict — a fresh probe, the harness's own
    *  receipt record, a mechanical standing-law check, or nothing (no claims). */
   verdict_basis?: "probe" | "receipt" | "standing-law" | "none";
