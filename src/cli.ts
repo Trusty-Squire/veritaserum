@@ -19,7 +19,8 @@ import { runDemands, retireDemand } from "./demands.js";
 import { hasToolActivitySince, readGooseSession, defaultGooseSessionsDb } from "./goose.js";
 import { audit, type AuditJob as AuditContentJob } from "./auditor.js";
 import { logFiring, readFirings, summarize } from "./telemetry.js";
-import { installTarget, detectHarnesses, isTarget, TARGETS } from "./install.js";
+import { installTarget, detectHarnesses, isTarget, TARGETS, type Target } from "./install.js";
+import { selfcheck } from "./selfcheck.js";
 import * as style from "./style.js";
 import { writeHookLawState } from "./hook-state.js";
 
@@ -354,8 +355,28 @@ async function main(argv: string[]): Promise<number> {
         console.log(`  ${style.yellow("finish by hand:")}`);
         for (const m of res.manual) console.log(`  ${m}`);
       }
+      // PROVE IT. Writing a config file is not an install: five separate defects in one day
+      // were all "installed, reported installed, did nothing". Execute the hook the harness
+      // will actually execute, in a scrubbed environment, and assert its effect. Refuse to
+      // claim success we have not demonstrated.
+      const verdicts = target === "goose" ? [] : await selfcheck(target);
+      if (verdicts.length) {
+        console.log();
+        console.log(`  ${style.bold("verifying the installed hook actually runs")}`);
+        for (const c of verdicts) {
+          console.log(`  ${c.ok ? style.check : style.cross} ${c.name} ${style.dim(`— ${c.detail}`)}`);
+        }
+      }
+      const broken = verdicts.filter((c) => !c.ok);
+
       console.log();
       console.log(style.divider());
+      if (broken.length) {
+        console.log(`  ${style.cross} ${style.bold(target)} is NOT working — ${broken.length} check(s) failed above.`);
+        console.log(style.step("the hook is written to config but does not do its job; fix the failures, then re-run install"));
+        console.log(style.step(`re-check any time:  ${style.bold(`veritaserum selfcheck ${target}`)}`));
+        return 1;
+      }
       console.log(style.ok(`${style.bold(target)} wired — veritaserum now audits every turn-end.`));
       console.log(
         style.step(
@@ -366,6 +387,36 @@ async function main(argv: string[]): Promise<number> {
       );
       console.log(style.step(`read catches:  ${style.bold("veritaserum telemetry")}`));
       console.log(style.step(`run demanded checks:  ${style.bold("veritaserum demands")}`));
+      return 0;
+    }
+
+    case "selfcheck": {
+      // Drift is the norm, not the exception: an upgrade moves a path, a node version
+      // changes, a harness revokes trust, someone edits a config. The install-time proof
+      // expires. This re-runs it against whatever is installed RIGHT NOW.
+      const targets = (positional(rest)[0] ? [positional(rest)[0]] : detectHarnesses()).filter((t): t is Target =>
+        isTarget(String(t)),
+      );
+      if (!targets.length) {
+        console.error(`  ${style.cross} no harness found — expected one of ${TARGETS.join(", ")}`);
+        return 2;
+      }
+      let failed = 0;
+      for (const t of targets) {
+        if (t === "goose") continue;
+        console.log(`  ${style.bold(t)}`);
+        const results = await selfcheck(t);
+        for (const c of results) {
+          console.log(`  ${c.ok ? style.check : style.cross} ${c.name} ${style.dim(`— ${c.detail}`)}`);
+          if (!c.ok) failed++;
+        }
+        console.log();
+      }
+      if (failed) {
+        console.error(`  ${style.cross} ${failed} check(s) failed — veritaserum is installed but not doing its job`);
+        return 1;
+      }
+      console.log(style.ok("every installed hook runs and reaches the model"));
       return 0;
     }
 
@@ -596,7 +647,7 @@ async function main(argv: string[]): Promise<number> {
     }
 
     default:
-      return usage("<install|doctor|retire|demands|telemetry|hook-stop|hook-stop-goose-block|hook-prompt>");
+      return usage("<install|selfcheck|doctor|retire|demands|telemetry|hook-stop|hook-stop-goose-block|hook-prompt>");
   }
 }
 
