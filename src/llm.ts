@@ -158,6 +158,12 @@ export class OllamaClient implements LlmClient {
       body: JSON.stringify({
         model: this.model,
         stream: false,
+        // Constrain decoding to valid JSON. In src/ the only consumer is the auditor path
+        // (resolve.ts), which always expects a strict-JSON verdict; forcing `format:"json"`
+        // stops the model emitting code fences / prose (the parse-failure class seen when the
+        // audited turn's final message is itself JSON). eval/ scripts reimplement their own
+        // ollama fetch, so this class is auditor-only — unconditional is safe.
+        format: "json",
         messages: [
           ...(req.system ? [{ role: "system", content: req.system }] : []),
           { role: "user", content: req.prompt },

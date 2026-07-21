@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { selectJudgeVendor, NoJudgeVendorError, MockLlmClient } from "../src/llm.js";
+import { describe, it, expect, afterEach } from "vitest";
+import { selectJudgeVendor, NoJudgeVendorError, MockLlmClient, OllamaClient } from "../src/llm.js";
 
 describe("cross-vendor judge selection (owner policy)", () => {
   it("picks codex when executor≠codex and codex is available", () => {
@@ -26,5 +26,30 @@ describe("cross-vendor judge selection (owner policy)", () => {
   it("throws when no cross-vendor judge and no OpenRouter model", () => {
     expect(() => selectJudgeVendor("claude", { available: ["claude"] })).toThrow(NoJudgeVendorError);
     expect(() => selectJudgeVendor("codex", { available: [] })).toThrow(NoJudgeVendorError);
+  });
+});
+
+/**
+ * FIX (2026-07-20): the auditor's only src/ consumer of OllamaClient always expects a strict-JSON
+ * verdict, and prod telemetry showed 11 parse failures clustered on turns whose final message was
+ * itself JSON/code-fenced (the model derailed its output format). Sending `format:"json"` to
+ * ollama's /api/chat constrains decoding to valid JSON so the model can't emit prose/fences.
+ */
+describe("OllamaClient — forces JSON-constrained decoding", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it("sends format:'json' in the /api/chat request body", async () => {
+    let capturedBody: unknown;
+    globalThis.fetch = (async (_url: string, init: { body: string }) => {
+      capturedBody = JSON.parse(init.body);
+      return { ok: true, json: async () => ({ message: { content: '{"claims":[]}' } }) };
+    }) as unknown as typeof fetch;
+
+    const out = await new OllamaClient("qwen2.5:14b").complete({ prompt: "audit this" });
+    expect(out).toBe('{"claims":[]}');
+    expect((capturedBody as { format?: string }).format).toBe("json");
   });
 });

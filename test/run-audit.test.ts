@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, writeFile, chmod } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { tempRepo } from "./helpers.js";
@@ -25,6 +26,8 @@ const ENV_KEYS = [
   "VS_AUDITOR",
   "VS_AUDITOR_METERED",
   "OPENROUTER_API_KEY",
+  "OLLAMA_BASE_URL",
+  "OLLAMA_HOST",
 ] as const;
 let saved: Partial<Record<(typeof ENV_KEYS)[number], string>> = {};
 let shimDir: string;
@@ -59,6 +62,8 @@ beforeEach(async () => {
   delete process.env.VS_AUDITOR;
   delete process.env.VS_AUDITOR_METERED;
   delete process.env.OPENROUTER_API_KEY;
+  delete process.env.OLLAMA_BASE_URL;
+  delete process.env.OLLAMA_HOST;
 
   // codex on PATH, family "other" != openai → rule1 picks it as the agentic auditor.
   const codex = join(shimDir, "codex");
@@ -128,5 +133,51 @@ describe("run-audit.ts — R5 session warning store, wired end-to-end", () => {
     expect(firings[1]!.caught).toContain("fixed the bug — unsupported"); // different session — still surfaced
 
     expect(loadSessionWarnings(repoDir, "session-B")).toEqual(["fixed the bug — unsupported: no diff shows this change"]);
+  });
+});
+
+/**
+ * FIX (2026-07-20): a pinned ollama auditor must NEVER fall back to a metered vendor. Prod
+ * telemetry showed 8 rows "ollama unavailable (failed) → fell back to claude" — a same-family,
+ * quota-metered auditor invoked from an unmetered local pin, violating both the cross-family
+ * rule and the owner's cost constraint. When the pinned ollama call fails, the audit must fail
+ * open to the error path (real reason recorded, grounding tier still runs) and invoke NO other
+ * vendor. Proof: shim BOTH claude and codex to drop a marker file if executed; assert absent.
+ */
+describe("run-audit.ts — a pinned ollama auditor never falls back to a metered vendor", () => {
+  it("ollama pinned + ollama down (closed port): error recorded, NO claude/codex process invoked", async () => {
+    // Marker shims: any invocation writes a file AND returns a valid verdict, so the marker —
+    // not an error exit — is the sole discriminator. If fallback fired, `claude`/`codex` would
+    // run one of these and the marker would exist.
+    const claudeMarker = join(shimDir, "claude-invoked.marker");
+    const codexMarker = join(shimDir, "codex-invoked.marker");
+    const validReply = '{"claims":[],"unaccountable":false,"note":""}';
+    for (const [name, marker] of [["claude", claudeMarker], ["codex", codexMarker]] as const) {
+      const p = join(shimDir, name);
+      await writeFile(p, `#!/bin/sh\necho invoked > '${marker}'\necho '${validReply}'\nexit 0\n`, "utf8");
+      await chmod(p, 0o755);
+    }
+
+    // Pin ollama; point both the auditor client (OLLAMA_BASE_URL) and the grounding embedder
+    // (OLLAMA_HOST) at a closed port so nothing reaches a real ollama and the calls fail fast.
+    process.env.VS_AUDITOR = "ollama:qwen2.5:3b";
+    process.env.OLLAMA_BASE_URL = "http://127.0.0.1:1";
+    process.env.OLLAMA_HOST = "http://127.0.0.1:1";
+
+    const t = await transcript("Done — fixed the bug.");
+    await runAudit(job("session-ollama", t));
+
+    // No fallback vendor was ever executed.
+    expect(existsSync(claudeMarker)).toBe(false);
+    expect(existsSync(codexMarker)).toBe(false);
+
+    // The audit failed open (R8): exactly one telemetry firing, verdict=error, with the REAL
+    // cause recorded — not the empty-reason "silent audit" the old code produced. And crucially
+    // NO "fell back to" firing.
+    const firings = readFirings();
+    expect(firings).toHaveLength(1);
+    expect(firings[0]!.verdict).toBe("error");
+    expect(firings[0]!.caught).toContain("auditor invocation failed");
+    expect(firings.some((f) => (f.caught ?? "").includes("fell back"))).toBe(false);
   });
 });

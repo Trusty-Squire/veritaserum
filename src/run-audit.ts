@@ -103,7 +103,16 @@ export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
   // answer, ask the other vendor rather than dropping the turn on the floor. A same-family
   // auditor is a weaker tier, not no tier, and it is TAGGED as such (SPEC rules 3/4) so its
   // verdicts never inherit cross-family trust.
-  if (verdict.error?.startsWith("auditor invocation failed")) {
+  //
+  // TWO exclusions, both cost/consent invariants:
+  //  - ollama: a local, unmetered pin. The `other` vendor is only ever claude/codex — both
+  //    metered. Falling back from a dead ollama silently spends frontier quota the owner
+  //    explicitly refused. Fail open to the error path instead; grounding + telemetry still run.
+  //  - any explicit VS_AUDITOR / job.auditor pin: a pin means "this auditor and no other".
+  //    Reaching a different vendor from a pin violates that regardless of family.
+  // Non-pinned codex↔claude fallback (the auto-resolution ladder) is unchanged.
+  const pinned = Boolean(job.auditor || process.env.VS_AUDITOR);
+  if (verdict.error?.startsWith("auditor invocation failed") && auditor.vendor !== "ollama" && !pinned) {
     const other = auditor.vendor === "claude" ? "codex" : "claude";
     try {
       const fallback = await resolveAuditor(executor, other);
