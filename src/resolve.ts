@@ -167,6 +167,12 @@ export function isExhausted(message: string): boolean {
 // read-only probes. They are detached from the hook; a five-minute async bound
 // preserves liveness without turning normal tool use into a false infra error.
 const DEFAULT_AUDITOR_TIMEOUT_MS = 300_000;
+// A local ollama auditor is free and CPU-bound: on the production box (no GPU,
+// competing audits) qwen2.5:14b's p90 sits at ~350s, so the 5-minute bound was
+// converting ~30% of real audits into timeout errors (measured 2026-07-21, 14
+// of 46 production rows). Tokens cost nothing here — only wall clock — so the
+// bound is generous; the audit is detached and nothing blocks on it.
+const OLLAMA_AUDITOR_TIMEOUT_MS = 900_000;
 const DEFAULT_METERED_MODEL = "glm-4.2";
 const DEFAULT_OLLAMA_MODEL = "qwen2.5:3b";
 
@@ -256,7 +262,7 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
         model: m,
         sameFamily,
         async invoke(prompt, _dir, timeoutMs) {
-          return new OllamaClient(m).complete({ prompt, timeoutMs: timeoutMs ?? DEFAULT_AUDITOR_TIMEOUT_MS });
+          return new OllamaClient(m).complete({ prompt, timeoutMs: timeoutMs ?? OLLAMA_AUDITOR_TIMEOUT_MS });
         },
       };
     }

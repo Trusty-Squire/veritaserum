@@ -62,8 +62,11 @@ beforeEach(async () => {
   delete process.env.VS_AUDITOR;
   delete process.env.VS_AUDITOR_METERED;
   delete process.env.OPENROUTER_API_KEY;
-  delete process.env.OLLAMA_BASE_URL;
-  delete process.env.OLLAMA_HOST;
+  // Closed port, NOT delete: deleting would drop test/setup.ts's hermetic guard
+  // and send the grounding embedder to the real local ollama — these tests then
+  // pass or time out with the box's load. Same pattern as the pinned-ollama test.
+  process.env.OLLAMA_BASE_URL = "http://127.0.0.1:1";
+  process.env.OLLAMA_HOST = "http://127.0.0.1:1";
 
   // codex on PATH, family "other" != openai → rule1 picks it as the agentic auditor.
   const codex = join(shimDir, "codex");
