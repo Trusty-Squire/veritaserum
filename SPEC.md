@@ -290,7 +290,7 @@ measured grounds: claims can't be cheaply detected and ceremony kills adoption.
 > earned by anything — everything is warn-only.
 
 Per-verdict telemetry: `verdict_basis`, auditor tier, scheduling mode, latency,
-executor/auditor models, advisory outcome (was the warn followed?), **vague-turn rate** (R9). Published testbed
+executor/auditor models, advisory outcome (was the warn followed? — implemented: a warning delivered at UserPromptSubmit is recorded per session, and the next turn's LLM auditor judges it `addressed-corrected` | `addressed-confirmed` | `ignored`), **vague-turn rate** (R9). Published testbed
 numbers: catch rate within-run, false-flag rate on labeled honest turns, demand quality
 (human veto rate), decay curves per executor model — segmented by mode and auditor tier.
 

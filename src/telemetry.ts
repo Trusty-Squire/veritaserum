@@ -53,6 +53,15 @@ export interface Firing {
   false_flag?: boolean;
   /** End-to-end async audit duration (mechanical checks + one auditor call). */
   audit_duration_ms?: number;
+  /** Which drain path delivered a next-prompt warning: session-scoped (the
+   *  normal path, keyed by the earning session) or repo-fallback (the payload
+   *  omitted session_id, so every session's pending feedback was drained). */
+  feedback_scope?: "session" | "repo-fallback";
+  /** SPEC §7 "advisory outcome" (was the warn followed?): the LLM auditor's
+   *  judgment, on the turn after a warning was delivered, of whether the turn
+   *  acted on it. LLM-only — absent when no auditor ran or no warning was
+   *  pending for the session. */
+  advisory_outcome?: "addressed-corrected" | "addressed-confirmed" | "ignored";
 }
 
 export function telemetryPath(): string {

@@ -25,6 +25,7 @@ import { logFiring } from "./telemetry.js";
 import {
   appendSessionWarnings,
   loadSessionWarnings,
+  takeDeliveredWarnings,
   writePendingFeedback,
   type AuditJob,
   type RunAudit,
@@ -84,6 +85,11 @@ export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
   // never repeats a verbatim duplicate; append whatever's new once it's done.
   const priorWarnings = loadSessionWarnings(job.dir, job.sessionId);
 
+  // SPEC §7 advisory outcome: warning line(s) DELIVERED to this session before
+  // this turn (cli.ts records them at injection). Drained once, so the LLM
+  // auditor judges each delivered warning's outcome exactly once.
+  const deliveredWarnings = takeDeliveredWarnings(job.dir, job.sessionId);
+
   const contentJob: AuditContentJob = {
     dir: job.dir,
     sessionId: job.sessionId,
@@ -92,6 +98,7 @@ export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
     userRequest,
     ...(receipts ? { receipts } : {}),
     ...(priorWarnings.length ? { priorWarnings } : {}),
+    ...(deliveredWarnings.length ? { deliveredWarnings } : {}),
     harness: job.harness || "unknown",
     schedulingMode: job.mode,
   };
@@ -141,5 +148,5 @@ export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
   // terse line for the next UserPromptSubmit (cli.ts's hook-prompt case).
   // Best-effort (R8) — writePendingFeedback never throws.
   const line = buildFeedbackLine(verdict);
-  if (line) writePendingFeedback(job.dir, line);
+  if (line) writePendingFeedback(job.dir, job.sessionId, line);
 };

@@ -10,7 +10,7 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { resolveAuditor, doctorReport } from "./resolve.js";
-import { enqueue, queueRoot, takePendingFeedback, type AuditJob } from "./audit-runner.js";
+import { enqueue, queueRoot, takePendingFeedback, drainAllPendingFeedback, recordDeliveredWarning, type AuditJob } from "./audit-runner.js";
 import { hasToolActivitySince, readGooseSession, defaultGooseSessionsDb } from "./goose.js";
 import { audit, type AuditJob as AuditContentJob } from "./auditor.js";
 import { logFiring, readFirings, summarize } from "./telemetry.js";
@@ -503,11 +503,38 @@ async function main(argv: string[]): Promise<number> {
       try {
         const p = parsePayload(await readStdin());
         const wd = payloadDir(p, dir);
+        // Deliver ONLY the prompting session's feedback (both Stop and
+        // UserPromptSubmit carry session_id; Claude Code's transcript_path stands
+        // in as the session key, matching hook-stop's sessionIdOf). A payload that
+        // omits BOTH has no session identity — fall back to the old repo-scoped
+        // drain (R8) so a payload-shape change never strands feedback; tag which
+        // path delivered.
+        const sid = p.session_id || p.transcript_path;
         // The verdict looks BACKWARD (what the last turn claimed — inherently next-turn
         // news, since the audit is async), delivered at the only moment the executor can
         // still act on it.
-        const verdict = takePendingFeedback(wd);
-        if (verdict) console.log(injectionFor(harnessName(), verdict));
+        const scope: "session" | "repo-fallback" = sid ? "session" : "repo-fallback";
+        const verdict = sid ? takePendingFeedback(wd, sid) : drainAllPendingFeedback(wd);
+        if (verdict) {
+          console.log(injectionFor(harnessName(), verdict));
+          // SPEC §7: record the delivery so the next audit of this session can
+          // judge whether the warning was acted on. Only the session path can
+          // attribute a delivery to a session; the fallback path cannot.
+          if (sid) recordDeliveredWarning(wd, sid, verdict);
+          logFiring({
+            harness: harnessName(),
+            event: "prompt",
+            claim: "",
+            verdict: "delivered",
+            // caught stays empty: the audit that earned this warning already
+            // counted it — re-counting the delivery would inflate summarize()'s
+            // catch total. The delivery path itself is the payload here.
+            caught: "",
+            blocked: false,
+            dir: wd,
+            feedback_scope: scope,
+          });
+        }
         return 0;
       } catch (err) {
         logFiring({

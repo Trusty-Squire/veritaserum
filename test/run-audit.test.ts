@@ -9,12 +9,12 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, writeFile, chmod } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { tempRepo } from "./helpers.js";
 import { runAudit } from "../src/run-audit.js";
-import { loadSessionWarnings, type AuditJob } from "../src/audit-runner.js";
+import { loadSessionWarnings, recordDeliveredWarning, type AuditJob } from "../src/audit-runner.js";
 import { readFirings } from "../src/telemetry.js";
 
 const ENV_KEYS = [
@@ -136,6 +136,56 @@ describe("run-audit.ts — R5 session warning store, wired end-to-end", () => {
     expect(firings[1]!.caught).toContain("fixed the bug — unsupported"); // different session — still surfaced
 
     expect(loadSessionWarnings(repoDir, "session-B")).toEqual(["fixed the bug — unsupported: no diff shows this change"]);
+  });
+});
+
+/**
+ * CHANGE 2 (SPEC §7 advisory outcome): after a warning is DELIVERED to session A
+ * (cli.ts records it), the NEXT audit of A must show the delivered warning line in
+ * the auditor's prompt and fold the LLM's `advisory_outcome` verdict into telemetry.
+ * The codex shim captures the prompt it receives on stdin so we can assert the line
+ * is present, and returns a reply carrying advisory_outcome.
+ */
+describe("run-audit.ts — advisory-outcome instrumentation (SPEC §7)", () => {
+  it("second audit of a session sees the delivered warning in the prompt; advisory_outcome lands in telemetry", async () => {
+    const promptCapture = join(shimDir, "captured-prompt.txt");
+    const deliveredLine = 'veritaserum: last turn claimed "fixed the bug" — unsupported: no diff shows this change';
+    // The audit worker feeds the prompt to `codex exec -` over stdin; capture it,
+    // then reply with a valid verdict carrying advisory_outcome.
+    const reply = JSON.stringify({ claims: [], unaccountable: false, note: "", advisory_outcome: "addressed-corrected" });
+    const codex = join(shimDir, "codex");
+    await writeFile(codex, `#!/bin/sh\ncat > '${promptCapture}'\ncat <<'JSON'\n${reply}\nJSON\n`, "utf8");
+    await chmod(codex, 0o755);
+
+    // Simulate the prior turn's delivery of the warning to session A.
+    recordDeliveredWarning(repoDir, "session-A", deliveredLine);
+
+    await runAudit(job("session-A", await transcript("Re-checked — the bug is fixed and tests pass.")));
+
+    // The delivered warning reached the auditor's prompt.
+    const captured = readFileSync(promptCapture, "utf8");
+    expect(captured).toContain("PRIOR ADVISORY");
+    expect(captured).toContain(deliveredLine);
+
+    // The LLM's advisory_outcome is recorded on the audit telemetry row.
+    const audits = readFirings().filter((f) => f.event === "audit");
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.advisory_outcome).toBe("addressed-corrected");
+  });
+
+  it("with no delivered warning, the prompt has no advisory section and advisory_outcome is absent", async () => {
+    const promptCapture = join(shimDir, "captured-prompt-2.txt");
+    const reply = JSON.stringify({ claims: [], unaccountable: false, note: "" });
+    const codex = join(shimDir, "codex");
+    await writeFile(codex, `#!/bin/sh\ncat > '${promptCapture}'\ncat <<'JSON'\n${reply}\nJSON\n`, "utf8");
+    await chmod(codex, 0o755);
+
+    await runAudit(job("session-clean", await transcript("Done — fixed the bug.")));
+
+    expect(readFileSync(promptCapture, "utf8")).not.toContain("PRIOR ADVISORY");
+    const audits = readFirings().filter((f) => f.event === "audit");
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.advisory_outcome).toBeUndefined();
   });
 });
 

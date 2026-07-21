@@ -22,6 +22,7 @@ import { execa } from "execa";
 import { tempRepo } from "./helpers.js";
 import { runAudit } from "../src/run-audit.js";
 import { pendingFeedbackPath, takePendingFeedback, writePendingFeedback, type AuditJob } from "../src/audit-runner.js";
+import { readFirings } from "../src/telemetry.js";
 
 const CLI = new URL("../src/cli.ts", import.meta.url).pathname;
 const RUNNER = new URL("../node_modules/.bin/tsx", import.meta.url).pathname;
@@ -108,8 +109,10 @@ function job(sessionId: string, transcriptPath: string): AuditJob {
   return { dir: repoDir, sessionId, turnRef: "t1", mode: "live", transcriptPath };
 }
 
-async function hookPrompt(): Promise<{ code: number; out: string }> {
-  const r = await execa(RUNNER, [CLI, "hook-prompt"], { cwd: repoDir, input: JSON.stringify({ cwd: repoDir }), reject: false });
+async function hookPrompt(sessionId?: string): Promise<{ code: number; out: string }> {
+  const payload: Record<string, unknown> = { cwd: repoDir };
+  if (sessionId) payload.session_id = sessionId;
+  const r = await execa(RUNNER, [CLI, "hook-prompt"], { cwd: repoDir, input: JSON.stringify(payload), reject: false });
   return { code: r.exitCode ?? 1, out: r.stdout };
 }
 
@@ -124,7 +127,7 @@ describe("feedback channel — emission (run-audit.ts)", () => {
     await codexShim(codex);
     await runAudit(job("s1", await transcript("Done — fixed the bug.")));
 
-    const line = takePendingFeedback(repoDir);
+    const line = takePendingFeedback(repoDir, "s1");
     expect(line).not.toBeNull();
     expect(line).toContain("veritaserum:");
     expect(line).toContain("fixed the bug");
@@ -141,10 +144,10 @@ describe("feedback channel — emission (run-audit.ts)", () => {
     await codexShim(codex);
     await runAudit(job("s1", await transcript("Done — fixed the bug.")));
 
-    expect(takePendingFeedback(repoDir)).toBeNull();
+    expect(takePendingFeedback(repoDir, "s1")).toBeNull();
   });
 
-  it("latest-wins: a second audit's pending feedback replaces the first, one file per repo", async () => {
+  it("latest-wins WITHIN a session: a second audit for the same session replaces its pending line", async () => {
     const first = JSON.stringify({
       claims: [{ claim: "claim A", verdict: "unsupported", basis: "basis A", evidence: "" }],
       demands: [],
@@ -161,11 +164,32 @@ describe("feedback channel — emission (run-audit.ts)", () => {
       note: "",
     });
     await codexShim(second);
-    await runAudit(job("s2", await transcript("Done — claim B.")));
+    await runAudit(job("s1", await transcript("Done — claim B.")));
 
-    const line = takePendingFeedback(repoDir);
+    const line = takePendingFeedback(repoDir, "s1");
     expect(line).toContain("claim B");
     expect(line).not.toContain("claim A");
+  });
+
+  it("two sessions in one repo keep SEPARATE pending feedback — neither overwrites the other", async () => {
+    const a = JSON.stringify({
+      claims: [{ claim: "claim A", verdict: "unsupported", basis: "basis A", evidence: "" }],
+      unaccountable: false,
+      note: "",
+    });
+    await codexShim(a);
+    await runAudit(job("session-A", await transcript("Done — claim A.")));
+
+    const b = JSON.stringify({
+      claims: [{ claim: "claim B", verdict: "unsupported", basis: "basis B", evidence: "" }],
+      unaccountable: false,
+      note: "",
+    });
+    await codexShim(b);
+    await runAudit(job("session-B", await transcript("Done — claim B.")));
+
+    expect(takePendingFeedback(repoDir, "session-A")).toContain("claim A");
+    expect(takePendingFeedback(repoDir, "session-B")).toContain("claim B");
   });
 });
 
@@ -180,41 +204,68 @@ describe("feedback channel — injection (cli.ts hook-prompt)", () => {
     await codexShim(codex);
     await runAudit(job("s1", await transcript("Done — fixed the bug.")));
 
-    const r1 = await hookPrompt();
+    const r1 = await hookPrompt("s1");
     expect(r1.code).toBe(0);
     expect(r1.out.trim()).toContain("veritaserum:");
     expect(r1.out.trim()).toContain("fixed the bug");
 
-    const r2 = await hookPrompt();
+    const r2 = await hookPrompt("s1");
     expect(r2.code).toBe(0);
     expect(r2.out.trim()).toBe("");
   });
 
+  it("session A's warning goes to A's next prompt and NOT to B's, in the same repo (both directions)", async () => {
+    writePendingFeedback(repoDir, "session-A", "veritaserum: A's warning");
+    writePendingFeedback(repoDir, "session-B", "veritaserum: B's warning");
+
+    // B prompts first — gets only B's, A's is untouched.
+    const toB = await hookPrompt("session-B");
+    expect(toB.out).toContain("B's warning");
+    expect(toB.out).not.toContain("A's warning");
+
+    // A prompts next — still has A's, never saw B's.
+    const toA = await hookPrompt("session-A");
+    expect(toA.out).toContain("A's warning");
+    expect(toA.out).not.toContain("B's warning");
+
+    // the session path is tagged `session` in telemetry
+    expect(readFirings().some((f) => f.feedback_scope === "session")).toBe(true);
+  });
+
+  it("a prompt payload WITHOUT session_id drains repo-scoped (fallback) and tags it", async () => {
+    writePendingFeedback(repoDir, "session-X", "veritaserum: stranded warning");
+
+    const r = await hookPrompt(); // no session_id in the payload
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("stranded warning");
+    expect(readFirings().some((f) => f.feedback_scope === "repo-fallback")).toBe(true);
+  });
+
   it("no pending feedback at all → silent, exit 0", async () => {
-    const r = await hookPrompt();
+    const r = await hookPrompt("s1");
     expect(r.code).toBe(0);
     expect(r.out.trim()).toBe("");
   });
 
   it("stale pending feedback (>= 24h old) is dropped, never printed", async () => {
-    const p = pendingFeedbackPath(repoDir);
+    const p = pendingFeedbackPath(repoDir, "s-stale");
     await mkdir(join(p, ".."), { recursive: true });
     const staleTs = Date.now() - 25 * 60 * 60 * 1000;
     await writeFile(p, JSON.stringify({ ts: staleTs, line: "veritaserum: this should never print" }), "utf8");
 
-    const r = await hookPrompt();
+    const r = await hookPrompt("s-stale");
     expect(r.code).toBe(0);
     expect(r.out.trim()).toBe("");
     // consumed, not left to wedge a later turn
-    expect(takePendingFeedback(repoDir)).toBeNull();
+    expect(takePendingFeedback(repoDir, "s-stale")).toBeNull();
   });
 
   it("R8: a corrupt pending-feedback file never blocks — exit 0, no crash, no output", async () => {
-    const p = pendingFeedbackPath(repoDir);
+    const p = pendingFeedbackPath(repoDir, "s-corrupt");
     await mkdir(join(p, ".."), { recursive: true });
     await writeFile(p, "{ not: valid json", "utf8");
 
-    const r = await hookPrompt();
+    const r = await hookPrompt("s-corrupt");
     expect(r.code).toBe(0);
     expect(r.out.trim()).toBe("");
   });
@@ -245,7 +296,7 @@ describe("feedback channel — the injection envelope each harness actually read
   }
 
   it("codex gets a hookSpecificOutput envelope — its ONLY way into the model's context", async () => {
-    writePendingFeedback(repoDir, "veritaserum: last turn claimed \"tests pass\" — unsupported");
+    writePendingFeedback(repoDir, "s-env", "veritaserum: last turn claimed \"tests pass\" — unsupported");
     const out = await hookPromptAs("codex");
 
     const parsed = JSON.parse(out) as {
@@ -258,7 +309,7 @@ describe("feedback channel — the injection envelope each harness actually read
   });
 
   it("claude-code still gets bare stdout — the path proven in the wild; do not 'fix' it", async () => {
-    writePendingFeedback(repoDir, "veritaserum: last turn claimed \"tests pass\" — unsupported");
+    writePendingFeedback(repoDir, "s-env", "veritaserum: last turn claimed \"tests pass\" — unsupported");
     const out = await hookPromptAs("claude-code");
     expect(out).toMatch(VERDICT);
     expect(out.trim().startsWith("{")).toBe(false); // NOT wrapped

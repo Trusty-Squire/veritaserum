@@ -106,18 +106,21 @@ export function appendSessionWarnings(dir: string, sessionId: string, warnings: 
 
 /**
  * Claude Code feedback channel (SPEC §2 "Feedback channels", R7): one pending
- * feedback line per REPO (not per session — the queue root is already keyed by
- * repoKey), latest-wins. run-audit.ts writes here when a verdict has
- * warnings/demands/unaccountable; cli.ts's `hook-prompt` case reads + clears it
- * at the next UserPromptSubmit so it injects exactly once.
+ * feedback line per (REPO, SESSION), latest-wins within that session.
+ * run-audit.ts writes here (keyed by the audit job's sessionId) when a verdict
+ * has warnings/unaccountable; cli.ts's `hook-prompt` case reads + clears the
+ * prompting session's line at the next UserPromptSubmit so it injects exactly
+ * once — and ONLY into the session that earned it. Per-repo (not per-session)
+ * delivery was the bug: a warning earned by session A landed in whatever session
+ * prompted next in that repo (fresh QA subagents, even an audit worker).
  *
  * Lives under a `feedback/` subdirectory, NOT directly in queueRoot — listPending()
  * (the drain loop, below) scans every top-level `*.json` in queueRoot as a
  * candidate job file; a stray sibling file there would be misread as a
  * malformed job (same reason session warnings live under `warnings/`).
  */
-export function pendingFeedbackPath(dir: string): string {
-  return join(queueRoot(dir), "feedback", "pending.json");
+export function pendingFeedbackPath(dir: string, sessionId: string): string {
+  return join(queueRoot(dir), "feedback", `${sanitize(sessionId)}.json`);
 }
 
 interface PendingFeedback {
@@ -129,11 +132,11 @@ interface PendingFeedback {
 
 const PENDING_FEEDBACK_MAX_AGE_MS = 24 * 60 * 60 * 1000; // R7: "non-stale (< 24h)"
 
-/** Best-effort write (R8): latest-wins — a fresh verdict always overwrites whatever
- *  was pending, since a newer turn's feedback supersedes an older unread one. */
-export function writePendingFeedback(dir: string, line: string): void {
+/** Best-effort write (R8): latest-wins WITHIN a session — a fresh verdict for the
+ *  same session overwrites its own pending line; a different session's is untouched. */
+export function writePendingFeedback(dir: string, sessionId: string, line: string): void {
   try {
-    const p = pendingFeedbackPath(dir);
+    const p = pendingFeedbackPath(dir, sessionId);
     mkdirSync(dirname(p), { recursive: true });
     const payload: PendingFeedback = { ts: Date.now(), line };
     writeFileSync(p, JSON.stringify(payload), "utf8");
@@ -142,18 +145,15 @@ export function writePendingFeedback(dir: string, line: string): void {
   }
 }
 
-/**
- * Read + unconditionally clear pending feedback (R8: corrupt/stale is consumed
- * too, never left to wedge future turns). Returns null when absent, corrupt, or
- * stale (>= 24h) — only a present, parseable, fresh line is injected.
- */
-export function takePendingFeedback(dir: string): string | null {
-  const p = pendingFeedbackPath(dir);
+/** Read + clear one feedback file, returning its line only when present,
+ *  parseable, and fresh (< 24h). Corrupt/stale is consumed too (R8), never left
+ *  to wedge a future turn. Shared by the session-scoped and repo-fallback paths. */
+function takeFeedbackFile(p: string): string | null {
   let raw: string;
   try {
     raw = readFileSync(p, "utf8");
   } catch {
-    return null; // nothing pending
+    return null; // nothing there
   }
   rmSafely(p);
   try {
@@ -164,6 +164,93 @@ export function takePendingFeedback(dir: string): string | null {
   } catch {
     return null; // corrupt (R8)
   }
+}
+
+/**
+ * Read + clear THIS session's pending feedback (the normal delivery path).
+ * Returns null when absent, corrupt, or stale (>= 24h).
+ */
+export function takePendingFeedback(dir: string, sessionId: string): string | null {
+  return takeFeedbackFile(pendingFeedbackPath(dir, sessionId));
+}
+
+/**
+ * Defensive fallback (R8, R8-spirit): a prompt payload that omits any session
+ * identity can't target a session's file, so drain EVERY session's pending file
+ * in this repo and return the freshest fresh line (latest-wins — the old
+ * repo-scoped semantics). This also sweeps any legacy repo-scoped `pending.json`
+ * left by a prior version harmlessly. Callers tag this delivery `repo-fallback`.
+ */
+export function drainAllPendingFeedback(dir: string): string | null {
+  const fdir = join(queueRoot(dir), "feedback");
+  let names: string[];
+  try {
+    names = readdirSync(fdir);
+  } catch {
+    return null;
+  }
+  let best: { ts: number; line: string } | null = null;
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    const p = join(fdir, name);
+    let raw: string;
+    try {
+      raw = readFileSync(p, "utf8");
+    } catch {
+      continue;
+    }
+    rmSafely(p);
+    try {
+      const parsed = JSON.parse(raw) as Partial<PendingFeedback>;
+      if (typeof parsed.line !== "string" || typeof parsed.ts !== "number") continue;
+      if (Date.now() - parsed.ts >= PENDING_FEEDBACK_MAX_AGE_MS) continue; // stale
+      if (!best || parsed.ts > best.ts) best = { ts: parsed.ts, line: parsed.line };
+    } catch {
+      continue;
+    }
+  }
+  return best ? best.line : null;
+}
+
+/**
+ * Advisory-outcome delivery ledger (SPEC §7 "advisory outcome"): the warning
+ * line(s) actually DELIVERED to a session at a UserPromptSubmit. cli.ts records
+ * here the moment it injects a line; run-audit.ts drains it before the NEXT
+ * audit of that session and asks the LLM auditor whether the turn acted on the
+ * warning. takePendingFeedback consumed a line without recording that it had
+ * been delivered — so "was the warn followed?" (SPEC §7) was unanswerable.
+ * Same best-effort, never-throws shape as the session-warnings store.
+ */
+export function deliveredWarningsPath(dir: string, sessionId: string): string {
+  return join(queueRoot(dir), "delivered", `${sanitize(sessionId)}.json`);
+}
+
+function loadDeliveredWarnings(dir: string, sessionId: string): string[] {
+  try {
+    const raw: unknown = JSON.parse(readFileSync(deliveredWarningsPath(dir, sessionId), "utf8"));
+    return Array.isArray(raw) ? raw.filter((w): w is string => typeof w === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Best-effort append (R8): a warning line was just injected into this session. */
+export function recordDeliveredWarning(dir: string, sessionId: string, line: string): void {
+  try {
+    const p = deliveredWarningsPath(dir, sessionId);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, JSON.stringify([...loadDeliveredWarnings(dir, sessionId), line]), "utf8");
+  } catch {
+    /* best-effort (R8) */
+  }
+}
+
+/** Read + clear this session's delivered ledger (run-audit consumes it once per
+ *  audit, so a delivered warning's outcome is judged exactly once). */
+export function takeDeliveredWarnings(dir: string, sessionId: string): string[] {
+  const out = loadDeliveredWarnings(dir, sessionId);
+  if (out.length) rmSafely(deliveredWarningsPath(dir, sessionId));
+  return out;
 }
 
 let seqCounter = 0;
