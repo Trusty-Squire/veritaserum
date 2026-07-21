@@ -21,7 +21,7 @@ import {
 // and the semantic judge (ruled on a gate's claim over captured evidence) are GONE. All
 // three were special cases of what the auditor already does — author a check, or rule on a
 // claim against evidence — each with its own vendor resolution, its own LLM client, and its
-// own spawn path. One role, two verbs; see src/auditor.ts and law.ts's appendDemand.
+// own spawn path. One role: the auditor (src/auditor.ts).
 
 // ---------------------------------------------------------------------------
 // Auditor resolution (SPEC.md §2 "Auditor resolution" — five rules + override).

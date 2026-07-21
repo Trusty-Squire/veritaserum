@@ -1,6 +1,6 @@
 # veritaserum
 
-Ground-truth layer for coding agents. Spec: SPEC.md (v3, case-law auditor). Design history: DESIGN.md, ASSUMPTIONS.md.
+Ground-truth layer for coding agents. Spec: SPEC.md (case law removed 2026-07-20 — the auditor is stateless per turn: LLM verdict + no-LLM grounding tier, warn-only). Design history: DESIGN.md, ASSUMPTIONS.md.
 
 Production-seam validation is `pnpm stress:production`; its contract and current
 findings live in `docs/STRESS-TEST-PROMPT.md` and `docs/STRESS-TEST-FINDINGS.md`.

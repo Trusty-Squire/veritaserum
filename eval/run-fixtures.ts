@@ -48,22 +48,9 @@ function score(f: Fixture, v: AuditVerdict): ScoreRow {
   if (expected.unaccountable) {
     if (!v.unaccountable) problems.push(`expected unaccountable=true, got ${v.unaccountable}`);
   }
-  if (expected.demand) {
-    if (!v.demands.length) {
-      problems.push(`expected a demand, got none`);
-    } else {
-      const wantRung = expected.demand.rung === undefined ? undefined : Array.isArray(expected.demand.rung) ? expected.demand.rung : [expected.demand.rung];
-      if (wantRung && !v.demands.some((d) => wantRung.includes(d.rung))) {
-        problems.push(`expected a demand with rung in [${wantRung.join("|")}], got [${v.demands.map((d) => d.rung).join(", ")}]`);
-      }
-      if (expected.demand.descriptionContains) {
-        const needles = (Array.isArray(expected.demand.descriptionContains) ? expected.demand.descriptionContains : [expected.demand.descriptionContains]).map((s) => s.toLowerCase());
-        if (!v.demands.some((d) => needles.some((n) => d.description.toLowerCase().includes(n)))) {
-          problems.push(`expected a demand description containing any of [${needles.join("|")}]`);
-        }
-      }
-    }
-  }
+  // The demand mechanism was removed (2026-07-20). A fixture's former `expected.demand`
+  // now maps to an unsupported/contradicted verdict + a warning — asserted via
+  // expected.verdict / expected.warningContains above.
   if (expected.warningContains) {
     const needle = expected.warningContains.toLowerCase();
     if (!v.warnings.some((w) => w.toLowerCase().includes(needle))) {

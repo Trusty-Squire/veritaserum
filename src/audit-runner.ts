@@ -39,7 +39,6 @@ export interface AuditJob {
   harness?: string;
   executor?: string;
   auditor?: string;
-  demandMode?: "script" | "urge";
 }
 export type RunAudit = (job: AuditJob) => Promise<void>;
 
@@ -62,17 +61,6 @@ export function queueRoot(dir: string): string {
 }
 function lockPath(qdir: string): string {
   return join(qdir, ".lock");
-}
-/**
- * ~/.veritaserum/queue/<repo-key>/law-check-hash.txt — the tree hash at the
- * last GREEN mechanical standing-law run (src/run-audit.ts writes it once all
- * runnable checks pass). src/cli.ts's terse state line reads it to decide
- * whether standing law is still unverified against the current tree (SPEC
- * R7) — precise ("still not confirmed since the tree moved"), not a
- * once-per-hash print dedupe.
- */
-export function lawCheckMarkerPath(dir: string): string {
-  return join(queueRoot(dir), "law-check-hash.txt");
 }
 function deadDir(qdir: string): string {
   return join(qdir, "dead");

@@ -195,14 +195,6 @@ function hookInvocation(): string {
   return "veritaserum-hook";
 }
 
-/** The command the executor should run to check a demand — resolved the same way the
- *  installed hook is, so it is copy-pasteable in whatever shape veritaserum was invoked
- *  (npx, a linked bin, or this checkout). The feedback line is the only place the
- *  executor ever learns this exists (run-audit.ts's buildFeedbackLine). */
-export function demandsCommand(): string {
-  return `${cliInvocation()} demands`;
-}
-
 /**
  * A STABLE launcher path, so the hook command string never changes again.
  *

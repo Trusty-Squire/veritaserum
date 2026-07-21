@@ -3,19 +3,14 @@
  * `veritaserum` CLI (DESIGN §4) — the enforcement door a hook shells out to.
  *   veritaserum install <harness>              wire veritaserum's sync path into a harness
  *   veritaserum doctor                        which auditor rule fired and why (SPEC §2)
- *   veritaserum retire <law-id> "<reason>"      retire a standing case-law entry
- *   veritaserum demands                        run the demands the auditor materialized
  *   veritaserum telemetry                      what the auditor caught
  *
  * Exit codes: errors -> 2.
  */
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { commitPaths, currentTreeHash } from "./git.js";
-import { loadLaw, readLawTreeSync, retireDemandLaw, retireLaw, runnableChecks, LAW_FILENAME } from "./law.js";
 import { resolveAuditor, doctorReport } from "./resolve.js";
-import { enqueue, queueRoot, lawCheckMarkerPath, takePendingFeedback, type AuditJob } from "./audit-runner.js";
-import { runDemands, retireDemand } from "./demands.js";
+import { enqueue, queueRoot, takePendingFeedback, type AuditJob } from "./audit-runner.js";
 import { hasToolActivitySince, readGooseSession, defaultGooseSessionsDb } from "./goose.js";
 import { audit, type AuditJob as AuditContentJob } from "./auditor.js";
 import { logFiring, readFirings, summarize } from "./telemetry.js";
@@ -215,110 +210,12 @@ function writeBlockCount(qdir: string, sessionId: string, count: number): void {
   }
 }
 
-/**
- * Sync step 2 (SPEC R7): standing law exists and the tree hasn't been
- * confirmed green at its current state — print ONE terse line, never a
- * block. The marker (src/audit-runner.ts's lawCheckMarkerPath) is the tree
- * hash at the last GREEN mechanical run of every runnable check
- * (src/run-audit.ts writes it after a passing async audit) — this is
- * precise, not a once-per-hash print dedupe: the line fires on every due
- * turn until an actual green run clears it, and again the moment the tree
- * next moves.
- */
-/**
- * The standing-law state, computed FRESH at prompt time.
- *
- * This used to fire at Stop, and it was the wrong moment twice over. A Stop hook's output
- * reaches the HUMAN and never the model on either harness (codex has no StopHookSpecificOutput;
- * Claude Code shows Stop stdout in transcript view), so the agent was never told. And the
- * signal is PREVENTION — "the standing checks have not been run against this tree" — which is
- * worth nothing after the work is finished and the claim already made. A warning that arrives
- * once it is too late to act on, addressed to someone who cannot act on it, is a log line.
- *
- * At UserPromptSubmit it is early, addressed to the executor, and true NOW rather than a
- * replay of a stale snapshot taken at the end of the previous turn.
- */
-async function lawStateLineIfDue(dir: string): Promise<string | null> {
-  try {
-    const { law } = await loadLaw(dir);
-    const runnable = runnableChecks(law);
-    if (runnable.length === 0) return null;
-    const hash = await currentTreeHash(dir);
-    let lastGreen = "";
-    try {
-      lastGreen = readFileSync(lawCheckMarkerPath(dir), "utf8").trim();
-    } catch {
-      /* no green run recorded yet for this repo */
-    }
-    if (lastGreen === hash) return null;
-    return `veritaserum: ${runnable.length} standing check(s) unverified against this tree — run them before you claim done`;
-  } catch {
-    return null; // advisory only (R8)
-  }
-}
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
   const dir = process.cwd();
 
   switch (cmd) {
-    case "retire": {
-      const lawId = rest[0];
-      const reason = rest.slice(1).join(" ").trim();
-      if (!lawId || !reason) return usage('retire <law-id|demand-slug> "<reason>"');
-      // A demand is two records — the state-dir script (this machine only) and the
-      // git-tracked law entry (every machine). Retire whichever exist, in either
-      // direction, so a slug retires the law gate even where the script is absent
-      // and a law-id retires the local script too.
-      const scriptRetired = retireDemand(dir, lawId);
-      const demandLawRetired = await retireDemandLaw(dir, lawId, reason);
-      if (scriptRetired || demandLawRetired) {
-        if (demandLawRetired) {
-          await commitPaths(dir, [LAW_FILENAME], `ser: retire demand ${lawId} (${reason})`);
-        }
-        console.log(`retired demand ${lawId}: ${reason} (moved to retired/, never resurrected)`);
-        return 0;
-      }
-      const slugForLawId = readLawTreeSync(dir)?.gates.find((g) => g.id === lawId)?.lineage.params?.demandSlug;
-      const ok = await retireLaw(dir, lawId, reason);
-      if (!ok) {
-        console.log(`no active law entry or demand "${lawId}" to retire`);
-        return 0;
-      }
-      if (typeof slugForLawId === "string" && slugForLawId) retireDemand(dir, slugForLawId);
-      await commitPaths(dir, [LAW_FILENAME], `ser: retire law ${lawId} (${reason})`);
-      console.log(`retired ${lawId}: ${reason} (recorded, not deleted)`);
-      return 0;
-    }
-
-    case "demands": {
-      // A demand that invokes `veritaserum demands` would otherwise execute
-      // itself recursively. Signal the outer evaluator and stop before reading
-      // any oracle. runScript also rejects known source shapes pre-execution.
-      const recursionSentinel = process.env.VS_DEMAND_EVALUATION_SENTINEL;
-      if (recursionSentinel) {
-        try {
-          writeFileSync(recursionSentinel, String(process.pid), "utf8");
-        } catch {
-          /* the refusal itself does not depend on recording the sentinel */
-        }
-        console.error("refusing recursive demand evaluation");
-        return 1;
-      }
-      // The demand store is invisible by design — this is the human window into it.
-      const results = await runDemands(dir);
-      if (!results.length) {
-        console.log("no standing demands for this repo");
-        return 0;
-      }
-      for (const d of results) {
-        console.log(`${d.passed ? "✓ met  " : "✗ unmet"}  ${d.slug}`);
-        if (d.remedy) console.log(`         ${d.remedy}${d.accept ? ` — accept: ${d.accept}` : ""}`);
-      }
-      console.log(`\nretire one: veritaserum retire <slug> "<reason>"`);
-      return 0;
-    }
-
     case "install": {
       const target = positional(rest)[0];
       const global = flag(rest, "global");
@@ -379,7 +276,6 @@ async function main(argv: string[]): Promise<number> {
         ),
       );
       console.log(style.step(`read catches:  ${style.bold("veritaserum telemetry")}`));
-      console.log(style.step(`run demanded checks:  ${style.bold("veritaserum demands")}`));
       return 0;
     }
 
@@ -463,13 +359,7 @@ async function main(argv: string[]): Promise<number> {
         // a. Nothing-to-audit: no tool activity since the last audit marker → PASS, ~0ms.
         if (!hasNewToolActivity(p, marker)) return 0;
 
-        // b. NO law line here. It used to print at Stop, where it reached the human and
-        //    never the model (neither harness routes Stop output into model context) and
-        //    where prevention is already too late — the work is done, the claim is made.
-        //    It is computed FRESH at UserPromptSubmit now (lawStateLineIfDue), which is both
-        //    the only door into the executor's context and the moment it can still act.
-
-        // c. Enqueue the async audit job; dispatch is fire-and-forget (audit-runner.js
+        // b. Enqueue the async audit job; dispatch is fire-and-forget (audit-runner.js
         //    owns lockfile serialization + LIVE-supersede/TESTBED-drain scheduling).
         const job: AuditJob = {
           dir: wd,
@@ -481,7 +371,6 @@ async function main(argv: string[]): Promise<number> {
           harness: harnessName(),
           executor: process.env.VS_EXECUTOR || "unknown",
           ...(process.env.VS_AUDITOR ? { auditor: process.env.VS_AUDITOR } : {}),
-          demandMode: process.env.VS_DEMAND_MODE === "urge" ? "urge" : "script",
         };
         enqueue(wd, job);
 
@@ -552,7 +441,6 @@ async function main(argv: string[]): Promise<number> {
           ...(session.receiptsTail ? { receipts: session.receiptsTail } : {}),
           harness: harnessName(),
           schedulingMode: process.env.VS_AUDIT_MODE === "testbed" ? "testbed" : "live",
-          demandMode: process.env.VS_DEMAND_MODE === "urge" ? "urge" : "script",
         };
         const verdict = await audit(contentJob, auditor);
 
@@ -587,7 +475,6 @@ async function main(argv: string[]): Promise<number> {
         const lines = [`veritaserum: ${n} claim(s) not backed by a verification receipt:`];
         for (const c of flagged) lines.push(`  - ${c.claim}: ${c.basis || c.evidence || "no basis given"}`);
         if (verdict.unaccountable) lines.push(`  - unaccountable work: ${verdict.note || "state what was done and how you know it works"}`);
-        for (const d of verdict.demands) lines.push(`  demand: ${d.remedy || d.gap} — accept: ${d.accept}`);
         lines.push(`Run the actual check and correct or retract before finishing.`);
         console.error(lines.join("\n"));
         return 2;
@@ -616,14 +503,11 @@ async function main(argv: string[]): Promise<number> {
       try {
         const p = parsePayload(await readStdin());
         const wd = payloadDir(p, dir);
-        // Two signals, one door. The verdict looks BACKWARD (what the last turn claimed —
-        // inherently next-turn news, since the audit is async). The law line looks FORWARD
-        // (what is unverified against the tree you are about to work on). Both belong here,
-        // at the only moment the executor can still act on either.
+        // The verdict looks BACKWARD (what the last turn claimed — inherently next-turn
+        // news, since the audit is async), delivered at the only moment the executor can
+        // still act on it.
         const verdict = takePendingFeedback(wd);
-        const law = await lawStateLineIfDue(wd);
-        const lines = [verdict, law].filter((l): l is string => Boolean(l));
-        if (lines.length) console.log(injectionFor(harnessName(), lines.join("\n")));
+        if (verdict) console.log(injectionFor(harnessName(), verdict));
         return 0;
       } catch (err) {
         logFiring({
@@ -640,7 +524,7 @@ async function main(argv: string[]): Promise<number> {
     }
 
     default:
-      return usage("<install|selfcheck|doctor|retire|demands|telemetry|hook-stop|hook-stop-goose-block|hook-prompt>");
+      return usage("<install|selfcheck|doctor|telemetry|hook-stop|hook-stop-goose-block|hook-prompt>");
   }
 }
 

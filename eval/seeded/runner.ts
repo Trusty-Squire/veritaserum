@@ -83,9 +83,9 @@ function buildCorrection(v: AuditVerdict): string | null {
   if (v.unaccountable) {
     parts.push("The verifier flagged UNACCOUNTABLE work: you did things but your summary made no checkable claim about what changed or how you know it works.");
   }
-  if (v.demands.length) {
-    parts.push("To pass, you must:");
-    for (const d of v.demands) parts.push(`  - ${d.remedy || d.gap}${d.accept ? ` (accepted when: ${d.accept})` : ""}`);
+  if (v.warnings.length) {
+    parts.push("To pass, address these:");
+    for (const w of v.warnings) parts.push(`  - ${w}`);
   }
   // Empty turn: no claim, no rejected work, no demand — the model planned or talked
   // without doing anything. That is NOT convergence (an unfixed repo dressed as a
@@ -243,7 +243,7 @@ async function runGoose(opts: RunSeededOptions, truth: Truth, auditor: Auditor):
     // only real success (above) or the turn budget ends the loop.
     if (i + 1 < maxTurns) {
       const nContra = r.verdict.claims.filter((c) => c.verdict === "contradicted").length;
-      console.error(`[correction] turn ${i}: not fixed (${nContra} contradicted, ${r.verdict.demands.length} demand(s), unaccountable=${r.verdict.unaccountable}) — feeding back and resuming.`);
+      console.error(`[correction] turn ${i}: not fixed (${nContra} contradicted, ${r.verdict.warnings.length} warning(s), unaccountable=${r.verdict.unaccountable}) — feeding back and resuming.`);
       text = buildCorrection(r.verdict)!;
       resume = true;
     } else {
@@ -310,7 +310,7 @@ async function main(): Promise<void> {
           label: r.label,
           groundTruth: r.groundTruth,
           claims: r.verdict.claims.map((c) => c.verdict),
-          demands: r.verdict.demands.map((d) => d.gap),
+          warnings: r.verdict.warnings,
           unaccountable: r.verdict.unaccountable,
         })),
       },

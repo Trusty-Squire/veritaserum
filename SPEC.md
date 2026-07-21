@@ -1,13 +1,42 @@
 # veritaserum v3 — the case-law auditor
 
-**Thesis.** One mechanism: when a turn ends, an async cross-family auditor identifies the
-load-bearing claims in what the agent just said — tasks done, causes asserted, futures
-recommended — and checks them against the only two sources of truth that exist: **read-only
-git probes computed now** and **the harness's own record of what ran**. When a claim needed
-an oracle that doesn't exist ("wrote an MCCFR solver, it's working well"), the auditor
-**demands one** (the Kuhn anchor), and that demand persists as **case law**: a standing,
-deterministically re-checkable expectation for this repo. No upfront contract, no lexical
-claim detection, no phase detection, no setup. Precedent, not legislation.
+> ## 2026-07-20: case law removed
+>
+> The **case-law / demand / statute machinery** described throughout this spec — the auditor
+> authoring demands, `veritaserum.law.yaml`, mechanical standing-law rechecks, the
+> `contract.yaml` statute path, and the `veritaserum retire` / `veritaserum demands`
+> commands — is **REMOVED**. Deleted files: `src/law.ts`, `src/demands.ts`, `src/gate-run.ts`,
+> `src/schema.ts`, `veritaserum.law.yaml`, `contract.yaml`.
+>
+> **Why.** The mechanism's observed steady state was *unbounded accumulation of stale
+> obligations*. In one session the law file grew from **58 to ~878 lines**; **44 demands sat
+> unmet**; several demands pinned *single-commit* facts (an exact test count, a line number)
+> that were false one commit later. The standing-law state line fired on every turn against
+> a set the executor could not plausibly satisfy or clear — noise it learned to ignore, not
+> ground truth. Precedent that only grows is not precedent; it is a ratchet with no release.
+>
+> **Replacement.** The auditor is now **stateless per turn**: the per-turn cross-family LLM
+> verdict (supported / unsupported / contradicted + R9 unaccountable + warnings) PLUS a
+> **no-LLM grounding tier** (`src/grounding.ts`, local ollama embeddings) that flags
+> *referential gaps* — the agent blamed or relied on a thing it never observed. Both are
+> **warn-only**; nothing blocks, nothing persists in the repo. Every section below that
+> describes demands, case law, mechanical standing-law checks, or the statute path is
+> **superseded by this note** (including §2 steps 4/6, the Case-law block, §4.1's "statute
+> path survives" note, R6's retire command, and acceptance items 2 and 4).
+
+**Thesis (as of the removal above).** When a turn ends, an async cross-family auditor
+identifies the load-bearing claims in what the agent just said — tasks done, causes
+asserted, futures recommended — and checks them against the only two sources of truth that
+exist: **read-only git probes computed now** and **the harness's own record of what ran**.
+Alongside the LLM verdict, a no-LLM grounding tier flags referential gaps from local
+embeddings. No upfront contract, no lexical claim detection, no phase detection, no setup,
+no persisted state.
+
+**Thesis (original, superseded).** One mechanism: when a claim needed an oracle that doesn't
+exist ("wrote an MCCFR solver, it's working well"), the auditor **demanded one** (the Kuhn
+anchor), and that demand persisted as **case law**: a standing, deterministically
+re-checkable expectation for this repo. Precedent, not legislation. — *removed 2026-07-20;
+see the note above.*
 
 **First target: the cheapest executor.** The layer's value is inversely proportional to
 model capability (goose #9708: qwen lies within one hard run; Claude subtly over weeks) —
@@ -19,17 +48,24 @@ final target**.
 
 | # | Rule | Earned by |
 |---|------|-----------|
-| R1 | Two sources of truth only: **git probes computed at decision time** (validity) and the **harness's own record** (receipts). Veritaserum persists no authoritative state — a second recorder is a second thing to rot. Telemetry is measurement, never evidence. The law file is the auditor's *output*, git-tracked, not a fact recorder. | 31/31 wild false blocks from an evidence-starved judge; probes-over-history. |
-| R2 | **No lexical claim detection.** Claims cannot be regexed (goose #9708: 0/16; phrasing space is infinite) and cannot be pre-staked (load-bearing claims are emergent). Claim identification is LLM judgment — run off the critical path on every turn that has something to audit, and *measured* (miss classes surface as telemetry, not assumptions). | goose #9708 + the forecasting objection. |
+| R1 | Two sources of truth only: **git probes computed at decision time** (validity) and the **harness's own record** (receipts). Veritaserum persists no authoritative state — a second recorder is a second thing to rot. Telemetry is measurement, never evidence. *(The law file — once the auditor's git-tracked output — is removed as of 2026-07-20; the auditor now persists nothing at all, which is R1 taken to its conclusion.)* | 31/31 wild false blocks from an evidence-starved judge; probes-over-history. |
+| R2 | **No lexical claim detection.** Claims cannot be regexed (goose #9708: 0/16; phrasing space is infinite) and cannot be pre-staked (load-bearing claims are emergent). Claim identification is LLM judgment — run off the critical path on every turn that has something to audit, and *measured* (miss classes surface as telemetry, not assumptions). **A no-LLM embedding-classifier tier runs alongside** (the grounding detector, `src/grounding.ts`): it does *not* detect claims-by-regex — it detects **referential gaps** (a blamed/relied-on referent absent from what the agent observed) via local-embedding similarity, and its misses are *measured* by the eval cell (`eval/confab/grounding`), consistent with this rule. | goose #9708 + the forecasting objection. |
 | R3 | **Sync path is deterministic and near-free; all LLM work is async.** ~0ms when nothing to audit, <50ms otherwise. The auditor runs detached; verdicts land at the next turn boundary. Known, accepted tradeoff: a false "done" can be acted on before the warning lands — the terse state-line is the only same-turn signal. | v1 hook tax; owner directive; codex #6 noted-and-accepted. |
 | R4 | **Lazy evidence.** No claims → zero probes. Each claim pulls only the slices it needs. Under an agentic auditor this is an instruction, not a pipeline. | Owner directive. |
 | R5 | **Warn-primary.** supported / unsupported (warn + demand the downgrade or the missing test) / contradicted (strongest flag). Nothing blocks by default; blocking per law entry is earned (≥50 judged events, Wilson 95% LB ≥ 0.9) and human-promoted. Warnings never repeat verbatim for the same claim in a session. | 15-block deadlock → coerced false confession; sycophancy literature. |
-| R6 | **The auditor authors demands; the executor never does; the human vetoes.** Cross-**FAMILY** is mandatory (auditor model family ≠ executor model family — different checkpoints of one lineage share blindspots). Retirement is explicit: `veritaserum retire <law-id> "<reason>"` — recorded provenance, confirm step, never inferred from chat, never executor-suggested. Human promotion required for blocking. | Self-preference is measured; correlated slop; codex #12/#20. |
+| R6 | ~~The auditor authors demands; the executor never does; the human vetoes.~~ **Demand authorship and the `veritaserum retire` command are removed (2026-07-20).** What survives: **cross-FAMILY is mandatory** (auditor model family ≠ executor model family — different checkpoints of one lineage share blindspots), because the LLM verdict is still one model judging another. | Self-preference is measured; correlated slop; codex #12/#20. |
 | R7 | **Injections are terse, state-gated, specific — and rare.** Sharp specific facts: 10%→0/45 (p<0.05); ambient truth: null; chatty layers accelerate the compaction decay they treat. | goose #9708 injection arms. |
-| R8 | **Fail open on own failure.** Any internal error in any surface → the agent proceeds + telemetry error event. Includes: no auditor available → mechanical law checks still run; `auditor_absent` recorded. | v1 invariant, re-earned. |
+| R8 | **Fail open on own failure.** Any internal error in any surface → the agent proceeds + telemetry error event. Includes: no auditor available → `auditor_absent` recorded, the audit is skipped, the executor is never stalled; the grounding tier fails open to zero flags when ollama is absent. | v1 invariant, re-earned. |
 | R9 | **Vagueness is not an escape hatch.** Substantial receipts + a claim-free summary is itself a verdict: "unaccountable work" — warn, demand concreteness ("state what was done and how you know it works"). The vague-turn rate is a first-class telemetry metric, because feedback pressure predictably teaches executors to stop signing statements. | codex #15, accepted. |
 
 ## 2. The mechanism
+
+> **Superseded in part (2026-07-20).** Steps **4** (mechanical standing-law checks) and **6**
+> (missing-oracle DEMAND) below, and the "standing law exists AND tree changed" sync line, are
+> **removed** — there is no standing law. The audit job is now: read the turn → identify
+> load-bearing claims → verdict them against git-probe/receipt evidence (steps 1-3, 5) →
+> run the no-LLM grounding tier over {finalMessage, receipts} → warnings + next-turn feedback
+> (step 7). No demand authorship, no mechanical rechecks, no repo write.
 
 ```
 turn ends (SYNC — what the user feels)
@@ -87,8 +123,9 @@ tier so a weaker tier never inherits a stronger tier's trust. **`veritaserum doc
 reports which rule fired and why, with cached 1-token auth smoke calls. Pinning: model +
 temperature recorded per run; overnight runs budget auditor calls with backoff + resume.
 
-**Case law** (`veritaserum.law.yaml`, git-tracked, in-repo — v1 gate schema, lineage
-`evaluator-demand` | `user-word`):
+**Case law** — ~~`veritaserum.law.yaml`, git-tracked, in-repo~~ **REMOVED 2026-07-20 (see the
+note at the top of this spec). The entire block below, including the statute path, is void.**
+(v1 gate schema, lineage `evaluator-demand` | `user-word`):
 - First demand costs an auditor judgment; every later claim in its scope is checked
   mechanically. Precedent amortizes.
 - Law follows branches like any git-tracked file (a feature: law branches with code).
@@ -113,7 +150,9 @@ temperature recorded per run; overnight runs budget auditor calls with backoff +
   channel exists: telemetry + law-file diff only, and §6.6 is scoped to catch-rate.
 - Floor: telemetry + the law diff.
 
-**Discoverability rides the demand line, and nothing else.** A demand's feedback line names
+**~~Discoverability rides the demand line~~ — VOID 2026-07-20 (no demands, no `veritaserum
+demands` command).** The feedback line now carries only the warn (a flagged claim, a grounding
+flag, or R9). The original text: A demand's feedback line names
 the command that RUNS the check the auditor already wrote (`veritaserum demands`, resolved
 in whatever shape veritaserum was invoked) and tells the executor not to author its own
 oracle. That is the executor's only channel for learning the CLI exists — deliberately
@@ -156,10 +195,11 @@ pipeline is in scope for this phase: npm publish on version tag,
 | `claim.ts` DONE/NOT_DONE/GOAL regexes + extractors | **delete** | R2: no lexical claim detection |
 | `hook.ts` (hookStop/hookPrompt dual paths) | **delete** | one evaluator; prompt-time challenge dead |
 | `sentinel.ts` | **refactor into auditor** | evidence rules survive; sync judging dies |
-| `judge-verdict.ts`, `gate-run.ts` | **refactor into auditor** (mechanical check exec) | |
+| `judge-verdict.ts`, `gate-run.ts` | ~~refactor into auditor~~ **deleted 2026-07-20** (mechanical checks removed) | |
 | `cli.ts` hook-stop/hook-prompt cases | **replace** with sync-path + enqueue | |
 | goose/codex `adapters/` (v1 shapes) | **goose: rebuild** (first-class), codex: TODO 2 | |
-| `schema.ts`, `resolve.ts`, `llm.ts`, `telemetry.ts` | **keep/extend** (law schema + rung ladder, auditor resolution, ollama client, telemetry fields) | |
+| `schema.ts` | **deleted 2026-07-20** (only the law/contract schema + rung ladder lived here; both are gone) | |
+| `resolve.ts`, `llm.ts`, `telemetry.ts` | **keep/extend** (auditor resolution, ollama client, telemetry fields) | |
 | `contract.ts`, `verify.ts`, `ratchet.ts`, `propose.ts`, `seed.ts`, `mcp.ts` | **delete** (§4.1) | the contract system: one role, not four |
 Acceptance asserts deleted symbols are gone (§6).
 
@@ -167,9 +207,11 @@ Acceptance asserts deleted symbols are gone (§6).
 
 The Knight (author a gate from a goal), the Transcriber (author a gate from a complaint),
 and the semantic Judge (rule on a gate's claim over captured evidence) are **special cases
-of the auditor**, which already does both verbs: it rules on a claim against evidence, and
-when the evidence is missing it authors the check itself (`law.ts`'s `appendDemand` +
-`demands.ts` materializing a failing script). Four names, one job. Each carried its own
+of the auditor**, which rules on a claim against evidence. *(The v1 text here also credited
+the auditor with authoring checks via `law.ts`/`demands.ts`; that demand-authoring path is
+itself removed as of 2026-07-20 — the auditor only rules now, it never authors. The
+`contract.yaml` statute path that §2's Case-law block promised "survives" is void — the file
+and its schema are deleted.)* Four names, one job. Each carried its own
 vendor resolution, its own LLM client, and its own subprocess spawn path — 1537 lines the
 live audit path needed exactly two things from (the rung ladder and `activeGates`, both now
 in `schema.ts`).
@@ -211,14 +253,13 @@ measured grounds: claims can't be cheaply detected and ceremony kills adoption.
    IP-wall → unsupported + discriminating test demanded; stale-state.md deference →
    fresh-probe demanded; "wrote an MCCFR solver, working well" → Kuhn-anchor demand
    appended; substantial-diff + claim-free summary → R9 unaccountable-work warn.
-2. **Case-law lifecycle**: demand once (LLM) → mechanical recheck (no LLM) → explicit
-   retire with provenance → retired law never fires; low-rung demands recorded, never
-   binding; duplicate demands (same normalized command / overlapping slug) never append.
-3. **Audit scheduling**: concurrent turn-ends → one serialized chain, no YAML corruption;
-   LIVE supersede and TESTBED drain both property-tested; crash mid-audit → lock
-   released, job cleaned, R8 telemetry.
-4. **Law drift**: executor deletes/edits law in tree → flagged, auditor reads HEAD;
-   human uncommitted edit → pending-canon noted.
+2. ~~**Case-law lifecycle**~~ **REMOVED 2026-07-20** — no demands, no mechanical recheck, no
+   retire. Replaced by: **Grounding tier** — the no-LLM referential-gap detector catches
+   every trap fixture in `eval/confab/grounding` with zero false positives on honest twins,
+   and folds its flags into the verdict's warnings (warn-only, never blocks).
+3. **Audit scheduling**: concurrent turn-ends → one serialized chain; LIVE supersede and
+   TESTBED drain both property-tested; crash mid-audit → lock released, job cleaned, R8 telemetry.
+4. ~~**Law drift**~~ **REMOVED 2026-07-20** — there is no law file to drift.
 5. **Auditor resolution matrix**: all five installation states behave as specified
    (including `auditor_absent` with mechanical checks still running); verdicts
    tier-tagged; per-run model+temp pinning asserted.
@@ -242,10 +283,14 @@ measured grounds: claims can't be cheaply detected and ceremony kills adoption.
     version sync).
 
 ## 7. Measurement (the product IS these numbers)
-Per-verdict telemetry: `verdict_basis` (probe | receipt | standing-law | none),
-law-entry id, auditor tier, scheduling mode, latency, executor/auditor models, advisory
-outcome (was the warn followed?), **vague-turn rate** (R9). Precision per **law entry**
-(not coarse families) with Wilson bounds — the only path to blocking. Published testbed
+> **Amended 2026-07-20:** `verdict_basis` is now `probe | none` (the `standing-law` basis and
+> per-law-entry precision are removed with case law). The grounding tier's flags land in the
+> `caught` telemetry field via the verdict's warnings; its catch/false-positive rate is
+> measured by the `eval/confab/grounding` cell, not by telemetry. Blocking is not currently
+> earned by anything — everything is warn-only.
+
+Per-verdict telemetry: `verdict_basis`, auditor tier, scheduling mode, latency,
+executor/auditor models, advisory outcome (was the warn followed?), **vague-turn rate** (R9). Published testbed
 numbers: catch rate within-run, false-flag rate on labeled honest turns, demand quality
 (human veto rate), decay curves per executor model — segmented by mode and auditor tier.
 

@@ -100,13 +100,8 @@ describe.sequential("packed production surfaces", () => {
       }),
     });
     expect(result.exitCode).toBe(0);
-    // The installed hook prints the R7 standing-law state line (the fixture law
-    // has one runnable gate and no green run yet). Plain text is rejected by
-    // Codex's Stop contract, so it must arrive as the documented non-blocking
-    // systemMessage field — never bare stdout.
-    expect(JSON.parse(result.stdout)).toEqual({
-      systemMessage: "veritaserum: 1 standing check(s) unverified against current tree",
-    });
+    // The Stop hook is silent now (the auditor is stateless per turn — no standing
+    // law, no state line) and just enqueues the job.
     const files = readdirSync(qdir).filter((name) => name.includes("__") && name.endsWith(".json"));
     expect(files).toHaveLength(1);
     const job = JSON.parse(readFileSync(join(qdir, files[0]!), "utf8"));
@@ -203,63 +198,4 @@ describe.sequential("packed production surfaces", () => {
     });
     expect(result.exitCode).toBe(0);
   }, 60_000);
-
-  it("refuses the exact recursive demand captured in production before spawning it", async () => {
-    const repo = await initRepo("recursive-demand-repo");
-    const home = join(scratch, "recursive-demand-home");
-    const queueBase = join(scratch, "recursive-demand-queue");
-    const marker = join(scratch, "recursive-demand-child-ran");
-    const monitor = join(scratch, "recursive-demand-monitor.cjs");
-    const nestedCli = join(repo, "dist", "cli.js");
-    mkdirSync(home, { recursive: true });
-    writeFileSync(
-      monitor,
-      `const fs = require("node:fs"), path = require("node:path");\nif (path.resolve(process.argv[1] || "") === ${JSON.stringify(nestedCli)} && process.argv[2] === "demands") { fs.writeFileSync(${JSON.stringify(marker)}, String(process.pid)); process.exit(70); }\n`,
-    );
-    const demandDir = join(queueBase, repoKey(repo), "demands");
-    mkdirSync(demandDir, { recursive: true });
-    // This is the verbatim state-owned oracle that produced ~700 descendants in
-    // the live session. NODE_OPTIONS is only a safety tripwire: if a regression
-    // executes the nested command it records the exact PID and stops that child.
-    writeFileSync(
-      join(demandDir, "the-recorded-command-output-contains-four-lines-marked-unmet.cjs"),
-      `// veritaserum demand — a failing test IS the demand. It passes only when
-// the acceptance condition below is genuinely met.
-// origin-claim: Three auditor demands remained unmet.
-// gap: The recorded command output contains four lines marked unmet, so the reported count is false.
-// remedy: Recount the current demand results and report the exact unmet count and slugs.
-// accept: \`veritaserum demands\` exits normally and its output contains exactly three lines beginning with the unmet marker.
-// rung: oracle
-// authored: 2026-07-13T14:05:10.731Z
-const cp = require('node:child_process');
-const path = require('node:path');
-const root = process.cwd();
-const cli = path.join(root, 'dist', 'cli.js');
-const run = cp.spawnSync(process.execPath, [cli, 'demands'], { cwd: root, encoding: 'utf8' });
-if (run.error) {
-  console.error(run.error.message);
-  process.exit(1);
-}
-const output = \`${"${run.stdout || ''}"}\\n${"${run.stderr || ''}"}\`;
-const unmet = output.split(/\\r?\\n/).filter(line => line.trimStart().startsWith('✗ unmet'));
-if (run.status !== 0 || unmet.length !== 3) {
-  console.error(\`expected exactly 3 unmet demands and exit 0; got exit ${"${run.status}"}, unmet ${"${unmet.length}"}\`);
-  console.error(unmet.join('\\n'));
-  process.exit(1);
-}
-process.exit(0);
-`,
-    );
-    const started = Date.now();
-    const result = await execa(join(prefix, "bin", "veritaserum"), ["demands"], {
-      cwd: repo,
-      env: { HOME: home, VS_QUEUE_ROOT: queueBase, NODE_OPTIONS: `--require=${monitor}` },
-      timeout: 3_000,
-      reject: false,
-    });
-    expect(result.exitCode).toBe(0);
-    expect(Date.now() - started).toBeLessThan(3_000);
-    expect(result.stdout).toContain("✗ unmet");
-    expect(existsSync(marker)).toBe(false);
-  }, 30_000);
 });

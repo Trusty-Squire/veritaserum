@@ -11,14 +11,18 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { audit, type AuditJob } from "../src/auditor.js";
 import type { Auditor, AuditorTier } from "../src/resolve.js";
+import type { Embedder } from "../src/embed.js";
 import { loadFixtures, fixtureRepo, type Fixture } from "../eval/fixtures/types.js";
-import { demandsDir } from "../src/demands.js";
+
+/** No-op Embedder so the grounding tier fails open to zero flags (no ollama). */
+function nullEmbedder(): Embedder {
+  return { async embed(texts: string[]): Promise<number[][]> { return texts.map(() => []); } };
+}
 
 const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "eval", "fixtures");
 
@@ -209,7 +213,7 @@ describe("replay fixtures (SPEC §6.1) — 8 scenarios through the real pipeline
       const { dir, cleanup } = await fixtureRepo(f.repoSetup);
       cleanups.push(cleanup);
 
-      const v = await audit(job(dir, f), fakeAuditor(reply!));
+      const v = await audit(job(dir, f), fakeAuditor(reply!), nullEmbedder());
 
       // Parse: a well-formed reply never lands in verdict.error.
       expect(v.error).toBeUndefined();
@@ -222,18 +226,6 @@ describe("replay fixtures (SPEC §6.1) — 8 scenarios through the real pipeline
       if (f.expected.unaccountable) {
         expect(v.unaccountable).toBe(true);
         expect(v.claims).toEqual([]);
-      }
-      if (f.expected.demand) {
-        expect(v.demands.length).toBeGreaterThan(0);
-        const wantR = f.expected.demand.rung === undefined ? undefined : Array.isArray(f.expected.demand.rung) ? f.expected.demand.rung : [f.expected.demand.rung];
-        if (wantR) expect(v.demands.some((d) => wantR.includes(d.rung))).toBe(true);
-        if (f.expected.demand.descriptionContains) {
-          const dc = f.expected.demand.descriptionContains;
-          const needles = (Array.isArray(dc) ? dc : [dc]).map((s) => s.toLowerCase());
-          expect(v.demands.some((d) => needles.some((n) => `${d.gap} ${d.remedy} ${d.accept}`.toLowerCase().includes(n)))).toBe(true);
-        }
-        // Demand -> failing test in the STATE dir, never the repo (docs/DEMANDS.md phase 1).
-        expect(existsSync(demandsDir(dir))).toBe(true);
       }
       if (f.expected.warningContains) {
         const needle = f.expected.warningContains.toLowerCase();
