@@ -140,6 +140,14 @@ export class ClaudeCliClient implements LlmClient {
   }
 }
 
+/** Retry backoff (ms per retry). VS_OLLAMA_RETRY_BACKOFF_MS (comma-separated) overrides
+ *  it so the hermetic suite can force instant/no-sleep retries; unset → prod [2s, 8s]. */
+export function ollamaRetryBackoffMs(): number[] {
+  const raw = process.env.VS_OLLAMA_RETRY_BACKOFF_MS;
+  if (raw === undefined) return [2_000, 8_000];
+  return raw.split(",").map((s) => s.trim()).filter((s) => s !== "").map(Number);
+}
+
 /**
  * ollama — local HTTP, no auth, no metered spend. Used both as a testbed EXECUTOR
  * (goose + qwen2.5:3b/llama3.2:1b, SPEC §3) and, via VS_AUDITOR="ollama:<model>",
@@ -150,30 +158,71 @@ export class OllamaClient implements LlmClient {
   constructor(
     readonly model: string,
     private readonly baseUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434",
+    // Backoff before each retry (ms). One entry per retry → default = 2 retries
+    // (3 attempts). Injected by tests, or overridden process-wide via env so the
+    // hermetic suite (closed loopback port, test/setup.ts) fails instantly instead
+    // of sleeping ~10s per audit.
+    private readonly retryBackoffMs: number[] = ollamaRetryBackoffMs(),
   ) {}
   async complete(req: LlmRequest): Promise<string> {
-    const res = await fetch(`${this.baseUrl}/api/chat`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model: this.model,
-        stream: false,
-        // Constrain decoding to valid JSON. In src/ the only consumer is the auditor path
-        // (resolve.ts), which always expects a strict-JSON verdict; forcing `format:"json"`
-        // stops the model emitting code fences / prose (the parse-failure class seen when the
-        // audited turn's final message is itself JSON). eval/ scripts reimplement their own
-        // ollama fetch, so this class is auditor-only — unconditional is safe.
-        format: "json",
-        messages: [
-          ...(req.system ? [{ role: "system", content: req.system }] : []),
-          { role: "user", content: req.prompt },
-        ],
-      }),
-      signal: req.timeoutMs ? AbortSignal.timeout(req.timeoutMs) : undefined,
-    });
-    if (!res.ok) throw new Error(`ollama ${res.status}: ${await res.text()}`);
-    const data = (await res.json()) as { message?: { content?: string } };
-    return (data.message?.content ?? "").trim();
+    // Retry transient ollama failures. Prod telemetry (2026-07-21): 26/82 audits
+    // (32%) died with "fetch failed" — TCP-level rejections clustered in the busy
+    // hours when concurrent audits + embeds overwhelm ollama's request queue. The
+    // service is healthy; these are transient. The pinned auditor is free and has
+    // NO fallback (src/run-audit.ts), so one dropped connection loses the whole LLM
+    // tier for the turn. Retry ONLY the transient classes: a network-level fetch
+    // reject (TypeError "fetch failed", ECONNRESET/REFUSED) and HTTP 5xx (ollama
+    // returns 503 when its request queue is full). NEVER retry an abort (the
+    // per-attempt AbortSignal.timeout already fired — that budget is generous and a
+    // retry would just double it) or an HTTP 4xx (a real request problem no retry
+    // can fix). Backoff adds ~10s worst case — fine for a detached async audit.
+    const backoff = this.retryBackoffMs;
+    for (let attempt = 0; ; attempt++) {
+      const isLast = attempt >= backoff.length;
+      let res: Awaited<ReturnType<typeof fetch>>;
+      try {
+        res = await fetch(`${this.baseUrl}/api/chat`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: this.model,
+            stream: false,
+            // Constrain decoding to valid JSON. In src/ the only consumer is the auditor path
+            // (resolve.ts), which always expects a strict-JSON verdict; forcing `format:"json"`
+            // stops the model emitting code fences / prose (the parse-failure class seen when the
+            // audited turn's final message is itself JSON). eval/ scripts reimplement their own
+            // ollama fetch, so this class is auditor-only — unconditional is safe.
+            format: "json",
+            messages: [
+              ...(req.system ? [{ role: "system", content: req.system }] : []),
+              { role: "user", content: req.prompt },
+            ],
+          }),
+          // Fresh timeout per attempt; each retry gets the full per-attempt budget.
+          signal: req.timeoutMs ? AbortSignal.timeout(req.timeoutMs) : undefined,
+        });
+      } catch (err) {
+        // AbortSignal.timeout rejects with a "TimeoutError"; a manual abort an
+        // "AbortError". Never retried — rethrow unchanged.
+        if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) throw err;
+        if (isLast)
+          throw new Error(
+            `ollama fetch failed (${attempt + 1} attempts): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        await new Promise((r) => setTimeout(r, backoff[attempt]));
+        continue;
+      }
+      if (!res.ok) {
+        const text = await res.text();
+        if (res.status >= 500 && !isLast) {
+          await new Promise((r) => setTimeout(r, backoff[attempt]));
+          continue;
+        }
+        throw new Error(`ollama ${res.status} (${attempt + 1} attempts): ${text}`);
+      }
+      const data = (await res.json()) as { message?: { content?: string } };
+      return (data.message?.content ?? "").trim();
+    }
   }
 }
 

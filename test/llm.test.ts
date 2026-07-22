@@ -53,3 +53,82 @@ describe("OllamaClient — forces JSON-constrained decoding", () => {
     expect((capturedBody as { format?: string }).format).toBe("json");
   });
 });
+
+/**
+ * FIX (2026-07-22): prod telemetry showed 26/82 audits (32%) dying with "fetch failed" —
+ * transient TCP rejections when concurrent audits + embeds overwhelm ollama's request
+ * queue. The pinned auditor is free and has no fallback, so a dropped connection loses
+ * the whole LLM tier for the turn. complete() now retries the transient classes
+ * (network-level fetch reject, HTTP 5xx) but NOT aborts (timeout already fired) or 4xx.
+ * Backoff is injected as [0,0] so these stay fast.
+ */
+describe("OllamaClient — retries only transient failures", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  const ok = (content: string) => ({ ok: true, status: 200, json: async () => ({ message: { content } }) });
+  const httpErr = (status: number) => ({ ok: false, status, text: async () => `err ${status}` });
+  const client = () => new OllamaClient("m", undefined, [0, 0]);
+
+  it("network failure once, then succeeds → returns result, exactly 2 fetch calls", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      if (calls === 1) throw new TypeError("fetch failed");
+      return ok('{"claims":[]}');
+    }) as unknown as typeof fetch;
+
+    const out = await client().complete({ prompt: "x" });
+    expect(out).toBe('{"claims":[]}');
+    expect(calls).toBe(2);
+  });
+
+  it("HTTP 503 once, then succeeds → retried (2 fetch calls)", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return calls === 1 ? httpErr(503) : ok('{"ok":1}');
+    }) as unknown as typeof fetch;
+
+    const out = await client().complete({ prompt: "x" });
+    expect(out).toBe('{"ok":1}');
+    expect(calls).toBe(2);
+  });
+
+  it("HTTP 400 → NOT retried (1 call, throws)", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return httpErr(400);
+    }) as unknown as typeof fetch;
+
+    await expect(client().complete({ prompt: "x" })).rejects.toThrow(/400/);
+    expect(calls).toBe(1);
+  });
+
+  it("abort/timeout → NOT retried (1 call, throws)", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      const e = new Error("The operation timed out");
+      e.name = "TimeoutError";
+      throw e;
+    }) as unknown as typeof fetch;
+
+    await expect(client().complete({ prompt: "x", timeoutMs: 10 })).rejects.toThrow(/timed out/);
+    expect(calls).toBe(1);
+  });
+
+  it("exhausts retries → error names the attempt count", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      throw new TypeError("fetch failed");
+    }) as unknown as typeof fetch;
+
+    await expect(client().complete({ prompt: "x" })).rejects.toThrow(/3 attempts/);
+    expect(calls).toBe(3);
+  });
+});

@@ -11,3 +11,9 @@
  * (`pnpm tsx eval/confab/grounding/run.ts`), neither of which reads this env.
  */
 process.env.OLLAMA_HOST = "http://127.0.0.1:1";
+
+// The ollama clients (src/llm.ts, src/embed.ts) retry transient failures with a
+// ~2s/8s backoff in prod. Against the closed port above every attempt fails, so
+// keep the retries but strip the sleeps — otherwise every audit's grounding embed
+// would stall ~10s and the multi-fixture confab runners blow their test timeout.
+process.env.VS_OLLAMA_RETRY_BACKOFF_MS = "0,0";
