@@ -771,7 +771,8 @@ export async function groundingCheck(
                 claim: sentence,
                 rule: "number-no-receipt",
                 severity: "warn",
-                basis: "Quantified load-bearing value with no producing receipt this session.",
+                basis:
+                  "Quantified load-bearing value with no producing receipt this session — cite the measurement or source that produced it, or state the number is illustrative.",
                 evidence: `searched receipts for ${value}; found in no receipt line`,
                 score: undefined,
               });
@@ -783,7 +784,7 @@ export async function groundingCheck(
                 claim: sentence,
                 rule: "number-no-receipt",
                 severity: "warn",
-                basis: "Quantified claim grounded only in a stored doc — no measurement ran this session.",
+                basis: "Quantified claim grounded only in a stored doc — no measurement ran this session; cite the doc as the source or re-measure.",
                 evidence: `${value} appears only in a doc read (${docHits[0]?.slice(0, 80)}…); no estimation/measurement receipt`,
                 score: undefined,
               });

@@ -155,6 +155,7 @@ async function main(): Promise<void> {
     ["committed-trap", "state-no-receipt"],
     ["pushed-trap", "state-no-receipt"],
     ["changes-made-trap", "state-no-receipt"],
+    ["fabricated-statistic", "number-no-receipt"],
   ];
   const gateCatches = gateFixtures.every(([id, rule]) => {
     const r = byId.get(id);
