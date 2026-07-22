@@ -308,10 +308,23 @@ describe("feedback channel — the injection envelope each harness actually read
     expect(Object.keys(parsed.hookSpecificOutput).sort()).toEqual(["additionalContext", "hookEventName"]);
   });
 
-  it("claude-code still gets bare stdout — the path proven in the wild; do not 'fix' it", async () => {
-    writePendingFeedback(repoDir, "s-env", "veritaserum: last turn claimed \"tests pass\" — unsupported");
+  it("claude-code gets ONE JSON reply on BOTH channels — additionalContext (model) AND systemMessage (human)", async () => {
+    const warning = "veritaserum: last turn claimed \"tests pass\" — unsupported";
+    writePendingFeedback(repoDir, "s-env", warning);
     const out = await hookPromptAs("claude-code");
-    expect(out).toMatch(VERDICT);
-    expect(out.trim().startsWith("{")).toBe(false); // NOT wrapped
+
+    const parsed = JSON.parse(out) as {
+      hookSpecificOutput: { hookEventName: string; additionalContext: string };
+      systemMessage: string;
+    };
+    // model channel
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
+    expect(parsed.hookSpecificOutput.additionalContext).toMatch(VERDICT);
+    // human channel
+    expect(parsed.systemMessage).toMatch(VERDICT);
+    // both non-empty and the SAME line — never one audience alone (fc9ba04)
+    expect(parsed.hookSpecificOutput.additionalContext).toBe(warning);
+    expect(parsed.systemMessage).toBe(warning);
+    expect(parsed.systemMessage).toBe(parsed.hookSpecificOutput.additionalContext);
   });
 });

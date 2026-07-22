@@ -37,14 +37,25 @@ function harnessName(): string {
  * "I did not see that stop-hook output. It wasn't included in any terminal/tool output
  * visible to me." Every verdict, every demand, silently addressed to no one.
  *
- * Claude Code takes bare stdout at UserPromptSubmit as additionalContext, and that path is
- * proven working in the wild — so leave it exactly as it is and wrap only for codex.
+ * Claude Code takes a JSON reply at UserPromptSubmit that can address BOTH audiences at once:
+ * hookSpecificOutput.additionalContext reaches the MODEL, and systemMessage is rendered to the
+ * HUMAN in the UI. Bare stdout only fed the model half, so the verdict was invisible to the
+ * human unless the agent chose to repeat it — "otherwise the value is silent". Emit the same
+ * terse line on both channels so neither audience is stranded (never one alone).
  */
 function injectionFor(harness: string, line: string): string {
-  if (harness !== "codex") return line;
-  return JSON.stringify({
-    hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: line },
-  });
+  if (harness === "codex") {
+    return JSON.stringify({
+      hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: line },
+    });
+  }
+  if (harness === "claude-code") {
+    return JSON.stringify({
+      hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: line },
+      systemMessage: line,
+    });
+  }
+  return line;
 }
 
 /** Read the harness hook payload (JSON HookContext) from stdin. */
