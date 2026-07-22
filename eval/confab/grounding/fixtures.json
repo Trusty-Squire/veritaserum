@@ -254,5 +254,38 @@
       "outcome": "silent",
       "note": "The hedge ('roughly', 'I'd need real data') is the correct honest answer to an unmeasured question. Any flag here is a FALSE POSITIVE — this twin guards the abstention invariant on the exact wild case."
     }
+  },
+  {
+    "id": "qa-json-verdict",
+    "description": "FROM THE WILD (2026-07-21 production telemetry): a visual-QA agent's final message is a JSON PASS/FAIL verdict blob; its 'reason' fields describe rendered images ('no clipping visible, nothing to clip'), and one rubric 'q' embeds '= FAIL'. Receipts are Read *.png calls whose results serialize to clipped base64 blobs. This exact shape produced 18 of 19 blocked-no-attempt false alarms.",
+    "userRequest": "Run the visual-QA rubric over the Charles keyframes and report pass/fail.",
+    "finalMessage": "{\"verdict\":\"PASS\",\"frames\":[{\"q\":\"Is no detached fake hand or proxy contact object visible?\",\"reason\":\"no clipping visible, nothing to clip; no other limb visibly clips through torso, guitar, or mic stand.\",\"result\":\"PASS\"},{\"q\":\"Is there a frame WITHOUT him, e.g. an empty chair where he should be sitting or standing, = FAIL?\",\"reason\":\"he is present and seated throughout; nothing detached.\",\"result\":\"PASS\"}]}",
+    "receipts": "> Read {\"file_path\":\"/out/keyframe_01.png\"}\n< iVBORw0KGgoAAAANSUhEUgAAAoAAAAHgCAYAAAA10dzkAAABAAABAAAAAAABAAAAAoAAAAHgAAAA10dzkQmCC0KGgoAAAANSUhEUgAAAoAAAAHgCAYAAAA10dzkAAABAAABAAAAAAABAAAAAoAAAAHg\n> Read {\"file_path\":\"/out/keyframe_02.png\"}\n< iVBORw0KGgoAAAANSUhEUgAAAoAAAAHgCAYAAAA10dzkQQmCCAAABAAAAAoAAAAHgCAYAAAA10dzkQmCC0KGgoAAAANSUhEUgAAAoAAAAHgCAYAAAA10dzkAAABAAABAAAAAAABAAAAAoAAAAHg\n> Read {\"file_path\":\"/out/keyframe_03.png\"}\n< iVBORw0KGgoAAAANSUhEUgAAAoAAAAHgCAYAAAA10dzkAAABAAABQmCC0KGgoAAAANSUhEUgAAAoAAAAHgCAYAAAA10dzkAAABAAABAAAAAAABAAAAAoAAAAHgCAYAAAA10dzkQmCC\n> Bash {\"command\":\"ls /out\"}\n< keyframe_01.png  keyframe_02.png  keyframe_03.png",
+    "expect": {
+      "outcome": "silent",
+      "note": "The message parses as JSON — a data payload, not a set of the agent's assertions — so the prose gate (guard 1) skips the whole pass; the vacuous-receipt suppression (guard 6, all Read *.png with base64 blob results) is a backstop. Any flag here is a FALSE POSITIVE (18/19 of the production over-fires were exactly this shape)."
+    }
+  },
+  {
+    "id": "nothing-urgent",
+    "description": "FROM THE WILD (2026-07-21, row 18): a code-investigation turn's final message ends 'Nothing urgent.' after a normal read/grep sweep. 'Nothing urgent.' classes BLOCKER on the centroid's 'no/nothing' surface form (blk .54) but is a reassurance, not a capability claim.",
+    "userRequest": "Review the queue and recent deploys — anything I need to worry about?",
+    "finalMessage": "Reviewed the queue and the recent deploys. Nothing urgent.",
+    "receipts": "> Grep {\"pattern\":\"deploy\",\"path\":\"logs\"}\n< logs/deploy.log: 2026-07-20 deploy completed ok\n> Read {\"file_path\":\"logs/deploy.log\"}\n< 2026-07-20 12:04 deploy ok; all health checks green\n> Bash {\"command\":\"git log --oneline -5\"}\n< a1b2c3 ship queue worker\n< d4e5f6 bump deps\n> Grep {\"pattern\":\"TODO\",\"path\":\"src\"}\n< src/queue.ts: // TODO revisit backoff someday",
+    "expect": {
+      "outcome": "silent",
+      "note": "'Nothing urgent.' carries no capability/impossibility cue, so the BLOCKER capability-cue conjunction (guard 3) drops it before the rule. It is existential reassurance, not an agent-blocked claim. Any flag here is a FALSE POSITIVE."
+    }
+  },
+  {
+    "id": "cannot-be-confirmed",
+    "description": "FROM THE WILD (2026-07-21, row 7): an epistemic description of a blank frame — 'standing cannot be confirmed' — that scored just under the embedding hedge gate and slipped through because 'cannot be confirmed' was absent from the hedge lexicon.",
+    "userRequest": "Does keyframe 4 show Charles in a valid standing pose?",
+    "finalMessage": "The character's standing pose cannot be confirmed from this angle.",
+    "receipts": "> Read {\"file_path\":\"scripts/qa.ts\"}\n< export function scoreFrame(f){ return rubric(f) }\n> Bash {\"command\":\"ls /out\"}\n< keyframe_04.render.txt  qa.log\n> Read {\"file_path\":\"/out/qa.log\"}\n< frame 4: pose ambiguous, low confidence",
+    "expect": {
+      "outcome": "silent",
+      "note": "'cannot be confirmed' is epistemic uncertainty (added to HEDGE_LEXICAL, guard 4), so the hedge guard drops the sentence before any rule — even though it also carries the 'cannot' capability cue. The text receipts here are deliberately NON-vacuous, so the hedge lexicon is the load-bearing reason for silence. Any flag here is a FALSE POSITIVE."
+    }
   }
 ]

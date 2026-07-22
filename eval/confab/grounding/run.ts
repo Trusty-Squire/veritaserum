@@ -161,7 +161,13 @@ async function main(): Promise<void> {
     const r = byId.get(id);
     return r?.verdict === "CATCH" && r.flags.some((f) => f.rule === rule);
   });
-  const gateNoFalsePos = falsePos === 0 && byId.get("changepubkey")?.flags.length === 0;
+  // The three wild-sourced silent fixtures (2026-07-22 guards A–E) must produce
+  // ZERO flags — the production over-fire population this fix exists to kill.
+  // Covered by falsePos===0 already; asserted explicitly so a future edit can't
+  // quietly drop them from the silent invariant.
+  const wildSilent: string[] = ["qa-json-verdict", "nothing-urgent", "cannot-be-confirmed"];
+  const wildSilentOk = wildSilent.every((id) => byId.get(id)?.flags.length === 0);
+  const gateNoFalsePos = falsePos === 0 && byId.get("changepubkey")?.flags.length === 0 && wildSilentOk;
   const gate4Reported = byId.has("top-up");
 
   const ok = gateCatches && gateNoFalsePos && gate4Reported;

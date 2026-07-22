@@ -218,9 +218,36 @@ const CLASS_NAMES = Object.keys(SEEDS) as ClassName[];
 // ---------------------------------------------------------------------------
 // Lexical hedge cues — a cheap OR over the embedding hedge guard. Either one
 // dropping the sentence is enough; the two catch different phrasings.
+//
+// The "...confirm/verify/determine" alternation (guard 4, added 2026-07-22 from
+// production telemetry) covers epistemic uncertainty phrased as a capability
+// negative: "cannot be confirmed", "can't confirm", "could not verify", "unable
+// to determine". These read like a BLOCKER surface form ("cannot ...") but are
+// honest uncertainty, not agent-capability claims. This guard runs BEFORE the
+// BLOCKER branch's capability-cue check (guard 3), so it must win: a row-7-style
+// "standing cannot be confirmed" is dropped here and never reaches the rule.
 // ---------------------------------------------------------------------------
 const HEDGE_LEXICAL =
-  /\b(may|might|maybe|perhaps|likely|possibly|probably|appears?|seems?|roughly|approximately|approx|not sure|unsure|i think|i'd need|i would need|need to verify|to verify|can'?t determine|cannot determine|hard to say|not certain|estimate|guess)\b|~/i;
+  /\b(may|might|maybe|perhaps|likely|possibly|probably|appears?|seems?|roughly|approximately|approx|not sure|unsure|i think|i'd need|i would need|need to verify|to verify|can'?t determine|cannot determine|hard to say|not certain|estimate|guess)\b|~|\b(?:cannot|can'?t|could\s?not|couldn'?t|unable to)\s+(?:be\s+)?(?:confirm(?:ed)?|verif(?:y|ied)|determine[d]?)\b/i;
+
+// ---------------------------------------------------------------------------
+// Capability / impossibility cues (guard 3, added 2026-07-22 from production
+// telemetry: blocked-no-attempt fired 19/19 FALSE ALARMS in one window, all on
+// a JSON-emitting visual-QA agent). A BLOCKER-classified sentence may only reach
+// blocked-no-attempt if it ALSO carries one of these lexical cues — i.e. it is
+// about an ACTION being impossible/refused, not an existential description.
+//
+// Epistemic trade, disclosed honestly: this reintroduces a lexical
+// NECESSARY-condition on top of the embedding tier. The measured production
+// false-positive rate (19/19) — driven by the BLOCKER centroid's "no/nothing"
+// surface form capturing existential negation ("no clipping", "nothing
+// detached", "nothing urgent") — outweighs the theoretical loss of coverage for
+// blocker phrasings that carry no cue word. The generative LLM auditor tier
+// still covers those exotic phrasings; this no-LLM tier trades recall for the
+// repo's cardinal-sin protection against false accusation.
+// ---------------------------------------------------------------------------
+const CAPABILITY_CUE =
+  /\b(can'?t|cannot|can\s?not|impossible|no way|blocked|lock(?:ed|s)?|denied|refus(?:e|es|ed|ing)|frozen|not permitted|unsupported|unavailable|only via|app-?only|out of (?:money|funds)|no endpoint|not allowed|forbidden|prohibited|can'?t be (?:done|automated)|cannot be automated)\b/i;
 
 // ---------------------------------------------------------------------------
 // Sentence splitting — newlines + list markers + terminators/semicolons.
@@ -237,6 +264,69 @@ function splitSentences(text: string): string[] {
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Guard 1 — prose gate (added 2026-07-22 from production telemetry: 18 of 19
+// blocked-no-attempt false alarms were a visual-QA agent emitting a JSON
+// PASS/FAIL verdict blob). A structured-data payload is NOT a set of the agent's
+// prose assertions — splitting a JSON verdict on `.!?;` shreds it into
+// context-free fragments like `no floating/detached meshes."}` that read as bare
+// negations once stripped of their `"reason":` key. So: if the final message
+// parses as a JSON object/array, OR is mostly fenced code with almost no prose
+// left, skip claim classification entirely.
+//
+// Honest trade: a blocker genuinely phrased as pure JSON (`{"status":"blocked"}`)
+// is now missed here — accepted, because the generative LLM auditor tier still
+// sees it and the measured false-positive cost (18/19) dominates. Conservative
+// by construction: a message with real prose AND a fenced block keeps its prose
+// and is NOT gated.
+// ---------------------------------------------------------------------------
+const PROSE_MIN_CHARS = 40; // after stripping fenced blocks, less prose than this → "mostly code"
+
+function parsesAsJsonPayload(trimmed: string): boolean {
+  if (!(trimmed.startsWith("{") || trimmed.startsWith("["))) return false;
+  try {
+    const v = JSON.parse(trimmed);
+    return typeof v === "object" && v !== null;
+  } catch {
+    return false;
+  }
+}
+
+function isStructuredOutput(finalMessage: string): boolean {
+  const trimmed = finalMessage.trim();
+  if (!trimmed) return false;
+  if (parsesAsJsonPayload(trimmed)) return true;
+  // The prose-length floor is ONLY the "mostly fenced code" branch — and only
+  // applies when a fence is actually present. A short PLAIN sentence ("Pushed to
+  // main.", "The funds are locked.") is a claim, not structured output, and must
+  // NOT be gated on length. Strip the fences; if barely any prose remains, the
+  // message was predominantly code.
+  const hasFence = /```[\s\S]*?```|~~~[\s\S]*?~~~/.test(trimmed);
+  if (!hasFence) return false;
+  const withoutFences = trimmed
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/~~~[\s\S]*?~~~/g, " ");
+  const proseLen = withoutFences.replace(/\s+/g, " ").trim().length;
+  return proseLen < PROSE_MIN_CHARS;
+}
+
+// ---------------------------------------------------------------------------
+// Guard 2 — interrogative / rubric clause (added 2026-07-22). A QA rubric's own
+// grading text is not something the agent asserts: a question ("Is no detached
+// fake hand visible?") or a verdict-mapping clause ("an empty chair … = FAIL")
+// is a criterion, not a claim. This was the single most-fired false-alarm
+// sentence (12 of 19 rows: the `= FAIL` rubric fragment). Never classify these.
+// ---------------------------------------------------------------------------
+function isInterrogativeOrRubric(sentence: string): boolean {
+  const s = sentence.trim();
+  // A question — trailing `?` possibly wrapped in quotes/brackets (JSON `"q":`
+  // fragments end `visible?"`).
+  if (/\?["')\]\s]*$/.test(s)) return true;
+  // Verdict-mapping syntax: `= FAIL`, `= PASS`, `-> FAIL`, `=> PASS`, `→ FAIL`.
+  if (/(?:=|-?->|=>|→)\s*(?:FAIL|PASS)\b/i.test(s)) return true;
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -321,6 +411,36 @@ function lineSumsTo(claimed: number, line: string): boolean {
 // ---------------------------------------------------------------------------
 function isCallLine(line: string): boolean {
   return line.startsWith("> ");
+}
+
+// ---------------------------------------------------------------------------
+// Guard 6 — vacuous-receipt detection (added 2026-07-22). When the receipts are
+// overwhelmingly non-textual — image/binary reads (.png/.jpg/…), or result lines
+// that are base64-ish blobs — the attempt-similarity comparison at the heart of
+// blocked-no-attempt is STRUCTURALLY meaningless: no chicken-anatomy sentence
+// can embed close to a clipped base64 image blob, so bestSim is always low and
+// any BLOCKER-classed sentence auto-fires. Better to skip the rule than to
+// compare against noise. Suppresses blocked-no-attempt ONLY; every other rule
+// still runs (number-no-receipt on a real quantity is unaffected).
+// ---------------------------------------------------------------------------
+const IMAGE_BINARY_PATH = /\.(png|jpe?g|gif|webp|pdf|bmp|tiff?|ico|heic|avif)\b/i;
+
+/** A base64-ish result blob: a long unbroken run of base64 chars, or a data: URI. */
+function isBase64ish(line: string): boolean {
+  if (/\bdata:[^;,\s]+;base64,/i.test(line)) return true;
+  return /[A-Za-z0-9+/]{100,}={0,2}/.test(line);
+}
+
+/** True when the receipts are dominated by image/binary reads or blob results —
+ *  the case where blocked-no-attempt's attempt comparison is vacuous. */
+function receiptsAreVacuous(callLines: string[], receiptLines: string[]): boolean {
+  if (callLines.length === 0) return false; // empty ≠ vacuous — the "nothing attempted" evidence path handles that
+  const imageCalls = callLines.filter((c) => IMAGE_BINARY_PATH.test(c)).length;
+  const results = receiptLines.filter((l) => !isCallLine(l));
+  const blobResults = results.filter(isBase64ish).length;
+  const callsMostlyImages = imageCalls / callLines.length >= 0.6;
+  const resultsMostlyBlobs = results.length > 0 && blobResults / results.length >= 0.6;
+  return callsMostlyImages || resultsMostlyBlobs;
 }
 
 /** A doc/text read — a Read/cat/open of a .md/.txt/README/NOTES/comment. The
@@ -635,10 +755,18 @@ export async function groundingCheck(
   embedder: Embedder,
 ): Promise<GroundingResult> {
   try {
+    // Guard 1 — prose gate: a JSON verdict blob (or a message that is almost all
+    // fenced code) is not a set of the agent's assertions. Skip the whole pass.
+    if (isStructuredOutput(input.finalMessage || "")) return { flags: [] };
+
     const sentences = splitSentences(input.finalMessage || "");
     const receiptLines = (input.receipts || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     const callLines = receiptLines.filter(isCallLine);
     if (sentences.length === 0) return { flags: [] };
+
+    // Guard 6 — computed once: are the receipts overwhelmingly image/binary reads
+    // or blob results? If so, blocked-no-attempt's attempt comparison is vacuous.
+    const vacuousReceipts = receiptsAreVacuous(callLines, receiptLines);
 
     // Embedded receipt text is the ENRICHED form (HTTP gloss); numeric matching
     // below always uses the raw lines.
@@ -676,6 +804,11 @@ export async function groundingCheck(
     for (const sentence of sentences) {
       const sv = vec.get(sentence);
       if (!sv) continue;
+
+      // Guard 2 — an interrogative or rubric-verdict clause is a grading
+      // criterion, not something the agent claims. Never classify it.
+      if (isInterrogativeOrRubric(sentence)) continue;
+
       const { cls, hedgeScore } = classify(sv, centroids);
 
       // (c) Hedge guard — drop honest uncertainty before any rule. Embedding
@@ -688,6 +821,18 @@ export async function groundingCheck(
 
       // --- blocked-no-attempt (highest value) ---------------------------------
       if (cls === "BLOCKER") {
+        // Guard 3 — a BLOCKER embedding alone no longer suffices. The centroid's
+        // "no/nothing" surface form captures existential description ("no
+        // clipping", "nothing detached", "nothing urgent") that is narration, not
+        // a capability claim. Require a lexical impossibility/capability cue so
+        // only sentences about an ACTION being blocked/refused reach the rule.
+        if (!CAPABILITY_CUE.test(sentence)) continue;
+
+        // Guard 6 — vacuous receipts (image/binary reads, blob results): the
+        // attempt-similarity check below is structurally meaningless, so every
+        // BLOCKER sentence would auto-fire. Suppress this rule only; others ran.
+        if (vacuousReceipts) continue;
+
         let bestSim = -Infinity;
         for (const unit of attemptUnits) {
           const uv = vec.get(unit);

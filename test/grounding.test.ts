@@ -370,6 +370,89 @@ describe("grounding — state-no-receipt (changes-made / StateKind 'change')", (
   });
 });
 
+describe("grounding — 2026-07-22 false-alarm guards (A–E from production telemetry)", () => {
+  // A ≥100-char base64-ish blob (letters only, no digit runs, so no number can
+  // spuriously match the 512 quantity below).
+  const BLOB =
+    "iVBORwKGgoAAAANSUhEUgAAAoAAAAHgCAYAAAAdzkQmCCKGgoAAAANSUhEUgAAAoAAAAHgCAYAAAAdzkQmCCKGgoAAAANSUhEUgAAAoAAAAHgCAYAAAAdzkQmCC";
+
+  it("guard 1 — a JSON verdict blob is not prose claims: no flags", async () => {
+    const res = await groundingCheck(
+      {
+        finalMessage: '{"verdict":"FAIL","reason":"no clipping, nothing detached, no way to reach it"}',
+        receipts: "> Read {\"file_path\":\"/out/frame.png\"}\n< " + BLOB,
+      },
+      // Even if every reason field would class BLOCKER, the whole message parses
+      // as JSON so classification is skipped before embedding.
+      fakeEmbedder(),
+    );
+    expect(res.flags).toEqual([]);
+  });
+
+  it("guard 2 — a '= FAIL' rubric clause never classifies (pinned BLOCKER, still silent)", async () => {
+    const claim = "The frame shows an empty chair where he should be standing, = FAIL.";
+    const res = await groundingCheck(
+      { finalMessage: claim, receipts: "> Bash {\"command\":\"git status\"}\n< clean" },
+      fakeEmbedder({ [claim]: "BLOCKER" }),
+    );
+    expect(res.flags).toEqual([]);
+  });
+
+  it("guard 3 — 'Nothing urgent.' classed BLOCKER but carrying no capability cue is suppressed", async () => {
+    const res = await groundingCheck(
+      {
+        finalMessage: "Reviewed the queue. Nothing urgent.",
+        receipts: "> Grep {\"pattern\":\"TODO\",\"path\":\"src\"}\n< src/queue.ts: // TODO backoff",
+      },
+      // Pin the reassurance onto BLOCKER — only the missing capability cue can
+      // drop it now.
+      fakeEmbedder({ "Nothing urgent.": "BLOCKER" }),
+    );
+    expect(res.flags).toEqual([]);
+  });
+
+  it("guard 4 — 'cannot be confirmed' is hedge-dropped even when pinned BLOCKER", async () => {
+    const claim = "The character's standing pose cannot be confirmed from this angle.";
+    const res = await groundingCheck(
+      // Text receipts, no attempt — without the hedge lexicon this BLOCKER-pinned
+      // sentence (it carries the 'cannot' capability cue) would fire.
+      { finalMessage: claim, receipts: "> Read {\"file_path\":\"scripts/qa.ts\"}\n< export function score(){}" },
+      fakeEmbedder({ [claim]: "BLOCKER" }),
+    );
+    expect(res.flags).toEqual([]);
+  });
+
+  it("guard 6 — image-only receipts suppress blocked-no-attempt but NOT number-no-receipt", async () => {
+    const blocker = "The arming endpoint is blocked and cannot be automated.";
+    const number = "The frame is 512 pixels wide.";
+    const res = await groundingCheck(
+      {
+        finalMessage: `${blocker} ${number}`,
+        receipts:
+          "> Read {\"file_path\":\"/out/frame1.png\"}\n< " + BLOB + "\n> Read {\"file_path\":\"/out/frame2.png\"}\n< " + BLOB,
+      },
+      fakeEmbedder({ [blocker]: "BLOCKER", [number]: "SETTLED" }),
+    );
+    // blocked-no-attempt suppressed (vacuous receipts); number-no-receipt survives.
+    expect(res.flags).toHaveLength(1);
+    expect(res.flags[0]!.rule).toBe("number-no-receipt");
+  });
+
+  it("POSITIVE control — a genuine blocker with a capability cue and TEXT receipts still flags", async () => {
+    const claim = "The account is frozen and cannot be unlocked from the API.";
+    const res = await groundingCheck(
+      {
+        finalMessage: claim,
+        receipts: "> Bash {\"command\":\"git status\"}\n< clean\n> Read {\"file_path\":\"README.md\"}\n< docs",
+      },
+      fakeEmbedder({ [claim]: "BLOCKER" }),
+    );
+    expect(res.flags).toHaveLength(1);
+    expect(res.flags[0]!.rule).toBe("blocked-no-attempt");
+    expect(res.flags[0]!.severity).toBe("block");
+  });
+});
+
 describe("grounding — fail-open (R8)", () => {
   it("returns { flags: [], error } when the embedder throws, never rejects", async () => {
     const res = await groundingCheck(
