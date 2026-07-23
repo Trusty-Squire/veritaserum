@@ -37,43 +37,39 @@ function harnessName(): string {
  * "I did not see that stop-hook output. It wasn't included in any terminal/tool output
  * visible to me." Every verdict, every demand, silently addressed to no one.
  *
- * Claude Code takes a JSON reply at UserPromptSubmit that can address BOTH audiences at once:
- * hookSpecificOutput.additionalContext reaches the MODEL, and systemMessage is rendered to the
- * HUMAN in the UI. Bare stdout only fed the model half, so the verdict was invisible to the
- * human unless the agent chose to repeat it — "otherwise the value is silent". Emit the same
- * terse line on both channels so neither audience is stranded (never one alone).
+ * The AGENT'S REPLY is the only channel proven to reach the human on every surface. A
+ * controlled canary (twice) showed additionalContext reliably reaches the MODEL, but
+ * Claude Code's systemMessage does NOT render on the human's main chat surface — per the
+ * docs it lands in the ctrl+r transcript view, which nobody watches (the owner saw nothing
+ * across two deliveries and 18h of production). So we make the agent the display: the model
+ * channel carries the verdict PLUS a directive telling the agent to surface the verdict line
+ * verbatim at the top of its reply. systemMessage is KEPT (it still renders in the transcript
+ * view, and future clients may surface it) but PLAIN — rendering there is transcript-raw at
+ * best, so ANSI escapes are garbage. The directive lives in the model CONTEXT only: never in
+ * systemMessage, telemetry, the dedupe store, or the delivered-warning ledger (that ledger
+ * keeps the bare verdict line so the advisory-outcome audit quotes the right thing).
  */
+const SHOW_DIRECTIVE = "\nShow the line above to the user verbatim at the top of your reply, then address it.";
+
 function injectionFor(harness: string, line: string): string {
   if (harness === "codex") {
     return JSON.stringify({
-      hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: line },
+      hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: line + SHOW_DIRECTIVE },
     });
   }
   if (harness === "claude-code") {
-    // Human channel (systemMessage) gets visibility treatment; the MODEL channel
-    // (additionalContext) stays PLAIN — escape codes are noise to the model.
-    //
-    // "⚠️ " marks the line in EVERY renderer, escapes or none. Whether Claude
-    // Code renders ANSI in systemMessage is EMPIRICALLY UNVERIFIED, so the design
-    // never leans on color: strip the escapes and the emoji + plain text still
-    // reads. NO_COLOR / VS_NO_COLOR → emoji marker only, no escapes.
-    //
-    // Severity color: red when the delivered line carries a contradicted verdict
-    // (matched on auditor.ts's own stable phrase), else warn-yellow. Structured
-    // severity is NOT available here — hook-prompt injects a line read back from
-    // the pending-feedback file, with no verdict object — so this is a lexical
-    // inference. It catches the contradicted case reliably; a block-severity
-    // GROUNDING flag is indistinguishable from a warn one at this boundary and
-    // honestly degrades to yellow.
-    const marked = `⚠️ ${line}`;
-    const severe = /the evidence contradicts your claim/.test(line);
-    const systemMessage = style.channelColorEnabled() ? style.emphasize(marked, severe ? "red" : "yellow") : marked;
+    // Model channel (additionalContext): the verdict + a directive to surface it
+    // in the reply — the reply is the only surface the human reliably sees.
+    // Human channel (systemMessage): PLAIN "⚠️ <verdict>" — no ANSI (transcript-raw
+    // rendering makes escapes garbage), no directive (that's model-only guidance).
+    // "⚠️ " marks the line in every renderer.
     return JSON.stringify({
-      hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: line },
-      systemMessage,
+      hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: line + SHOW_DIRECTIVE },
+      systemMessage: `⚠️ ${line}`,
     });
   }
-  return line;
+  // goose/unknown: bare stdout reaches the model too — append the directive there.
+  return line + SHOW_DIRECTIVE;
 }
 
 /** Read the harness hook payload (JSON HookContext) from stdin. */

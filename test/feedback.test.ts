@@ -21,7 +21,7 @@ import { join } from "node:path";
 import { execa } from "execa";
 import { tempRepo } from "./helpers.js";
 import { runAudit } from "../src/run-audit.js";
-import { pendingFeedbackPath, takePendingFeedback, writePendingFeedback, type AuditJob } from "../src/audit-runner.js";
+import { pendingFeedbackPath, takePendingFeedback, writePendingFeedback, takeDeliveredWarnings, type AuditJob } from "../src/audit-runner.js";
 import { readFirings } from "../src/telemetry.js";
 
 const CLI = new URL("../src/cli.ts", import.meta.url).pathname;
@@ -285,16 +285,8 @@ describe("feedback channel — injection (cli.ts hook-prompt)", () => {
  * visible to me." Every verdict and demand was addressed to no one.
  */
 describe("feedback channel — the injection envelope each harness actually reads", () => {
-  const VERDICT = /veritaserum:/;
-
-  async function hookPromptAs(harness: string, extraEnv: Record<string, string> = {}): Promise<string> {
-    // Start from a color-CLEAN env so an inherited NO_COLOR can't silently make
-    // the styled assertions pass for the wrong reason; a test opts INTO stripping
-    // via extraEnv.
+  async function hookPromptAs(harness: string): Promise<string> {
     const env: NodeJS.ProcessEnv = { ...process.env, VS_HARNESS: harness };
-    delete env.NO_COLOR;
-    delete env.VS_NO_COLOR;
-    Object.assign(env, extraEnv);
     const r = await execa(RUNNER, [CLI, "hook-prompt"], {
       cwd: repoDir,
       input: JSON.stringify({ cwd: repoDir }),
@@ -307,9 +299,12 @@ describe("feedback channel — the injection envelope each harness actually read
   // eslint-disable-next-line no-control-regex
   const ANSI = /\x1b\[[0-9;]*m/;
   const WARN = 'veritaserum: Agent, you have no basis to claim "tests pass" — no test run on record.';
-  const CONTRADICTED = 'veritaserum: Agent, the evidence contradicts your claim "tests pass" — a failing run is on record.';
+  // The one directive sentence appended to the MODEL channel (context only): it
+  // makes the agent surface the verdict in its reply — the only surface the human
+  // reliably sees. NEVER in systemMessage or the delivered-warning ledger.
+  const DIRECTIVE = "\nShow the line above to the user verbatim at the top of your reply, then address it.";
 
-  it("codex gets a hookSpecificOutput envelope — its ONLY way into the model's context, byte-identical (no styling)", async () => {
+  it("codex: additionalContext = verdict + directive, byte-exact, no systemMessage, no styling", async () => {
     writePendingFeedback(repoDir, "s-env", WARN);
     const out = await hookPromptAs("codex");
 
@@ -319,18 +314,17 @@ describe("feedback channel — the injection envelope each harness actually read
     };
     // Shape is codex's, verbatim: additionalProperties:false, hookEventName is a const.
     expect(parsed.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
-    expect(parsed.hookSpecificOutput.additionalContext).toMatch(VERDICT);
     expect(Object.keys(parsed.hookSpecificOutput).sort()).toEqual(["additionalContext", "hookEventName"]);
-    // CHANGE 2 pin: the codex path is UNTOUCHED — the raw line, no systemMessage,
-    // no emoji marker, no ANSI. (Styling is human-channel-only, and codex has no
-    // human channel in the reply.)
-    expect(parsed.hookSpecificOutput.additionalContext).toBe(WARN);
+    // byte-exact: the verdict line differs from the raw pending line ONLY by the
+    // appended directive sentence — nothing else. codex has no human channel in
+    // the reply, so no systemMessage, no emoji, no ANSI.
+    expect(parsed.hookSpecificOutput.additionalContext).toBe(WARN + DIRECTIVE);
     expect(parsed.systemMessage).toBeUndefined();
     expect(out).not.toContain("⚠️");
     expect(out).not.toMatch(ANSI);
   });
 
-  it("claude-code: model channel stays PLAIN; human channel gets the emoji marker + ANSI (CHANGE 2)", async () => {
+  it("claude-code: model channel = verdict + directive; human channel = plain ⚠️ line (no ANSI, no directive)", async () => {
     writePendingFeedback(repoDir, "s-env", WARN);
     const out = await hookPromptAs("claude-code");
 
@@ -338,44 +332,28 @@ describe("feedback channel — the injection envelope each harness actually read
       hookSpecificOutput: { hookEventName: string; additionalContext: string };
       systemMessage: string;
     };
-    // model channel: the raw line — no emoji, no escapes (noise to the model).
+    // model channel: verdict + the surface-it directive.
     expect(parsed.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
-    expect(parsed.hookSpecificOutput.additionalContext).toBe(WARN);
-    expect(parsed.hookSpecificOutput.additionalContext).not.toContain("⚠️");
-    expect(parsed.hookSpecificOutput.additionalContext).not.toMatch(ANSI);
-    // human channel: emoji marker (works in every renderer) + the warning text +
-    // ANSI escapes (warn-severity → yellow, code 33). Degrades to readable plain
-    // text if the escapes are stripped — the emoji + line survive.
-    expect(parsed.systemMessage).toContain("⚠️ ");
-    expect(parsed.systemMessage).toMatch(VERDICT);
-    expect(parsed.systemMessage).toMatch(ANSI);
-    expect(parsed.systemMessage).toContain("\x1b[33m"); // yellow
+    expect(parsed.hookSpecificOutput.additionalContext).toBe(WARN + DIRECTIVE);
+    // human channel (transcript view at best): plain emoji-marked verdict —
+    // no ANSI (garbage there), no directive (that's model-only guidance).
+    expect(parsed.systemMessage).toBe(`⚠️ ${WARN}`);
+    expect(parsed.systemMessage).not.toMatch(ANSI);
+    expect(parsed.systemMessage).not.toContain("Show the line above");
   });
 
-  it("claude-code: a contradicted verdict colors the human channel RED (code 31)", async () => {
-    writePendingFeedback(repoDir, "s-env", CONTRADICTED);
-    const out = await hookPromptAs("claude-code");
-    const parsed = JSON.parse(out) as { systemMessage: string };
-    expect(parsed.systemMessage).toContain("\x1b[31m"); // red
-    expect(parsed.systemMessage).not.toContain("\x1b[33m");
-  });
-
-  it("claude-code: NO_COLOR strips the escapes but keeps the emoji marker (never rely on color alone)", async () => {
+  it("goose/unknown: bare stdout = verdict + directive, no envelope", async () => {
     writePendingFeedback(repoDir, "s-env", WARN);
-    const out = await hookPromptAs("claude-code", { NO_COLOR: "1" });
-    const p = JSON.parse(out) as { systemMessage: string; hookSpecificOutput: { additionalContext: string } };
-    expect(p.systemMessage).toContain("⚠️ ");
-    expect(p.systemMessage).toMatch(VERDICT);
-    expect(p.systemMessage).not.toMatch(ANSI);
-    // model channel is unaffected by the color knob — still the raw plain line.
-    expect(p.hookSpecificOutput.additionalContext).toBe(WARN);
+    const out = await hookPromptAs("goose");
+    expect(out).toBe(WARN + DIRECTIVE);
   });
 
-  it("claude-code: VS_NO_COLOR is honored the same as NO_COLOR", async () => {
-    writePendingFeedback(repoDir, "s-env", WARN);
-    const out = await hookPromptAs("claude-code", { VS_NO_COLOR: "1" });
-    const p = JSON.parse(out) as { systemMessage: string };
-    expect(p.systemMessage).toContain("⚠️ ");
-    expect(p.systemMessage).not.toMatch(ANSI);
+  it("the delivered-warning ledger stores the BARE verdict line — never the directive", async () => {
+    writePendingFeedback(repoDir, "s-ledger", WARN);
+    const r = await hookPrompt("s-ledger");
+    expect(r.code).toBe(0);
+    const delivered = takeDeliveredWarnings(repoDir, "s-ledger");
+    expect(delivered).toEqual([WARN]);
+    expect(delivered[0]).not.toContain("Show the line above");
   });
 });
