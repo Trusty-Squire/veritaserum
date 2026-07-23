@@ -108,11 +108,13 @@ describe("run-audit.ts — R5 session warning store, wired end-to-end", () => {
     await runAudit(job("session-A", t1));
 
     const stored = loadSessionWarnings(repoDir, "session-A");
-    expect(stored).toEqual(["fixed the bug — unsupported: no diff shows this change"]);
+    // CHANGE 1 correction: the stored warning is now the colloquial direct-address
+    // line (built once in auditor.ts). VS_EXECUTOR is "unknown" here → "Agent".
+    expect(stored).toEqual(['Agent, you have no basis to claim "fixed the bug" — no diff shows this change.']);
 
     const firings1 = readFirings();
     expect(firings1).toHaveLength(1);
-    expect(firings1[0]!.caught).toContain("fixed the bug — unsupported");
+    expect(firings1[0]!.caught).toContain('you have no basis to claim "fixed the bug"');
 
     // Same session, same claim, a second turn.
     const t2 = await transcript("Done — fixed the bug.");
@@ -132,10 +134,11 @@ describe("run-audit.ts — R5 session warning store, wired end-to-end", () => {
 
     const firings = readFirings();
     expect(firings).toHaveLength(2);
-    expect(firings[0]!.caught).toContain("fixed the bug — unsupported");
-    expect(firings[1]!.caught).toContain("fixed the bug — unsupported"); // different session — still surfaced
+    // CHANGE 1 correction: colloquial direct-address phrasing (executor "unknown" → "Agent").
+    expect(firings[0]!.caught).toContain('you have no basis to claim "fixed the bug"');
+    expect(firings[1]!.caught).toContain('you have no basis to claim "fixed the bug"'); // different session — still surfaced
 
-    expect(loadSessionWarnings(repoDir, "session-B")).toEqual(["fixed the bug — unsupported: no diff shows this change"]);
+    expect(loadSessionWarnings(repoDir, "session-B")).toEqual(['Agent, you have no basis to claim "fixed the bug" — no diff shows this change.']);
   });
 });
 
@@ -149,7 +152,10 @@ describe("run-audit.ts — R5 session warning store, wired end-to-end", () => {
 describe("run-audit.ts — advisory-outcome instrumentation (SPEC §7)", () => {
   it("second audit of a session sees the delivered warning in the prompt; advisory_outcome lands in telemetry", async () => {
     const promptCapture = join(shimDir, "captured-prompt.txt");
-    const deliveredLine = 'veritaserum: last turn claimed "fixed the bug" — unsupported: no diff shows this change';
+    // A stand-in for a prior turn's delivered line; updated to the CHANGE 1
+    // colloquial form (this asserts round-trip into the auditor prompt, not the
+    // exact production phrasing).
+    const deliveredLine = 'veritaserum: Agent, you have no basis to claim "fixed the bug" — no diff shows this change.';
     // The audit worker feeds the prompt to `codex exec -` over stdin; capture it,
     // then reply with a valid verdict carrying advisory_outcome.
     const reply = JSON.stringify({ claims: [], unaccountable: false, note: "", advisory_outcome: "addressed-corrected" });

@@ -131,7 +131,9 @@ describe("feedback channel — emission (run-audit.ts)", () => {
     expect(line).not.toBeNull();
     expect(line).toContain("veritaserum:");
     expect(line).toContain("fixed the bug");
-    expect(line).toContain("unsupported");
+    // CHANGE 1 correction: the delivered line is the colloquial direct-address
+    // form, so it no longer contains the bare verdict word "unsupported".
+    expect(line).toContain("you have no basis to claim");
   });
 
   it("a fully-supported verdict (nothing to warn about) writes NO pending feedback", async () => {
@@ -285,46 +287,95 @@ describe("feedback channel — injection (cli.ts hook-prompt)", () => {
 describe("feedback channel — the injection envelope each harness actually reads", () => {
   const VERDICT = /veritaserum:/;
 
-  async function hookPromptAs(harness: string): Promise<string> {
+  async function hookPromptAs(harness: string, extraEnv: Record<string, string> = {}): Promise<string> {
+    // Start from a color-CLEAN env so an inherited NO_COLOR can't silently make
+    // the styled assertions pass for the wrong reason; a test opts INTO stripping
+    // via extraEnv.
+    const env: NodeJS.ProcessEnv = { ...process.env, VS_HARNESS: harness };
+    delete env.NO_COLOR;
+    delete env.VS_NO_COLOR;
+    Object.assign(env, extraEnv);
     const r = await execa(RUNNER, [CLI, "hook-prompt"], {
       cwd: repoDir,
       input: JSON.stringify({ cwd: repoDir }),
-      env: { ...process.env, VS_HARNESS: harness },
+      env,
       reject: false,
     });
     return r.stdout;
   }
 
-  it("codex gets a hookSpecificOutput envelope — its ONLY way into the model's context", async () => {
-    writePendingFeedback(repoDir, "s-env", "veritaserum: last turn claimed \"tests pass\" — unsupported");
+  // eslint-disable-next-line no-control-regex
+  const ANSI = /\x1b\[[0-9;]*m/;
+  const WARN = 'veritaserum: Agent, you have no basis to claim "tests pass" — no test run on record.';
+  const CONTRADICTED = 'veritaserum: Agent, the evidence contradicts your claim "tests pass" — a failing run is on record.';
+
+  it("codex gets a hookSpecificOutput envelope — its ONLY way into the model's context, byte-identical (no styling)", async () => {
+    writePendingFeedback(repoDir, "s-env", WARN);
     const out = await hookPromptAs("codex");
 
     const parsed = JSON.parse(out) as {
       hookSpecificOutput: { hookEventName: string; additionalContext: string };
+      systemMessage?: string;
     };
     // Shape is codex's, verbatim: additionalProperties:false, hookEventName is a const.
     expect(parsed.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
     expect(parsed.hookSpecificOutput.additionalContext).toMatch(VERDICT);
     expect(Object.keys(parsed.hookSpecificOutput).sort()).toEqual(["additionalContext", "hookEventName"]);
+    // CHANGE 2 pin: the codex path is UNTOUCHED — the raw line, no systemMessage,
+    // no emoji marker, no ANSI. (Styling is human-channel-only, and codex has no
+    // human channel in the reply.)
+    expect(parsed.hookSpecificOutput.additionalContext).toBe(WARN);
+    expect(parsed.systemMessage).toBeUndefined();
+    expect(out).not.toContain("⚠️");
+    expect(out).not.toMatch(ANSI);
   });
 
-  it("claude-code gets ONE JSON reply on BOTH channels — additionalContext (model) AND systemMessage (human)", async () => {
-    const warning = "veritaserum: last turn claimed \"tests pass\" — unsupported";
-    writePendingFeedback(repoDir, "s-env", warning);
+  it("claude-code: model channel stays PLAIN; human channel gets the emoji marker + ANSI (CHANGE 2)", async () => {
+    writePendingFeedback(repoDir, "s-env", WARN);
     const out = await hookPromptAs("claude-code");
 
     const parsed = JSON.parse(out) as {
       hookSpecificOutput: { hookEventName: string; additionalContext: string };
       systemMessage: string;
     };
-    // model channel
+    // model channel: the raw line — no emoji, no escapes (noise to the model).
     expect(parsed.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
-    expect(parsed.hookSpecificOutput.additionalContext).toMatch(VERDICT);
-    // human channel
+    expect(parsed.hookSpecificOutput.additionalContext).toBe(WARN);
+    expect(parsed.hookSpecificOutput.additionalContext).not.toContain("⚠️");
+    expect(parsed.hookSpecificOutput.additionalContext).not.toMatch(ANSI);
+    // human channel: emoji marker (works in every renderer) + the warning text +
+    // ANSI escapes (warn-severity → yellow, code 33). Degrades to readable plain
+    // text if the escapes are stripped — the emoji + line survive.
+    expect(parsed.systemMessage).toContain("⚠️ ");
     expect(parsed.systemMessage).toMatch(VERDICT);
-    // both non-empty and the SAME line — never one audience alone (fc9ba04)
-    expect(parsed.hookSpecificOutput.additionalContext).toBe(warning);
-    expect(parsed.systemMessage).toBe(warning);
-    expect(parsed.systemMessage).toBe(parsed.hookSpecificOutput.additionalContext);
+    expect(parsed.systemMessage).toMatch(ANSI);
+    expect(parsed.systemMessage).toContain("\x1b[33m"); // yellow
+  });
+
+  it("claude-code: a contradicted verdict colors the human channel RED (code 31)", async () => {
+    writePendingFeedback(repoDir, "s-env", CONTRADICTED);
+    const out = await hookPromptAs("claude-code");
+    const parsed = JSON.parse(out) as { systemMessage: string };
+    expect(parsed.systemMessage).toContain("\x1b[31m"); // red
+    expect(parsed.systemMessage).not.toContain("\x1b[33m");
+  });
+
+  it("claude-code: NO_COLOR strips the escapes but keeps the emoji marker (never rely on color alone)", async () => {
+    writePendingFeedback(repoDir, "s-env", WARN);
+    const out = await hookPromptAs("claude-code", { NO_COLOR: "1" });
+    const p = JSON.parse(out) as { systemMessage: string; hookSpecificOutput: { additionalContext: string } };
+    expect(p.systemMessage).toContain("⚠️ ");
+    expect(p.systemMessage).toMatch(VERDICT);
+    expect(p.systemMessage).not.toMatch(ANSI);
+    // model channel is unaffected by the color knob — still the raw plain line.
+    expect(p.hookSpecificOutput.additionalContext).toBe(WARN);
+  });
+
+  it("claude-code: VS_NO_COLOR is honored the same as NO_COLOR", async () => {
+    writePendingFeedback(repoDir, "s-env", WARN);
+    const out = await hookPromptAs("claude-code", { VS_NO_COLOR: "1" });
+    const p = JSON.parse(out) as { systemMessage: string };
+    expect(p.systemMessage).toContain("⚠️ ");
+    expect(p.systemMessage).not.toMatch(ANSI);
   });
 });

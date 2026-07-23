@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
 import { tempRepo, write } from "./helpers.js";
-import { audit, type AuditJob } from "../src/auditor.js";
+import { audit, addressee, claimWarning, unaccountableWarning, groundingWarning, type AuditJob } from "../src/auditor.js";
 import type { Auditor, AuditorTier } from "../src/resolve.js";
 import type { Embedder } from "../src/embed.js";
 import { readFirings, type Firing } from "../src/telemetry.js";
@@ -62,6 +62,60 @@ function job(dir: string, overrides: Partial<AuditJob> = {}): AuditJob {
     ...overrides,
   };
 }
+
+// CHANGE 1: the colloquial direct-address warning templates, built once in
+// auditor.ts and carried to every audience. One test per addressee and per
+// verdict/rule line.
+describe("warning templates — addressee resolution", () => {
+  it("maps the executor vendor to the spoken name; anything else → Agent", () => {
+    expect(addressee("claude")).toBe("Claude");
+    expect(addressee("claude:sonnet")).toBe("Claude");
+    expect(addressee("codex")).toBe("Codex");
+    expect(addressee("codex:gpt-5.6")).toBe("Codex");
+    expect(addressee("goose")).toBe("Agent");
+    expect(addressee("unknown")).toBe("Agent");
+    expect(addressee(undefined)).toBe("Agent");
+  });
+});
+
+describe("warning templates — one humane line per verdict/rule", () => {
+  const c = (verdict: "unsupported" | "contradicted", claim = "tests pass", basis = "no test run on record") => ({ claim, verdict, basis, evidence: "" });
+
+  it("unsupported claim — direct address, basis as second clause", () => {
+    expect(claimWarning("Claude", c("unsupported"))).toBe('Claude, you have no basis to claim "tests pass" — no test run on record.');
+    expect(claimWarning("Codex", c("unsupported"))).toBe('Codex, you have no basis to claim "tests pass" — no test run on record.');
+  });
+
+  it("contradicted claim — the stronger 'evidence contradicts' phrasing (the red-severity signal)", () => {
+    expect(claimWarning("Claude", c("contradicted"))).toBe('Claude, the evidence contradicts your claim "tests pass" — no test run on record.');
+    // The phrase cli.ts keys severity color off must be present verbatim.
+    expect(claimWarning("Agent", c("contradicted"))).toContain("the evidence contradicts your claim");
+  });
+
+  it("truncates a long claim to ~120 chars with … so the line stays one-line-ish", () => {
+    const long = "x".repeat(200);
+    const line = claimWarning("Claude", c("unsupported", long));
+    expect(line).toContain("…");
+    // the clipped claim is ≤ ~121 chars; the raw 200-char claim never appears whole
+    expect(line).not.toContain("x".repeat(200));
+  });
+
+  it("R9 unaccountable — fixed phrasing, no basis clause", () => {
+    expect(unaccountableWarning("Claude")).toBe("Claude, you did substantial work but reported nothing checkable — state what you did and how you know it works.");
+    expect(unaccountableWarning("Agent")).toBe("Agent, you did substantial work but reported nothing checkable — state what you did and how you know it works.");
+  });
+
+  it("grounding rules — each keeps the flag's basis (and its demand) as the second clause", () => {
+    // number-no-receipt's demand wording is deliberate and must SURVIVE — it is
+    // passed through as the basis clause verbatim.
+    const demand = "cite the measurement or source that produced it, or state the number is illustrative.";
+    expect(groundingWarning("Claude", "blocked-no-attempt", "no tool call attempted it")).toBe("Claude, you called this blocked but never attempted it — no tool call attempted it");
+    expect(groundingWarning("Claude", "number-no-receipt", demand)).toBe(`Claude, nothing you ran produced that number — ${demand}`);
+    expect(groundingWarning("Codex", "causal-no-referent", "nothing in the receipts is related to it")).toBe("Codex, you blamed a cause you never observed — nothing in the receipts is related to it");
+    expect(groundingWarning("Agent", "scope-narrower", "enumerates only 3 item(s)")).toBe("Agent, you reported a total the evidence doesn't fully cover — enumerates only 3 item(s)");
+    expect(groundingWarning("Claude", "state-no-receipt", "no commit receipt this session")).toBe("Claude, you claimed a repo state you never verified — no commit receipt this session");
+  });
+});
 
 describe("audit — agentic prompt content (SPEC §2 rules)", () => {
   it("instructs R9, the missing-proof rule for causal/state/measurement, and doc-as-stale-proof", async () => {
@@ -153,7 +207,10 @@ describe("audit — R5 duplicate-warning suppression", () => {
     const reply = '{"claims":[{"claim":"fixed the bug","verdict":"unsupported","basis":"no diff shows this change","evidence":""}],"unaccountable":false,"note":""}';
     const auditor = fakeAuditor("agentic", reply);
     const first = await audit(job(dir), auditor, nullEmbedder());
-    expect(first.warnings).toEqual(["fixed the bug — unsupported: no diff shows this change"]);
+    // CHANGE 1 correction: the warning is now the colloquial direct-address line
+    // (built once in auditor.ts), not the old coroner's-report `claim — verdict:
+    // basis`. Default job has no executor → addressee "Agent".
+    expect(first.warnings).toEqual(['Agent, you have no basis to claim "fixed the bug" — no diff shows this change.']);
 
     const second = await audit(job(dir, { priorWarnings: first.warnings }), auditor, nullEmbedder());
     expect(second.warnings).toEqual([]);
@@ -169,8 +226,10 @@ describe("audit — R9 unaccountable work", () => {
     const auditor = fakeAuditor("agentic", reply);
     const v = await audit(job(dir), auditor, nullEmbedder());
     expect(v.unaccountable).toBe(true);
-    expect(v.warnings[0]).toContain("unaccountable work");
-    expect(v.warnings[0]).toContain("state what was done");
+    // CHANGE 1 correction: the R9 line is now fixed colloquial phrasing addressed
+    // to the executor ("Agent" by default), not the old "unaccountable work: <note>".
+    expect(v.warnings[0]).toContain("did substantial work but reported nothing checkable");
+    expect(v.warnings[0]).toContain("state what you did and how you know it works");
   });
 });
 
@@ -188,7 +247,7 @@ describe("audit — grounding tier folds into the verdict's warnings", () => {
     };
   }
 
-  it("a blocked-no-attempt grounding flag becomes a 'grounding: <rule>' warning, verdict never blocks", async () => {
+  it("a blocked-no-attempt grounding flag becomes a colloquial warning, verdict never blocks", async () => {
     const dir = await repo();
     const claim = "There is no way to arm the vault, so this cannot be automated.";
     const auditor = fakeAuditor("agentic", OK_REPLY);
@@ -197,9 +256,12 @@ describe("audit — grounding tier folds into the verdict's warnings", () => {
       auditor,
       groundingEmbedder(claim),
     );
-    const groundingWarn = v.warnings.find((w) => w.startsWith("grounding: "));
+    // CHANGE 1 correction: grounding lines no longer carry a "grounding: <rule>"
+    // prefix — the rule is conveyed by the humane phrasing addressed to the
+    // executor ("Agent" by default). The flag's basis stays as the second clause.
+    const groundingWarn = v.warnings.find((w) => w.includes("you called this blocked but never attempted it"));
     expect(groundingWarn).toBeDefined();
-    expect(groundingWarn).toContain("blocked-no-attempt");
+    expect(groundingWarn!.startsWith("Agent, ")).toBe(true);
     // R5: grounding flags are warnings only — nothing about the verdict blocks.
     expect(v.error).toBeUndefined();
   });
@@ -208,8 +270,11 @@ describe("audit — grounding tier folds into the verdict's warnings", () => {
     const dir = await repo();
     const throwing: Embedder = { async embed(): Promise<number[][]> { throw new Error("ollama unreachable"); } };
     const auditor = fakeAuditor("agentic", OK_REPLY);
+    // OK_REPLY has no claims and the embedder throws → grounding fails open to
+    // zero flags, so there are no warnings at all (CHANGE 1: grounding lines no
+    // longer share a "grounding: " prefix to key an absence check off).
     const v = await audit(job(dir, { finalMessage: "The funds are locked." }), auditor, throwing);
-    expect(v.warnings.some((w) => w.startsWith("grounding: "))).toBe(false);
+    expect(v.warnings).toEqual([]);
   });
 });
 

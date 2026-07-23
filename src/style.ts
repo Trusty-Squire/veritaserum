@@ -37,6 +37,31 @@ export function divider(w = 58): string {
   return dim("─".repeat(w));
 }
 
+// ---------------------------------------------------------------------------
+// Harness-channel emphasis — NOT the TTY-gated helpers above.
+//
+// The warning we hand a harness's HUMAN channel (Claude Code's `systemMessage`)
+// is rendered by that UI, not by our own terminal — so, unlike the install CLI,
+// this must NOT be gated on process.stdout.isTTY (our stdout in the hook is a
+// pipe to the harness, never a TTY). It honors NO_COLOR and a VS_NO_COLOR
+// override: either set → no escapes at all.
+//
+// EMPIRICALLY UNVERIFIED: whether Claude Code actually renders ANSI in
+// systemMessage is unknown (see cli.ts injectionFor). The design therefore never
+// relies on color — callers keep an emoji marker + plain text that still reads if
+// the escapes are stripped or ignored.
+// ---------------------------------------------------------------------------
+export function channelColorEnabled(): boolean {
+  return !process.env.NO_COLOR && !process.env.VS_NO_COLOR;
+}
+
+/** Bold + a warning color, applied unconditionally (the caller gates on
+ *  channelColorEnabled). yellow = warn severity, red = a contradicted verdict. */
+export function emphasize(s: string, color: "yellow" | "red"): string {
+  const c = color === "red" ? 31 : 33;
+  return `\x1b[1m\x1b[${c}m${s}\x1b[39m\x1b[22m`;
+}
+
 /** A light banner box around a title + optional subtitle lines. */
 export function banner(title: string, subtitle?: string): string {
   const rows = [bold(cyan(title)), ...(subtitle ? [dim(subtitle)] : [])];

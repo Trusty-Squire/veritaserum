@@ -50,9 +50,27 @@ function injectionFor(harness: string, line: string): string {
     });
   }
   if (harness === "claude-code") {
+    // Human channel (systemMessage) gets visibility treatment; the MODEL channel
+    // (additionalContext) stays PLAIN — escape codes are noise to the model.
+    //
+    // "⚠️ " marks the line in EVERY renderer, escapes or none. Whether Claude
+    // Code renders ANSI in systemMessage is EMPIRICALLY UNVERIFIED, so the design
+    // never leans on color: strip the escapes and the emoji + plain text still
+    // reads. NO_COLOR / VS_NO_COLOR → emoji marker only, no escapes.
+    //
+    // Severity color: red when the delivered line carries a contradicted verdict
+    // (matched on auditor.ts's own stable phrase), else warn-yellow. Structured
+    // severity is NOT available here — hook-prompt injects a line read back from
+    // the pending-feedback file, with no verdict object — so this is a lexical
+    // inference. It catches the contradicted case reliably; a block-severity
+    // GROUNDING flag is indistinguishable from a warn one at this boundary and
+    // honestly degrades to yellow.
+    const marked = `⚠️ ${line}`;
+    const severe = /the evidence contradicts your claim/.test(line);
+    const systemMessage = style.channelColorEnabled() ? style.emphasize(marked, severe ? "red" : "yellow") : marked;
     return JSON.stringify({
       hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: line },
-      systemMessage: line,
+      systemMessage,
     });
   }
   return line;
@@ -452,6 +470,7 @@ async function main(argv: string[]): Promise<number> {
           ...(session.receiptsTail ? { receipts: session.receiptsTail } : {}),
           harness: harnessName(),
           schedulingMode: process.env.VS_AUDIT_MODE === "testbed" ? "testbed" : "live",
+          executor: process.env.VS_EXECUTOR || "unknown",
         };
         const verdict = await audit(contentJob, auditor);
 

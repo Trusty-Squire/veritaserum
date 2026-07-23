@@ -57,22 +57,14 @@ function loadTurnMaterial(job: AuditJob): { finalMessage: string; userRequest: s
 /**
  * Claude Code feedback channel (SPEC §2 "Feedback channels", R7): one terse,
  * sharp, specific line for the next UserPromptSubmit — never chatty, never
- * ambient. Built only when there's something to say (a flagged claim, a
- * grounding warning, or R9 unaccountable work); returns null otherwise.
+ * ambient. The humane line is built ONCE in auditor.ts (claimWarning et al.,
+ * addressed to the executor and ordered worst-first), so this just prefixes the
+ * source tag to the lead warning. Returns null when there's nothing to say.
  */
 function buildFeedbackLine(verdict: AuditVerdict): string | null {
-  if (!verdict.warnings.length && !verdict.unaccountable) return null;
-
-  const worst = verdict.claims.find((c) => c.verdict === "contradicted") ?? verdict.claims.find((c) => c.verdict === "unsupported");
-  let head: string;
-  if (worst) {
-    head = `last turn claimed "${worst.claim}" — ${worst.verdict}${worst.basis ? `: ${worst.basis}` : ""}`;
-  } else if (verdict.unaccountable) {
-    head = `last turn: unaccountable work${verdict.note ? ` — ${verdict.note}` : ""}`;
-  } else {
-    head = verdict.warnings[0] ?? "a claim this turn was not backed by a verification receipt";
-  }
-  return `veritaserum: ${head}`.slice(0, 600);
+  const lead = verdict.warnings[0];
+  if (!lead) return null;
+  return `veritaserum: ${lead}`.slice(0, 600);
 }
 
 export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
@@ -101,6 +93,8 @@ export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
     ...(deliveredWarnings.length ? { deliveredWarnings } : {}),
     harness: job.harness || "unknown",
     schedulingMode: job.mode,
+    // The addressee of every warning line — claude→"Claude", codex→"Codex", else "Agent".
+    executor,
   };
   let verdict = await audit(contentJob, auditor);
 

@@ -21,7 +21,7 @@
 import { execa } from "execa";
 import { logFiring } from "./telemetry.js";
 import type { Auditor, AuditorTier } from "./resolve.js";
-import { groundingCheck, type GitProbeState } from "./grounding.js";
+import { groundingCheck, type GitProbeState, type GroundingFlag } from "./grounding.js";
 import { ollamaEmbedder, type Embedder } from "./embed.js";
 
 export interface AuditJob {
@@ -42,6 +42,9 @@ export interface AuditJob {
   deliveredWarnings?: string[];
   harness?: string;
   schedulingMode?: "live" | "testbed";
+  /** The executor vendor being audited — the ADDRESSEE of every warning line
+   *  (claude→"Claude", codex→"Codex", else→"Agent"). Absent → "Agent". */
+  executor?: string;
 }
 
 /** SPEC §7 "advisory outcome" (was the warn followed?) — the LLM auditor's verdict
@@ -53,6 +56,70 @@ export interface ClaimVerdict {
   verdict: "supported" | "unsupported" | "contradicted";
   basis: string;
   evidence: string;
+}
+
+// ---------------------------------------------------------------------------
+// Warning-line templates — colloquial DIRECT address, built ONCE here so every
+// audience carries the SAME humane line: telemetry `caught` (logAuditTelemetry),
+// the R5 dedupe store (appendSessionWarnings), the delivered feedback line and
+// its systemMessage (run-audit.ts buildFeedbackLine → cli.ts injectionFor), and
+// the advisory-outcome prompt (deliveredWarnings echoed back into the auditor).
+// The auditor's / grounding tier's free-form `basis` stays as the second clause.
+// ---------------------------------------------------------------------------
+export type Addressee = "Claude" | "Codex" | "Agent";
+
+/** Who the warning speaks to — the EXECUTOR being audited (not the cross-family
+ *  auditor). claude→"Claude", codex→"Codex", anything else→"Agent". */
+export function addressee(executor: string | undefined): Addressee {
+  const e = (executor ?? "").toLowerCase();
+  if (e === "claude" || e.startsWith("claude:")) return "Claude";
+  if (e === "codex" || e.startsWith("codex:")) return "Codex";
+  return "Agent";
+}
+
+/** Keep a warning to roughly one line: long claims truncate to ~120 chars with … */
+function clipClaim(claim: string): string {
+  const c = claim.trim();
+  return c.length > 120 ? `${c.slice(0, 120).trimEnd()}…` : c;
+}
+
+/** One humane warning line for an unsupported/contradicted claim verdict. */
+export function claimWarning(who: Addressee, c: ClaimVerdict): string {
+  const claim = clipClaim(c.claim);
+  const basis = c.basis.trim();
+  const tail = basis ? ` — ${basis}` : "";
+  return c.verdict === "contradicted"
+    ? `${who}, the evidence contradicts your claim "${claim}"${tail}.`
+    : `${who}, you have no basis to claim "${claim}"${tail}.`;
+}
+
+/** One humane warning line for R9 unaccountable work (fixed phrasing). */
+export function unaccountableWarning(who: Addressee): string {
+  return `${who}, you did substantial work but reported nothing checkable — state what you did and how you know it works.`;
+}
+
+/** One humane warning line for a grounding-tier flag. The flag's `basis` already
+ *  carries the demand (e.g. number-no-receipt's "cite the measurement or source
+ *  … or state the number is illustrative") and is preserved verbatim as the
+ *  second clause. For scope-narrower and state-no-receipt the lead is kept
+ *  deliberately generic so it does NOT restate the count / receipt wording the
+ *  basis already spells out (the flag object no longer carries the item count or
+ *  the state kind to interpolate the spec's `N` / `<state>`). */
+export function groundingWarning(who: Addressee, rule: GroundingFlag["rule"], basis: string): string {
+  const b = basis.trim();
+  const tail = b ? ` — ${b}` : "";
+  switch (rule) {
+    case "blocked-no-attempt":
+      return `${who}, you called this blocked but never attempted it${tail}`;
+    case "number-no-receipt":
+      return `${who}, nothing you ran produced that number${tail}`;
+    case "causal-no-referent":
+      return `${who}, you blamed a cause you never observed${tail}`;
+    case "scope-narrower":
+      return `${who}, you reported a total the evidence doesn't fully cover${tail}`;
+    case "state-no-receipt":
+      return `${who}, you claimed a repo state you never verified${tail}`;
+  }
 }
 
 export interface AuditVerdict {
@@ -407,12 +474,18 @@ export async function audit(job: AuditJob, auditor: Auditor, embedder: Embedder 
   const pushWarning = (w: string): void => {
     if (!prior.has(w) && !warnings.includes(w)) warnings.push(w);
   };
-  for (const c of claims) {
-    if (c.verdict === "supported") continue;
-    pushWarning(`${c.claim} — ${c.verdict}: ${c.basis}`);
+  // The humane line is built ONCE here (claimWarning/unaccountableWarning/
+  // groundingWarning) addressed to the executor, and ordered WORST-FIRST
+  // (contradicted → unsupported → unaccountable → grounding) so warnings[0] is
+  // the lead line every downstream audience delivers.
+  const who = addressee(job.executor);
+  const nonSupported = claims.filter((c) => c.verdict !== "supported");
+  const rank = (v: ClaimVerdict["verdict"]): number => (v === "contradicted" ? 0 : 1);
+  for (const c of [...nonSupported].sort((a, b) => rank(a.verdict) - rank(b.verdict))) {
+    pushWarning(claimWarning(who, c));
   }
-  if (reply?.unaccountable) pushWarning(`unaccountable work: ${reply.note}`);
-  for (const f of grounding.flags) pushWarning(`grounding: ${f.rule} — ${f.basis}`);
+  if (reply?.unaccountable) pushWarning(unaccountableWarning(who));
+  for (const f of grounding.flags) pushWarning(groundingWarning(who, f.rule, f.basis));
 
   const verdict: AuditVerdict = {
     claims,
