@@ -302,7 +302,8 @@ describe("feedback channel — the injection envelope each harness actually read
   // The one directive sentence appended to the MODEL channel (context only): it
   // makes the agent surface the verdict in its reply — the only surface the human
   // reliably sees. NEVER in systemMessage or the delivered-warning ledger.
-  const DIRECTIVE = "\nShow the line above to the user verbatim at the top of your reply, then address it.";
+  const DIRECTIVE =
+    "\nShow the italicized line above to the user verbatim at the top of your reply, then leave a blank line before the rest of your reply.";
 
   it("codex: additionalContext = verdict + directive, byte-exact, no systemMessage, no styling", async () => {
     writePendingFeedback(repoDir, "s-env", WARN);
@@ -315,16 +316,16 @@ describe("feedback channel — the injection envelope each harness actually read
     // Shape is codex's, verbatim: additionalProperties:false, hookEventName is a const.
     expect(parsed.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
     expect(Object.keys(parsed.hookSpecificOutput).sort()).toEqual(["additionalContext", "hookEventName"]);
-    // byte-exact: the verdict line differs from the raw pending line ONLY by the
-    // appended directive sentence — nothing else. codex has no human channel in
-    // the reply, so no systemMessage, no emoji, no ANSI.
-    expect(parsed.hookSpecificOutput.additionalContext).toBe(WARN + DIRECTIVE);
+    // byte-exact: the verdict line is italicized then differs from that ONLY by
+    // the appended directive sentence — nothing else. codex has no human channel
+    // in the reply, so no systemMessage, no emoji, no ANSI.
+    expect(parsed.hookSpecificOutput.additionalContext).toBe(`*${WARN}*` + DIRECTIVE);
     expect(parsed.systemMessage).toBeUndefined();
     expect(out).not.toContain("⚠️");
     expect(out).not.toMatch(ANSI);
   });
 
-  it("claude-code: model channel = verdict + directive; human channel = plain ⚠️ line (no ANSI, no directive)", async () => {
+  it("claude-code: model channel = italicized verdict + directive; human channel = plain ⚠️ line (no asterisks, no ANSI, no directive)", async () => {
     writePendingFeedback(repoDir, "s-env", WARN);
     const out = await hookPromptAs("claude-code");
 
@@ -332,20 +333,21 @@ describe("feedback channel — the injection envelope each harness actually read
       hookSpecificOutput: { hookEventName: string; additionalContext: string };
       systemMessage: string;
     };
-    // model channel: verdict + the surface-it directive.
+    // model channel: italicized verdict + the surface-it directive.
     expect(parsed.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
-    expect(parsed.hookSpecificOutput.additionalContext).toBe(WARN + DIRECTIVE);
+    expect(parsed.hookSpecificOutput.additionalContext).toBe(`*${WARN}*` + DIRECTIVE);
     // human channel (transcript view at best): plain emoji-marked verdict —
-    // no ANSI (garbage there), no directive (that's model-only guidance).
+    // no asterisks, no ANSI (garbage there), no directive (that's model-only guidance).
     expect(parsed.systemMessage).toBe(`⚠️ ${WARN}`);
+    expect(parsed.systemMessage).not.toContain("*");
     expect(parsed.systemMessage).not.toMatch(ANSI);
-    expect(parsed.systemMessage).not.toContain("Show the line above");
+    expect(parsed.systemMessage).not.toContain("Show the italicized line above");
   });
 
-  it("goose/unknown: bare stdout = verdict + directive, no envelope", async () => {
+  it("goose/unknown: bare stdout = italicized verdict + directive, no envelope", async () => {
     writePendingFeedback(repoDir, "s-env", WARN);
     const out = await hookPromptAs("goose");
-    expect(out).toBe(WARN + DIRECTIVE);
+    expect(out).toBe(`*${WARN}*` + DIRECTIVE);
   });
 
   it("the delivered-warning ledger stores the BARE verdict line — never the directive", async () => {
@@ -354,6 +356,7 @@ describe("feedback channel — the injection envelope each harness actually read
     expect(r.code).toBe(0);
     const delivered = takeDeliveredWarnings(repoDir, "s-ledger");
     expect(delivered).toEqual([WARN]);
-    expect(delivered[0]).not.toContain("Show the line above");
+    expect(delivered[0]).not.toContain("*");
+    expect(delivered[0]).not.toContain("Show the italicized line above");
   });
 });

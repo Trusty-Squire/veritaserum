@@ -49,27 +49,36 @@ function harnessName(): string {
  * systemMessage, telemetry, the dedupe store, or the delivered-warning ledger (that ledger
  * keeps the bare verdict line so the advisory-outcome audit quotes the right thing).
  */
-const SHOW_DIRECTIVE = "\nShow the line above to the user verbatim at the top of your reply, then address it.";
+const SHOW_DIRECTIVE =
+  "\nShow the italicized line above to the user verbatim at the top of your reply, then leave a blank line before the rest of your reply.";
+
+/** Wrap in markdown italics for the model channel only — deterministic
+ *  formatting, not left to agent discretion. Guard against double-wrapping
+ *  a line that already arrives asterisk-delimited. */
+function italicize(line: string): string {
+  return line.startsWith("*") && line.endsWith("*") ? line : `*${line}*`;
+}
 
 function injectionFor(harness: string, line: string): string {
+  const italic = italicize(line);
   if (harness === "codex") {
     return JSON.stringify({
-      hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: line + SHOW_DIRECTIVE },
+      hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: italic + SHOW_DIRECTIVE },
     });
   }
   if (harness === "claude-code") {
-    // Model channel (additionalContext): the verdict + a directive to surface it
-    // in the reply — the reply is the only surface the human reliably sees.
-    // Human channel (systemMessage): PLAIN "⚠️ <verdict>" — no ANSI (transcript-raw
-    // rendering makes escapes garbage), no directive (that's model-only guidance).
-    // "⚠️ " marks the line in every renderer.
+    // Model channel (additionalContext): the italicized verdict + a directive to
+    // surface it in the reply — the reply is the only surface the human reliably
+    // sees. Human channel (systemMessage): PLAIN "⚠️ <verdict>" — no asterisks, no
+    // ANSI (transcript-raw rendering makes escapes garbage), no directive (that's
+    // model-only guidance). "⚠️ " marks the line in every renderer.
     return JSON.stringify({
-      hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: line + SHOW_DIRECTIVE },
+      hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: italic + SHOW_DIRECTIVE },
       systemMessage: `⚠️ ${line}`,
     });
   }
   // goose/unknown: bare stdout reaches the model too — append the directive there.
-  return line + SHOW_DIRECTIVE;
+  return italic + SHOW_DIRECTIVE;
 }
 
 /** Read the harness hook payload (JSON HookContext) from stdin. */
