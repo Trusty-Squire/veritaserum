@@ -54,9 +54,11 @@ export interface Firing {
   /** End-to-end async audit duration (mechanical checks + one auditor call). */
   audit_duration_ms?: number;
   /** Which drain path delivered a next-prompt warning: session-scoped (the
-   *  normal path, keyed by the earning session) or repo-fallback (the payload
-   *  omitted session_id, so every session's pending feedback was drained). */
-  feedback_scope?: "session" | "repo-fallback";
+   *  normal path, keyed by the earning session), repo-fallback (the payload
+   *  omitted session_id, so every session's pending feedback was drained), or
+   *  stray (Door 1/Door 2 autonomous-fleet delivery — a warning earned by a
+   *  DIFFERENT session in this repo, swept past its 10-min grace). */
+  feedback_scope?: "session" | "repo-fallback" | "stray";
   /** SPEC §7 "advisory outcome" (was the warn followed?): the LLM auditor's
    *  judgment, on the turn after a warning was delivered, of whether the turn
    *  acted on it. LLM-only — absent when no auditor ran or no warning was

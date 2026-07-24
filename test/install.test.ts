@@ -46,6 +46,21 @@ describe("harness installs", () => {
     }
   });
 
+  it("wires a SessionStart stray-delivery hook into Claude Code — idempotently", async () => {
+    const home = await withHome();
+    const cwd = process.cwd();
+    process.chdir(home);
+    try {
+      await installTarget("claude-code", {});
+      await installTarget("claude-code", {});
+      const settings = JSON.parse(await readFile(join(home, ".claude", "settings.json"), "utf8"));
+      expect(settings.hooks.SessionStart[0].hooks[0].command).toContain("hook-session-start");
+      expect(settings.hooks.SessionStart).toHaveLength(1); // installing twice adds one, not two
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
   it("merges a Stop hook into Codex's live hooks.json", async () => {
     const home = await withHome();
     const res = await installTarget("codex", {});

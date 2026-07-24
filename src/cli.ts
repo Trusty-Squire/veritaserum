@@ -10,7 +10,7 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { resolveAuditor, doctorReport } from "./resolve.js";
-import { enqueue, queueRoot, takePendingFeedback, drainAllPendingFeedback, recordDeliveredWarning, type AuditJob } from "./audit-runner.js";
+import { enqueue, queueRoot, takePendingFeedback, drainAllPendingFeedback, takeStrayFeedback, recordDeliveredWarning, type AuditJob } from "./audit-runner.js";
 import { hasToolActivitySince, readGooseSession, defaultGooseSessionsDb } from "./goose.js";
 import { audit, type AuditJob as AuditContentJob } from "./auditor.js";
 import { logFiring, readFirings, summarize } from "./telemetry.js";
@@ -59,11 +59,22 @@ function italicize(line: string): string {
   return line.startsWith("*") && line.endsWith("*") ? line : `*${line}*`;
 }
 
-function injectionFor(harness: string, line: string): string {
+/**
+ * `event` selects the hook slot the envelope names. UserPromptSubmit is the normal
+ * feedback door; SessionStart is Door 2 (stray delivery on a fresh session). For
+ * SessionStart, additionalContext IS a documented injection channel in Claude Code
+ * (SessionStart stdout becomes the session's initial context), and codex's own
+ * injection doors are SessionStart + UserPromptSubmit — so the same envelope shape
+ * applies, only the hookEventName differs. HONESTY NOTE: SessionStart-via-envelope is
+ * verified against the Claude Code docs but not a controlled canary here (as
+ * UserPromptSubmit was), so if a harness ignores it the failure mode is silence, not
+ * error — R8-safe.
+ */
+function injectionFor(harness: string, line: string, event: "UserPromptSubmit" | "SessionStart" = "UserPromptSubmit"): string {
   const italic = italicize(line);
   if (harness === "codex") {
     return JSON.stringify({
-      hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: italic + SHOW_DIRECTIVE },
+      hookSpecificOutput: { hookEventName: event, additionalContext: italic + SHOW_DIRECTIVE },
     });
   }
   if (harness === "claude-code") {
@@ -73,7 +84,7 @@ function injectionFor(harness: string, line: string): string {
     // ANSI (transcript-raw rendering makes escapes garbage), no directive (that's
     // model-only guidance). "⚠️ " marks the line in every renderer.
     return JSON.stringify({
-      hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: italic + SHOW_DIRECTIVE },
+      hookSpecificOutput: { hookEventName: event, additionalContext: italic + SHOW_DIRECTIVE },
       systemMessage: `⚠️ ${line}`,
     });
   }
@@ -549,13 +560,22 @@ async function main(argv: string[]): Promise<number> {
         // news, since the audit is async), delivered at the only moment the executor can
         // still act on it.
         const scope: "session" | "repo-fallback" = sid ? "session" : "repo-fallback";
-        const verdict = sid ? takePendingFeedback(wd, sid) : drainAllPendingFeedback(wd);
-        if (verdict) {
-          console.log(injectionFor(harnessName(), verdict));
-          // SPEC §7: record the delivery so the next audit of this session can
-          // judge whether the warning was acted on. Only the session path can
-          // attribute a delivery to a session; the fallback path cannot.
-          if (sid) recordDeliveredWarning(wd, sid, verdict);
+        const own = sid ? takePendingFeedback(wd, sid) : drainAllPendingFeedback(wd);
+        // Door 1 (autonomous-fleet delivery): after this session's OWN line, sweep up
+        // to 3 strays — another session's undelivered feedback in this repo, past the
+        // 10-min grace. This is the only way an autonomous session's catches (a
+        // one-shot scheduled run, or a turn ended by a task notification) ever reach a
+        // human. No sid → drainAllPendingFeedback already swept EVERY file above, so
+        // there are no strays left to gather.
+        const strays = sid ? takeStrayFeedback(wd, sid) : [];
+        const combined = [own, ...strays].filter((l): l is string => !!l).join("\n");
+        if (combined) {
+          console.log(injectionFor(harnessName(), combined));
+          // SPEC §7 ledger discipline: record ONLY this session's OWN line for the
+          // advisory-outcome audit — the next audit must never be asked whether this
+          // session acted on ANOTHER session's warning. Strays were consumed from the
+          // store (never redelivered) but are deliberately NOT ledgered here.
+          if (sid && own) recordDeliveredWarning(wd, sid, own);
           logFiring({
             harness: harnessName(),
             event: "prompt",
@@ -567,7 +587,55 @@ async function main(argv: string[]): Promise<number> {
             caught: "",
             blocked: false,
             dir: wd,
-            feedback_scope: scope,
+            // A stray sweep is the new door; tag it so telemetry separates
+            // autonomous-fleet delivery from the normal own-session path.
+            feedback_scope: strays.length ? "stray" : scope,
+          });
+        }
+        return 0;
+      } catch (err) {
+        logFiring({
+          harness: harnessName(),
+          event: "prompt",
+          claim: "",
+          verdict: "error",
+          caught: err instanceof Error ? err.message : String(err),
+          blocked: false,
+          dir,
+        });
+        return 0;
+      }
+    }
+
+    case "hook-session-start": {
+      // Door 2 (autonomous-fleet delivery): SessionStart fires before any prompt, so
+      // there is no OWN-session feedback yet — sweep ONLY strays (another session's
+      // undelivered feedback in this repo, past the 10-min grace). SessionStart stdout
+      // becomes the session's initial context, so a fresh interactive session drains
+      // the autonomous fleet's rotting catches on the way in. Same injection shape as
+      // UserPromptSubmit, only the hookEventName differs. Fail-open (R8): any error →
+      // exit 0, silent when there are no strays.
+      try {
+        const p = parsePayload(await readStdin());
+        const wd = payloadDir(p, dir);
+        // A fresh session's own id (if any): pass it as the exclude key so a stray that
+        // happens to key to this same id is left for its owner. There is normally no
+        // own file yet, so excluding is belt-and-suspenders.
+        const sid = p.session_id || p.transcript_path || "";
+        const strays = takeStrayFeedback(wd, sid);
+        if (strays.length) {
+          console.log(injectionFor(harnessName(), strays.join("\n"), "SessionStart"));
+          // No recordDeliveredWarning: strays are never ledgered to the delivering
+          // session (SPEC §7 — see takeStrayFeedback), and this session has no own line.
+          logFiring({
+            harness: harnessName(),
+            event: "prompt", // reuse the prompt event (least invasive: no telemetry
+            claim: "",        // union change); the "stray" scope marks it as Door 2.
+            verdict: "delivered",
+            caught: "",
+            blocked: false,
+            dir: wd,
+            feedback_scope: "stray",
           });
         }
         return 0;
@@ -586,7 +654,7 @@ async function main(argv: string[]): Promise<number> {
     }
 
     default:
-      return usage("<install|selfcheck|doctor|telemetry|hook-stop|hook-stop-goose-block|hook-prompt>");
+      return usage("<install|selfcheck|doctor|telemetry|hook-stop|hook-stop-goose-block|hook-prompt|hook-session-start>");
   }
 }
 

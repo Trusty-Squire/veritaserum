@@ -21,7 +21,8 @@ import { join } from "node:path";
 import { execa } from "execa";
 import { tempRepo } from "./helpers.js";
 import { runAudit } from "../src/run-audit.js";
-import { pendingFeedbackPath, takePendingFeedback, writePendingFeedback, takeDeliveredWarnings, type AuditJob } from "../src/audit-runner.js";
+import { pendingFeedbackPath, takePendingFeedback, writePendingFeedback, takeStrayFeedback, takeDeliveredWarnings, type AuditJob } from "../src/audit-runner.js";
+import { writeFile as writeFileP } from "node:fs/promises";
 import { readFirings } from "../src/telemetry.js";
 
 const CLI = new URL("../src/cli.ts", import.meta.url).pathname;
@@ -115,6 +116,23 @@ async function hookPrompt(sessionId?: string): Promise<{ code: number; out: stri
   const r = await execa(RUNNER, [CLI, "hook-prompt"], { cwd: repoDir, input: JSON.stringify(payload), reject: false });
   return { code: r.exitCode ?? 1, out: r.stdout };
 }
+
+async function hookSessionStart(sessionId?: string): Promise<{ code: number; out: string }> {
+  const payload: Record<string, unknown> = { cwd: repoDir };
+  if (sessionId) payload.session_id = sessionId;
+  const r = await execa(RUNNER, [CLI, "hook-session-start"], { cwd: repoDir, input: JSON.stringify(payload), reject: false });
+  return { code: r.exitCode ?? 1, out: r.stdout };
+}
+
+/** Plant a feedback file for `sessionId` with an explicit age (ms) — strays need a
+ *  controlled ts, and writePendingFeedback always stamps now. */
+async function plantFeedback(sessionId: string, line: string, ageMs: number): Promise<void> {
+  const p = pendingFeedbackPath(repoDir, sessionId);
+  await mkdir(join(p, ".."), { recursive: true });
+  await writeFileP(p, JSON.stringify({ ts: Date.now() - ageMs, line }), "utf8");
+}
+
+const MIN = 60 * 1000;
 
 describe("feedback channel — emission (run-audit.ts)", () => {
   it("an unsupported-claim verdict writes pending feedback (warn)", async () => {
@@ -270,6 +288,110 @@ describe("feedback channel — injection (cli.ts hook-prompt)", () => {
     const r = await hookPrompt("s-corrupt");
     expect(r.code).toBe(0);
     expect(r.out.trim()).toBe("");
+  });
+});
+
+/**
+ * Stray delivery (autonomous-fleet fix): a warning earned by an AUTONOMOUS session
+ * (a one-shot scheduled run, or a turn ended by a task notification) never reaches a
+ * human at that session's own prompt — it never prompts again. Two extra doors sweep
+ * these "strays" — another session's undelivered feedback in the SAME repo, past a
+ * 10-min grace, under the 24h expiry: Door 1 (any session's prompt) and Door 2
+ * (any session start).
+ */
+describe("feedback channel — stray sweep (Door 1: hook-prompt)", () => {
+  it("delivers a >10min stray at another session's prompt WITH attribution, after that session's own line; consumes it; ledgers ONLY the own line", async () => {
+    writePendingFeedback(repoDir, "session-A", "veritaserum: A's own warning"); // fresh, A's own
+    await plantFeedback("session-B", "veritaserum: B's stray warning", 11 * MIN); // past grace
+
+    const r = await hookPrompt("session-A");
+    expect(r.code).toBe(0);
+    // A's own line first, then the attributed stray.
+    expect(r.out).toContain("A's own warning");
+    expect(r.out).toContain("from an earlier session in this repo");
+    expect(r.out).toContain("B's stray warning");
+    expect(r.out.indexOf("A's own warning")).toBeLessThan(r.out.indexOf("B's stray warning"));
+
+    // B's file is consumed — never redelivered.
+    expect(takePendingFeedback(repoDir, "session-B")).toBeNull();
+
+    // Ledger records ONLY A's own line, never B's stray (advisory-outcome discipline).
+    const delivered = takeDeliveredWarnings(repoDir, "session-A");
+    expect(delivered).toEqual(["veritaserum: A's own warning"]);
+    expect(delivered.join("")).not.toContain("B's stray");
+
+    // A stray sweep is tagged `stray` in telemetry.
+    expect(readFirings().some((f) => f.feedback_scope === "stray")).toBe(true);
+  });
+
+  it("a stray YOUNGER than 10min is NOT swept (grace gives its owner first claim)", async () => {
+    await plantFeedback("session-B", "veritaserum: B's fresh warning", 5 * MIN); // within grace
+
+    const r = await hookPrompt("session-A"); // A has no own feedback
+    expect(r.code).toBe(0);
+    expect(r.out.trim()).toBe(""); // nothing delivered
+    // B's file untouched — still there for B's own next prompt.
+    expect(takePendingFeedback(repoDir, "session-B")).toContain("B's fresh warning");
+  });
+
+  it("a stray older than 24h is dropped, never delivered", async () => {
+    await plantFeedback("session-B", "veritaserum: B's ancient warning", 25 * 60 * MIN); // > 24h
+
+    const r = await hookPrompt("session-A");
+    expect(r.code).toBe(0);
+    expect(r.out.trim()).toBe("");
+  });
+
+  it("caps at 3: with 5 strays present, only the 3 oldest are delivered in one prompt", async () => {
+    // ages descending → oldest is stray-B (20min), newest stray-F (16min).
+    await plantFeedback("session-B", "veritaserum: stray-B", 20 * MIN);
+    await plantFeedback("session-C", "veritaserum: stray-C", 19 * MIN);
+    await plantFeedback("session-D", "veritaserum: stray-D", 18 * MIN);
+    await plantFeedback("session-E", "veritaserum: stray-E", 17 * MIN);
+    await plantFeedback("session-F", "veritaserum: stray-F", 16 * MIN);
+
+    const r = await hookPrompt("session-A");
+    expect(r.code).toBe(0);
+    // the 3 oldest delivered...
+    for (const id of ["stray-B", "stray-C", "stray-D"]) expect(r.out).toContain(id);
+    // ...the 2 newest not.
+    for (const id of ["stray-E", "stray-F"]) expect(r.out).not.toContain(id);
+    // and the 2 undelivered files remain for a later sweep.
+    expect(takePendingFeedback(repoDir, "session-E")).toContain("stray-E");
+    expect(takePendingFeedback(repoDir, "session-F")).toContain("stray-F");
+  });
+});
+
+describe("feedback channel — stray sweep (Door 2: hook-session-start)", () => {
+  it("delivers strays on a fresh session id, with attribution, exit 0", async () => {
+    await plantFeedback("session-B", "veritaserum: B's stray warning", 11 * MIN);
+
+    const r = await hookSessionStart("fresh-session");
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("from an earlier session in this repo");
+    expect(r.out).toContain("B's stray warning");
+    // consumed
+    expect(takePendingFeedback(repoDir, "session-B")).toBeNull();
+  });
+
+  it("silent (exit 0, no output) when there are no strays", async () => {
+    const r = await hookSessionStart("fresh-session");
+    expect(r.code).toBe(0);
+    expect(r.out.trim()).toBe("");
+  });
+});
+
+describe("feedback channel — stray consumption is race-safe (consume-once)", () => {
+  it("consuming the same stray twice yields the line exactly once", async () => {
+    await plantFeedback("session-B", "veritaserum: B's stray warning", 11 * MIN);
+
+    const first = takeStrayFeedback(repoDir, "session-A");
+    const second = takeStrayFeedback(repoDir, "session-A");
+
+    expect(first).toHaveLength(1);
+    expect(first[0]).toContain("from an earlier session in this repo");
+    expect(first[0]).toContain("B's stray warning");
+    expect(second).toEqual([]); // already consumed — never a second delivery
   });
 });
 

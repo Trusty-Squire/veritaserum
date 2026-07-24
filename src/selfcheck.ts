@@ -34,8 +34,15 @@ export interface Check {
   detail: string;
 }
 
-/** The events veritaserum depends on. EVERY hook on these matters — not only ours. */
-const OWNED_EVENTS = ["Stop", "UserPromptSubmit"];
+/**
+ * The events veritaserum depends on, per target. EVERY hook on these matters — not only
+ * ours. Stop + UserPromptSubmit everywhere; SessionStart is claude-code's Door 2 (stray
+ * delivery on a fresh session), which ONLY installClaudeCode wires — codex deliberately
+ * gets no SessionStart hook, so requiring one there would cry wolf.
+ */
+function ownedEvents(target: Target): string[] {
+  return target === "claude-code" ? ["Stop", "UserPromptSubmit", "SessionStart"] : ["Stop", "UserPromptSubmit"];
+}
 
 /**
  * Every hook the harness will run on the events we depend on — ours AND anyone else's.
@@ -62,8 +69,9 @@ export function installedHooks(target: Target): Array<{ event: string; command: 
   } catch {
     return out;
   }
+  const events = ownedEvents(target);
   for (const [event, groups] of Object.entries(config.hooks ?? {})) {
-    if (!OWNED_EVENTS.includes(event)) continue;
+    if (!events.includes(event)) continue;
     for (const group of groups ?? []) {
       for (const hook of group.hooks ?? []) {
         const command = hook.command ?? "";
@@ -128,7 +136,7 @@ function jobsIn(queueDir: string): number {
 export async function selfcheck(target: Target): Promise<Check[]> {
   const checks: Check[] = [];
   const hooks = installedHooks(target);
-  for (const event of OWNED_EVENTS) {
+  for (const event of ownedEvents(target)) {
     if (!hooks.some((h) => h.event === event && h.ours)) {
       checks.push({ name: `${event} hook installed`, ok: false, detail: `no veritaserum hook on ${event} in ${target}'s config` });
     }
@@ -223,6 +231,51 @@ export async function selfcheck(target: Target): Promise<Check[]> {
           name: `${event} hook reaches the model`,
           ok: delivered,
           detail: delivered ? shape : `the verdict would NOT reach the executor — ${shape}`,
+        });
+      }
+
+      if (event === "SessionStart") {
+        // Door 2: plant a STRAY (another session's feedback, past the 10-min grace) and
+        // assert the fresh session's SessionStart hook sweeps + delivers it with
+        // attribution. A hook that emits nothing here strands the autonomous fleet's
+        // catches — the exact rot this door exists to drain.
+        const feedback = join(qdir(), "feedback");
+        mkdirSync(feedback, { recursive: true });
+        const line = "veritaserum: selfcheck stray probe";
+        const attributed = "veritaserum (from an earlier session in this repo):";
+        writeFileSync(
+          join(feedback, "other-session.json"),
+          JSON.stringify({ ts: Date.now() - 11 * 60 * 1000, line }),
+          "utf8",
+        );
+
+        const r = await runHook(command, { session_id: "selfcheck-fresh", cwd: repo }, env);
+        checks.push({
+          name: `${event} hook runs`,
+          ok: r.code === 0,
+          detail: r.code === 0 ? "exit 0" : `exit ${r.code} — ${(r.stderr || r.stdout).split("\n")[0]?.slice(0, 90)}`,
+        });
+
+        const out = r.stdout.trim();
+        let delivered = false;
+        let shape = "nothing on stdout";
+        if (target === "codex") {
+          try {
+            const parsed = JSON.parse(out) as { hookSpecificOutput?: { hookEventName?: string; additionalContext?: string } };
+            const h = parsed.hookSpecificOutput;
+            delivered = h?.hookEventName === "SessionStart" && (h.additionalContext ?? "").includes(attributed);
+            shape = delivered ? "hookSpecificOutput envelope (codex reads this)" : "JSON, but not codex's SessionStart envelope";
+          } catch {
+            shape = out ? "bare text — codex does NOT read this as context" : "nothing on stdout";
+          }
+        } else {
+          delivered = out.includes(attributed);
+          shape = delivered ? "bare stdout (Claude Code reads SessionStart as context)" : shape;
+        }
+        checks.push({
+          name: `${event} hook reaches the model`,
+          ok: delivered,
+          detail: delivered ? shape : `a stray would NOT reach the executor — ${shape}`,
         });
       }
     }

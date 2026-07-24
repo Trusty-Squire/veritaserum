@@ -208,9 +208,9 @@ function hookInvocation(): string {
  * forever. The volatile parts — which node, which dist — live INSIDE that script, which we
  * rewrite freely on every install. Trust is granted once and survives every upgrade.
  */
-function launcher(sub: "hook-stop" | "hook-prompt"): string {
+function launcher(sub: "hook-stop" | "hook-prompt" | "hook-session-start"): string {
   const dir = join(homedir(), ".veritaserum", "bin");
-  const path = join(dir, sub === "hook-stop" ? "vs-hook-stop" : "vs-hook-prompt");
+  const path = join(dir, sub === "hook-stop" ? "vs-hook-stop" : sub === "hook-prompt" ? "vs-hook-prompt" : "vs-hook-session-start");
   const entry = sub === "hook-stop" ? hookInvocation() : `${cliInvocation()} ${sub}`;
   mkdirSync(dir, { recursive: true });
   writeFileSync(
@@ -229,7 +229,7 @@ function launcher(sub: "hook-stop" | "hook-prompt"): string {
   return shellQuote(path);
 }
 
-function hookCommand(target: Target, sub: "hook-stop" | "hook-prompt" = "hook-stop"): string {
+function hookCommand(target: Target, sub: "hook-stop" | "hook-prompt" | "hook-session-start" = "hook-stop"): string {
   // No VS_ADVISORY prefix: nothing in the audit path blocks (R5 warn-primary), so an
   // "advisory mode" env var gated nothing and the install ceremony's "unset it to enable
   // blocking" was simply false. Blocking is per-law-entry and human-promoted, never a flag.
@@ -286,7 +286,7 @@ interface Settings {
 function isVeritaserumHookCommand(command: string, harness: string): boolean {
   return (
     command.includes(`VS_HARNESS=${harness}`) &&
-    /\bveritaserum\b|veritaserum-hook|hook-cli\.cjs|\bhook-(?:stop|prompt|seal-reminder)\b/.test(command)
+    /\bveritaserum\b|veritaserum-hook|hook-cli\.cjs|\bhook-(?:stop|prompt|session-start|seal-reminder)\b/.test(command)
   );
 }
 
@@ -388,9 +388,13 @@ async function installClaudeCode(hookCmd: string, global: boolean): Promise<Inst
   const removedSeal = removeSealReminderHook(settings);
   const addedStop = mergeHook(settings, "Stop", hookCmd);
   const addedPrompt = mergeHook(settings, "UserPromptSubmit", hookCommand("claude-code", "hook-prompt"));
-  if (addedStop || addedPrompt || removedSeal) {
+  // Door 2 (autonomous-fleet delivery): a SessionStart hook sweeps strays — another
+  // session's undelivered feedback in this repo — into a fresh session's initial
+  // context, so catches from one-shot/notification-ended sessions still reach a human.
+  const addedSessionStart = mergeHook(settings, "SessionStart", hookCommand("claude-code", "hook-session-start"));
+  if (addedStop || addedPrompt || addedSessionStart || removedSeal) {
     writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
-    const added = [addedStop && "Stop", addedPrompt && "UserPromptSubmit"].filter(Boolean).join(" + ");
+    const added = [addedStop && "Stop", addedPrompt && "UserPromptSubmit", addedSessionStart && "SessionStart"].filter(Boolean).join(" + ");
     if (added) steps.push(s.ok(`added ${added} hook(s) to ${s.dim(file)}`));
     if (removedSeal) steps.push(s.ok(`removed stale seal-reminder hook from ${s.dim(file)}`));
   } else {

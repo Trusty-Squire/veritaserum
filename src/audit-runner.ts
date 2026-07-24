@@ -213,6 +213,91 @@ export function drainAllPendingFeedback(dir: string): string | null {
 }
 
 /**
+ * A "stray" (SPEC §2 "Feedback channels", autonomous-fleet delivery): another
+ * session's undelivered feedback in the SAME repo. Autonomous sessions — one-shot
+ * scheduled runs that never prompt twice, and long-running turns that end via task
+ * notifications with no new user prompt — never collect their own warnings, so those
+ * catches rot in the queue forever. Any session's prompt (Door 1) and any session
+ * start (Door 2) sweep strays so a human eventually sees them.
+ *
+ * STRAY_AFTER_MS is a grace window: for the first 10 minutes a warning is the owning
+ * session's alone (it may still prompt and collect it first). Only past the grace, and
+ * still within the existing 24h expiry, does another session sweep it.
+ */
+const STRAY_AFTER_MS = 10 * 60 * 1000; // grace: the owning session's first claim
+
+/** Weave attribution into a stray's leading tag so the reader knows it was earned
+ *  by a DIFFERENT session in this repo (never presented as this session's own). */
+function attributeStray(line: string): string {
+  const tag = "veritaserum: ";
+  const attributed = "veritaserum (from an earlier session in this repo): ";
+  return line.startsWith(tag) ? attributed + line.slice(tag.length) : attributed + line;
+}
+
+/**
+ * Sweep up to `cap` strays (oldest first), attributing each, and CONSUME them so
+ * they are never redelivered. Excludes `excludeSessionId`'s own file (the prompting
+ * session already took its own line via takePendingFeedback).
+ *
+ * Race-safety: takePendingFeedback consumes via read-then-unlink, which double-delivers
+ * under a race (two prompts both read before either unlinks). A stray crosses session
+ * boundaries — two concurrent prompts in the repo could both grab the same one — so this
+ * uses the STRONGER rename-then-read claim (the same atomic-claim pattern drain() uses
+ * for jobs): exactly one racer's renameSync succeeds, so exactly one delivers the line.
+ *
+ * NOTE: strays are consumed but deliberately NOT ledgered via recordDeliveredWarning —
+ * the next-audit advisory-outcome judgment must only ever be asked whether a session
+ * acted on ITS OWN warning, never another session's claim (SPEC §7). The caller records
+ * only its own line.
+ */
+export function takeStrayFeedback(dir: string, excludeSessionId: string, cap = 3): string[] {
+  const fdir = join(queueRoot(dir), "feedback");
+  const exclude = `${sanitize(excludeSessionId)}.json`;
+  let names: string[];
+  try {
+    names = readdirSync(fdir);
+  } catch {
+    return []; // no feedback dir yet — nothing to sweep
+  }
+  // The filename doesn't carry the verdict's landing time, so read each candidate's
+  // ts first, then order oldest-first, THEN claim — a stray's age gates both the grace
+  // window and the 24h expiry.
+  const now = Date.now();
+  const candidates: Array<{ p: string; ts: number; line: string }> = [];
+  for (const name of names) {
+    if (!name.endsWith(".json") || name === exclude) continue;
+    const p = join(fdir, name);
+    let parsed: Partial<PendingFeedback>;
+    try {
+      parsed = JSON.parse(readFileSync(p, "utf8")) as Partial<PendingFeedback>;
+    } catch {
+      continue; // unreadable/corrupt — leave it; the owning session's own take cleans it up
+    }
+    if (typeof parsed.line !== "string" || typeof parsed.ts !== "number") continue;
+    const age = now - parsed.ts;
+    if (age < STRAY_AFTER_MS) continue; // still in the owning session's grace window
+    if (age >= PENDING_FEEDBACK_MAX_AGE_MS) continue; // stale (>= 24h) — dropped, not delivered
+    candidates.push({ p, ts: parsed.ts, line: parsed.line });
+  }
+  candidates.sort((a, b) => a.ts - b.ts); // oldest first
+  const out: string[] = [];
+  for (const c of candidates) {
+    if (out.length >= cap) break;
+    // Atomic claim: exactly one concurrent sweeper wins the rename; the loser's rename
+    // throws and it skips — the same stray is never delivered twice.
+    const claimed = `${c.p}.stray-${process.pid}-${randomUUID().slice(0, 8)}`;
+    try {
+      renameSync(c.p, claimed);
+    } catch {
+      continue; // another sweeper claimed it first
+    }
+    rmSafely(claimed); // consumed — never redelivered, never ledgered
+    out.push(attributeStray(c.line));
+  }
+  return out;
+}
+
+/**
  * Advisory-outcome delivery ledger (SPEC §7 "advisory outcome"): the warning
  * line(s) actually DELIVERED to a session at a UserPromptSubmit. cli.ts records
  * here the moment it injects a line; run-audit.ts drains it before the NEXT
