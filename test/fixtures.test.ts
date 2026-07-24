@@ -213,7 +213,13 @@ describe("replay fixtures (SPEC §6.1) — 8 scenarios through the real pipeline
       const { dir, cleanup } = await fixtureRepo(f.repoSetup);
       cleanups.push(cleanup);
 
-      const v = await audit(job(dir, f), fakeAuditor(reply!), nullEmbedder());
+      // CHANGE 1 (the gate): with the null embedder the grounding tier returns
+      // zero flags / zero load-bearing sentences and NO error, so these turns are
+      // gate-eligible and would be SKIPPED by default. Every fixture here IS a
+      // load-bearing scenario (a real ollama would classify it so), so force the
+      // audit to run via the shadow path (rng() < shadowRate) to exercise the
+      // pipeline. Gate/skip behaviour itself is covered in test/auditor.test.ts.
+      const v = await audit(job(dir, f), fakeAuditor(reply!), nullEmbedder(), { rng: () => 0 });
 
       // Parse: a well-formed reply never lands in verdict.error.
       expect(v.error).toBeUndefined();

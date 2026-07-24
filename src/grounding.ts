@@ -44,7 +44,40 @@ export interface GroundingFlag {
 
 export interface GroundingResult {
   flags: GroundingFlag[];
+  /** CHANGE 1 (the gate, src/auditor.ts): how many sentences classified into a
+   *  load-bearing class (BLOCKER/CAUSAL/SETTLED_STATE_QUANT) and SURVIVED the
+   *  prose/rubric/hedge guards — i.e. the detector considered them claim-shaped,
+   *  even if no rule ultimately fired (a BLOCKER carrying no capability cue still
+   *  counts). The gate skips the LLM audit only when this is 0 AND flags is empty
+   *  AND there is no error. Conservative by construction: predictions/judgments
+   *  classify claim-shaped and go through, so the gate never decides a judgment. */
+  loadBearingSentences: number;
+  /** CHANGE 2 (claim-conditioned evidence): everything the evidence selector
+   *  (selectEvidence) needs to build a small, claim-relevant receipts payload —
+   *  the load-bearing sentence vectors, the specific numbers extracted from them,
+   *  and every receipt line WITH the embedding this pass already computed.
+   *  Present only when there is something to select against (≥1 load-bearing
+   *  sentence AND ≥1 receipt line); undefined → the caller ships the full tail.
+   *  Reuses this pass's embeddings so selection never re-embeds. */
+  selection?: EvidenceSelectionContext;
   error?: string;
+}
+
+/** One receipt line paired with the embedding vector computed for it during the
+ *  grounding pass (the ENRICHED form — HTTP gloss applied — same as embedded). */
+export interface ReceiptLineVec {
+  text: string;
+  vec: number[];
+}
+
+/** The reusable material for claim-conditioned evidence selection (CHANGE 2). */
+export interface EvidenceSelectionContext {
+  /** Vectors of the load-bearing (claim-shaped) sentences. */
+  claimVectors: number[][];
+  /** The specific quantities extracted from those sentences (specificNumbersIn). */
+  claimNumbers: number[];
+  /** Receipt lines in chronological order, each with its embedding vector. */
+  receiptLines: ReceiptLineVec[];
 }
 
 /**
@@ -769,6 +802,128 @@ function classify(vec: number[], centroids: Record<ClassName, number[]>): Classi
 }
 
 // ---------------------------------------------------------------------------
+// Claim-conditioned evidence selection (CHANGE 2). The blind 64KB receipt tail
+// spent ~18.5k tokens per audit; most of it was noise no claim referred to.
+// selectEvidence keeps only what a load-bearing claim could be judged against,
+// then fills the remaining budget by relevance — REUSING the embeddings the
+// grounding pass already computed (EvidenceSelectionContext), never re-embedding.
+//
+// The floor is deliberately generous (the 32KB blind-truncation sweep in
+// transcript.ts LOST verification receipts): three families are ALWAYS kept —
+//   (a) lines whose numbers match a claim's extracted quantities,
+//   (b) test/build/commit/push signature calls AND their result blocks,
+//   (c) a verbatim recency tail (receipts live at the end, per transcript.ts).
+// Only after those does cosine-ranked fill spend the rest. Chronological order is
+// preserved; dropped runs collapse into an elision marker so the auditor knows it
+// sees a SELECTION, not the whole log (buildAgenticPrompt adds the prose note).
+// ---------------------------------------------------------------------------
+const RECENCY_TAIL_BYTES = 2 * 1024; // last ~2KB of receipts kept verbatim, always
+
+/** A state-signature invocation whose result must survive selection so the
+ *  auditor can still judge a "tests pass"/"committed"/"pushed"/"build green"
+ *  claim (and, crucially, still find the ABSENCE of one meaningful). */
+const SIGNATURE_CALL =
+  /\b(git\s+commit|git\s+push|vitest|jest|pytest|mocha|npm\s+t(?:est)?\b|pnpm\s+test|yarn\s+test|go\s+test|cargo\s+test|cargo\s+build|go\s+build|tsc|type\s?check|webpack|vite|rollup|esbuild|gradle|mvn|\btest\b|\bbuild\b|\bmake\b|\bcompile\b)/i;
+
+function elisionMarker(n: number): string {
+  return `…[${n} receipt line${n === 1 ? "" : "s"} elided by relevance selection]…`;
+}
+
+export interface EvidenceSelectionResult {
+  /** The selected receipts payload (chronological, with elision markers). */
+  text: string;
+  /** Byte size of `text` — telemetry `evidence_bytes`. */
+  bytes: number;
+  /** How many receipt lines were dropped (0 → nothing elided, full tail). */
+  elided: number;
+}
+
+/**
+ * Build the claim-conditioned receipts payload. Pure and deterministic; reuses
+ * `ctx`'s precomputed vectors. If the whole tail already fits the budget it is
+ * returned verbatim (no markers). Never re-embeds.
+ */
+export function selectEvidence(ctx: EvidenceSelectionContext, budgetBytes: number): EvidenceSelectionResult {
+  const lines = ctx.receiptLines;
+  const n = lines.length;
+  const size = (s: string): number => Buffer.byteLength(s, "utf8") + 1; // +1 for the joining newline
+  const fullBytes = lines.reduce((b, l) => b + size(l.text), 0) - (n > 0 ? 1 : 0);
+  const full = lines.map((l) => l.text).join("\n");
+  if (n === 0 || fullBytes <= budgetBytes) return { text: full, bytes: Buffer.byteLength(full, "utf8"), elided: 0 };
+
+  const keep = new Array<boolean>(n).fill(false);
+
+  // (c) recency tail — trailing lines that fit in the last ~2KB, always kept.
+  let tail = 0;
+  for (let i = n - 1; i >= 0; i--) {
+    tail += size(lines[i]!.text);
+    if (tail > RECENCY_TAIL_BYTES) break;
+    keep[i] = true;
+  }
+
+  // (a) numeric/identifier matches, and (b) signature calls + their result block.
+  for (let i = 0; i < n; i++) {
+    const text = lines[i]!.text;
+    if (ctx.claimNumbers.length && numbersIn(text).some((num) => ctx.claimNumbers.some((c) => approxEq(c, num)))) keep[i] = true;
+    if (isCallLine(text) && SIGNATURE_CALL.test(text)) {
+      keep[i] = true;
+      for (let j = i + 1; j < n && !isCallLine(lines[j]!.text); j++) keep[j] = true;
+    }
+  }
+
+  const keptBytes = (): number => {
+    let b = 0;
+    for (let i = 0; i < n; i++) if (keep[i]) b += size(lines[i]!.text);
+    return b;
+  };
+
+  // (2) fill the remaining budget with unkept lines ranked by max cosine to any
+  // load-bearing sentence — highest relevance first, skipping any that overflow.
+  let budget = budgetBytes - keptBytes();
+  if (budget > 0 && ctx.claimVectors.length) {
+    const ranked: Array<{ i: number; score: number; bytes: number }> = [];
+    for (let i = 0; i < n; i++) {
+      if (keep[i]) continue;
+      let best = -Infinity;
+      for (const cv of ctx.claimVectors) {
+        const s = cosine(lines[i]!.vec, cv);
+        if (s > best) best = s;
+      }
+      ranked.push({ i, score: best, bytes: size(lines[i]!.text) });
+    }
+    ranked.sort((a, b) => b.score - a.score);
+    for (const r of ranked) {
+      if (r.bytes > budget) continue;
+      keep[r.i] = true;
+      budget -= r.bytes;
+    }
+  }
+
+  // Emit chronologically; collapse each dropped run into one elision marker.
+  const out: string[] = [];
+  let elided = 0;
+  let gap = 0;
+  for (let i = 0; i < n; i++) {
+    if (keep[i]) {
+      if (gap > 0) {
+        out.push(elisionMarker(gap));
+        elided += gap;
+        gap = 0;
+      }
+      out.push(lines[i]!.text);
+    } else {
+      gap++;
+    }
+  }
+  if (gap > 0) {
+    out.push(elisionMarker(gap));
+    elided += gap;
+  }
+  const text = out.join("\n");
+  return { text, bytes: Buffer.byteLength(text, "utf8"), elided };
+}
+
+// ---------------------------------------------------------------------------
 // groundingCheck — the entry point. Never throws (R8).
 // ---------------------------------------------------------------------------
 export async function groundingCheck(
@@ -782,12 +937,12 @@ export async function groundingCheck(
 
     // Guard 1 — prose gate: a JSON verdict blob (or a message that is almost all
     // fenced code) is not a set of the agent's assertions. Skip the whole pass.
-    if (isStructuredOutput(finalMessage)) return { flags: [] };
+    if (isStructuredOutput(finalMessage)) return { flags: [], loadBearingSentences: 0 };
 
     const sentences = splitSentences(finalMessage);
     const receiptLines = (input.receipts || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     const callLines = receiptLines.filter(isCallLine);
-    if (sentences.length === 0) return { flags: [] };
+    if (sentences.length === 0) return { flags: [], loadBearingSentences: 0 };
 
     // Guard 6 — computed once: are the receipts overwhelmingly image/binary reads
     // or blob results? If so, blocked-no-attempt's attempt comparison is vacuous.
@@ -825,6 +980,11 @@ export async function groundingCheck(
     const centroids = centroidsFrom(seedVecs);
 
     const flags: GroundingFlag[] = [];
+    // CHANGE 1/2: the gate's load-bearing count, plus the claim vectors/numbers
+    // the evidence selector reuses. Filled as each sentence survives the guards.
+    let loadBearingSentences = 0;
+    const claimVectors: number[][] = [];
+    const claimNumbers: number[] = [];
 
     for (const sentence of sentences) {
       const sv = vec.get(sentence);
@@ -843,6 +1003,14 @@ export async function groundingCheck(
 
       // (e) Only confident, load-bearing classes reach a rule. NEUTRAL never flags.
       if (cls === "NEUTRAL") continue;
+
+      // CHANGE 1 (the gate): this sentence cleared the prose/rubric/hedge guards
+      // and landed in a load-bearing class — claim-shaped, even if no rule below
+      // fires (a BLOCKER with no capability cue still counts here). Its vector and
+      // extracted numbers seed CHANGE 2's evidence selection.
+      loadBearingSentences++;
+      claimVectors.push(sv);
+      for (const numVal of specificNumbersIn(sentence)) claimNumbers.push(numVal);
 
       // --- blocked-no-attempt (highest value) ---------------------------------
       if (cls === "BLOCKER") {
@@ -1013,10 +1181,22 @@ export async function groundingCheck(
       return true;
     });
 
-    return { flags: deduped };
+    // CHANGE 2: pair every receipt line with its already-computed (enriched)
+    // vector, and expose the selection context only when there is something to
+    // select against (a load-bearing claim AND at least one receipt line).
+    const selectionReceiptLines: ReceiptLineVec[] = receiptLines.map((raw, i) => ({
+      text: raw,
+      vec: vec.get(enrichedLines[i] as string) ?? [],
+    }));
+    const selection: EvidenceSelectionContext | undefined =
+      loadBearingSentences > 0 && selectionReceiptLines.length > 0
+        ? { claimVectors, claimNumbers, receiptLines: selectionReceiptLines }
+        : undefined;
+
+    return { flags: deduped, loadBearingSentences, ...(selection ? { selection } : {}) };
   } catch (e) {
     // R8: fail open. A dead ollama or garbage input yields an empty,
     // non-blocking result with the reason recorded — never a throw.
-    return { flags: [], error: e instanceof Error ? e.message : String(e) };
+    return { flags: [], loadBearingSentences: 0, error: e instanceof Error ? e.message : String(e) };
   }
 }

@@ -64,6 +64,22 @@ export interface Firing {
    *  acted on it. LLM-only — absent when no auditor ran or no warning was
    *  pending for the session. */
   advisory_outcome?: "addressed-corrected" | "addressed-confirmed" | "ignored";
+  /** CHANGE 1 (the gate): what happened to the LLM audit this turn. "skipped" —
+   *  the gate found nothing claim-shaped and did NOT invoke the LLM (the 81% we
+   *  stop paying for). "shadow" — a gated turn the shadow sampler ran anyway.
+   *  "full" — a non-gated audit. Absent → no auditor was available (tier absent).
+   *  Gate safety is the query `gated:"shadow" AND gate_missed:true`. */
+  gated?: "skipped" | "shadow" | "full";
+  /** CHANGE 1 (shadow safety): true when a shadow audit of a GATED turn returned
+   *  a substantive verdict (unsupported/contradicted/unaccountable) — i.e. the
+   *  gate WOULD have wrongly skipped a real finding. The gate's miss rate is
+   *  `count(gate_missed) / count(gated:"shadow")`, a telemetry query not a belief. */
+  gate_missed?: boolean;
+  /** CHANGE 2 (claim-conditioned evidence): bytes of the SELECTED receipts payload
+   *  actually shipped to the auditor (vs the blind tail). 0 when nothing was
+   *  shipped (gated-skip, or no receipts). Paired with prompt_chars, this makes
+   *  the token saving measurable. */
+  evidence_bytes?: number;
 }
 
 export function telemetryPath(): string {

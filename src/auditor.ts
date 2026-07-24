@@ -21,7 +21,7 @@
 import { execa } from "execa";
 import { logFiring } from "./telemetry.js";
 import type { Auditor, AuditorTier } from "./resolve.js";
-import { groundingCheck, type GitProbeState, type GroundingFlag } from "./grounding.js";
+import { groundingCheck, selectEvidence, type GitProbeState, type GroundingFlag } from "./grounding.js";
 import { ollamaEmbedder, type Embedder } from "./embed.js";
 
 export interface AuditJob {
@@ -271,7 +271,26 @@ function advisorySection(deliveredWarnings: string[] | undefined): string {
   ].join("\n");
 }
 
-function buildAgenticPrompt(job: AuditJob): string {
+/**
+ * CHANGE 2 — the one prompt line that tells the auditor the receipt tail is a
+ * relevance-SELECTED excerpt, not the whole log. IMPORTANT: with selected
+ * evidence, absence-of-receipt reasoning weakens — but the selection GUARANTEES
+ * every claim-relevant line and every test/build/commit/push signature line (with
+ * its result) is retained, so the absence of a VERIFICATION receipt for a flagged
+ * claim is still a real finding, not a selection artifact. Included only when
+ * lines were actually elided.
+ */
+const SELECTED_EVIDENCE_NOTE = [
+  "NOTE ON EVIDENCE: the HARNESS RECEIPT TAIL below is a RELEVANCE-SELECTED excerpt, not the full",
+  'log — unrelated runs are collapsed into "…[N receipt lines elided by relevance selection]…"',
+  "markers. Every line relevant to a claim-bearing sentence AND every test/build/commit/push",
+  "signature line (with its result) is RETAINED. So you MAY note that evidence for a minor detail",
+  '"may be elided" rather than assert its absence categorically — BUT because the selection keeps',
+  "all claim-relevant and verification lines, the absence of a verifying run for a flagged claim IS",
+  "still meaningful (a missing test/commit/push receipt is a real finding, not a selection gap).",
+].join("\n");
+
+function buildAgenticPrompt(job: AuditJob, receipts: string, evidenceElided: boolean): string {
   return [
     RULES_BLOCK,
     "",
@@ -290,7 +309,8 @@ function buildAgenticPrompt(job: AuditJob): string {
     `USER'S REQUEST:\n"""${job.userRequest}"""`,
     "",
     `AGENT'S FINAL MESSAGE (what you are auditing):\n"""${job.finalMessage}"""`,
-    job.receipts ? `\nHARNESS RECEIPT TAIL (what actually ran, the harness's own record):\n"""${job.receipts}"""` : "",
+    evidenceElided && receipts ? `\n${SELECTED_EVIDENCE_NOTE}` : "",
+    receipts ? `\nHARNESS RECEIPT TAIL (what actually ran, the harness's own record):\n"""${receipts}"""` : "",
     advisorySection(job.deliveredWarnings),
   ]
     .filter((l) => l !== "")
@@ -341,7 +361,7 @@ async function gatherGitState(dir: string): Promise<GitProbeState | undefined> {
   }
 }
 
-export function buildPreGatheredPrompt(job: AuditJob, evidence: string): string {
+export function buildPreGatheredPrompt(job: AuditJob, evidence: string, evidenceElided = false): string {
   return [
     RULES_BLOCK,
     "",
@@ -352,12 +372,21 @@ export function buildPreGatheredPrompt(job: AuditJob, evidence: string): string 
     `USER'S REQUEST:\n"""${job.userRequest}"""`,
     "",
     `AGENT'S FINAL MESSAGE (what you are auditing):\n"""${job.finalMessage}"""`,
+    evidenceElided ? `\n${SELECTED_EVIDENCE_NOTE}` : "",
     "",
     `EVIDENCE (pre-gathered):\n${evidence}`,
     advisorySection(job.deliveredWarnings),
   ]
     .filter((l) => l !== "")
     .join("\n");
+}
+
+/** CHANGE 2 budget: bytes the selected receipts payload may occupy. Default 24KB
+ *  (≈6k tokens) — generous vs the 8KB floor because the 32KB blind-truncation
+ *  sweep lost verification receipts; selection is smarter, but humility is cheap. */
+function evidenceBudgetBytes(): number {
+  const kb = Number(process.env.VS_EVIDENCE_BUDGET_KB ?? 24);
+  return (Number.isFinite(kb) && kb > 0 ? kb : 24) * 1024;
 }
 
 // ---------------------------------------------------------------------------
@@ -417,7 +446,16 @@ export function parseReply(raw: string): ParsedAuditReply | null {
 // Telemetry
 // ---------------------------------------------------------------------------
 
-function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict, promptChars = 0): void {
+interface AuditTelemetryExtras {
+  /** CHANGE 1: what the gate did with the LLM audit this turn. */
+  gated?: "skipped" | "shadow" | "full";
+  /** CHANGE 1: a shadow audit of a gated turn surfaced a real finding. */
+  gateMissed?: boolean;
+  /** CHANGE 2: bytes of the selected receipts payload actually shipped. */
+  evidenceBytes?: number;
+}
+
+function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict, promptChars = 0, extra: AuditTelemetryExtras = {}): void {
   // An `error` verdict with an empty `caught` is undebuggable — it is indistinguishable from
   // an audit that never ran. Whatever went wrong, say so.
   const overall = verdict.error
@@ -460,6 +498,11 @@ function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict, promptChars = 0
     // SPEC §7 advisory outcome: undefined (dropped by JSON.stringify) unless a
     // prior warning was delivered and the LLM auditor judged its outcome.
     advisory_outcome: verdict.advisoryOutcome,
+    // CHANGE 1/2: the gate decision, the shadow-miss flag, and the selected
+    // evidence size. undefined fields are dropped by JSON.stringify.
+    gated: extra.gated,
+    gate_missed: extra.gateMissed || undefined,
+    evidence_bytes: extra.evidenceBytes,
   });
 }
 
@@ -470,21 +513,95 @@ function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict, promptChars = 0
 // absent) — `embedder` is injectable so tests run without a live ollama.
 // ---------------------------------------------------------------------------
 
-export async function audit(job: AuditJob, auditor: Auditor, embedder: Embedder = ollamaEmbedder()): Promise<AuditVerdict> {
+/** Test seams for audit() — both default to production behaviour. */
+export interface AuditOptions {
+  /** The shadow-sampling RNG (default Math.random, called at the boundary). */
+  rng?: () => number;
+  /** The evidence selector (default selectEvidence) — injectable so a fail-open
+   *  test can force a selection failure and prove audit ships the full tail. */
+  selectEvidence?: typeof selectEvidence;
+}
+
+export async function audit(
+  job: AuditJob,
+  auditor: Auditor,
+  embedder: Embedder = ollamaEmbedder(),
+  opts: AuditOptions = {},
+): Promise<AuditVerdict> {
   const auditStartedAt = Date.now();
+  const rng = opts.rng ?? Math.random;
+  const select = opts.selectEvidence ?? selectEvidence;
+
+  // CHANGE 1: the no-LLM grounding tier runs FIRST — regardless of auditor
+  // availability (SPEC §2, R8) — and its result now GATES the LLM audit. It also
+  // computes the embeddings CHANGE 2's evidence selection reuses. Fail-open: a
+  // dead ollama throws inside the embedder, groundingCheck catches it and returns
+  // { error }, and the turn is then treated as NON-gate-eligible (full audit) —
+  // a gate failure must never be the thing that skips an audit. Its flags become
+  // warnings; they NEVER block.
+  const gitState = await gatherGitState(job.dir);
+  const grounding = await groundingCheck(
+    {
+      finalMessage: job.finalMessage,
+      receipts: job.receipts ?? "",
+      ...(job.userRequest ? { userRequest: job.userRequest } : {}),
+      ...(gitState ? { gitState } : {}),
+    },
+    embedder,
+  );
+
+  // THE GATE (kills the 81% no-claim spend). Skip the LLM only when the detector
+  // found NOTHING claim-shaped: no fired flag, no load-bearing sentence, and no
+  // grounding error. CONSERVATIVE BIAS by construction — loadBearingSentences
+  // counts ANY non-neutral, non-hedged sentence, so predictions/judgments (which
+  // classify claim-shaped) always go through and the LLM's own guards acquit
+  // them; the gate never decides a judgment call. FAIL-OPEN: a grounding error
+  // (embedder unavailable) forces the full audit.
+  const shadowRate = Number(process.env.VS_SHADOW_RATE ?? 0.1);
+  const gateEligible =
+    auditor.tier !== "absent" &&
+    !grounding.error &&
+    grounding.flags.length === 0 &&
+    grounding.loadBearingSentences === 0;
+  // SHADOW SAMPLING (the safety valve): a gate-eligible turn still runs the full
+  // audit with probability shadowRate, so gate safety is a telemetry query, not a
+  // belief. RNG injected at the call boundary (opts.rng), Math.random by default.
+  const shadow = gateEligible && rng() < shadowRate;
+  const gated: "skipped" | "shadow" | "full" | undefined =
+    auditor.tier === "absent" ? undefined : gateEligible ? (shadow ? "shadow" : "skipped") : "full";
+  const runLLM = auditor.tier !== "absent" && (!gateEligible || shadow);
 
   let reply: ParsedAuditReply | null = null;
   let error: string | undefined;
   let promptChars = 0;
+  let evidenceBytes = 0;
 
   if (auditor.tier === "absent") {
     error = "auditor_absent";
-  } else {
+  } else if (runLLM) {
+    // CHANGE 2: ship a claim-conditioned receipts payload, not the blind tail.
+    // Selection reuses the embeddings groundingCheck already computed. FAIL-OPEN:
+    // any selection failure → the full tail (more evidence, never less).
+    let selectedReceipts = job.receipts ?? "";
+    let evidenceElided = false;
+    evidenceBytes = job.receipts ? Buffer.byteLength(job.receipts, "utf8") : 0;
+    if (job.receipts && grounding.selection) {
+      try {
+        const sel = select(grounding.selection, evidenceBudgetBytes());
+        selectedReceipts = sel.text;
+        evidenceBytes = sel.bytes;
+        evidenceElided = sel.elided > 0;
+      } catch {
+        selectedReceipts = job.receipts;
+        evidenceBytes = Buffer.byteLength(job.receipts, "utf8");
+        evidenceElided = false;
+      }
+    }
     try {
       const prompt =
         auditor.tier === "agentic"
-          ? buildAgenticPrompt(job)
-          : buildPreGatheredPrompt(job, await gatherEvidence(job.dir, job.receipts));
+          ? buildAgenticPrompt(job, selectedReceipts, evidenceElided)
+          : buildPreGatheredPrompt(job, await gatherEvidence(job.dir, selectedReceipts), evidenceElided);
       promptChars = prompt.length;
       const raw = await auditor.invoke(prompt, job.dir);
       reply = parseReply(raw);
@@ -496,19 +613,10 @@ export async function audit(job: AuditJob, auditor: Auditor, embedder: Embedder 
 
   const claims = reply ? reply.claims : [];
 
-  // No-LLM grounding tier (SPEC §2, R8): runs regardless of auditor availability
-  // over the same {finalMessage, receipts}. Fail-open — a dead ollama yields an
-  // empty result. Its flags become warnings; they NEVER block.
-  const gitState = await gatherGitState(job.dir);
-  const grounding = await groundingCheck(
-    {
-      finalMessage: job.finalMessage,
-      receipts: job.receipts ?? "",
-      ...(job.userRequest ? { userRequest: job.userRequest } : {}),
-      ...(gitState ? { gitState } : {}),
-    },
-    embedder,
-  );
+  // SHADOW SAFETY: if a gated turn's shadow audit returned a substantive verdict
+  // (unsupported/contradicted/unaccountable), the gate WOULD have wrongly skipped
+  // a real finding — record gate_missed so the miss rate is a telemetry query.
+  const gateMissed = shadow && (claims.some((c) => c.verdict !== "supported") || reply?.unaccountable === true);
 
   // R5: warnings never repeat verbatim for the same claim in a session, and a
   // grounding flag is deduped the same way (against priorWarnings + this run).
@@ -533,7 +641,9 @@ export async function audit(job: AuditJob, auditor: Auditor, embedder: Embedder 
   const verdict: AuditVerdict = {
     claims,
     unaccountable: reply?.unaccountable ?? false,
-    note: reply?.note ?? "",
+    // CHANGE 1: a gated-skip turn carries the "no-claim (gated)" note so the
+    // reason it never reached the LLM is legible in the verdict, not just telemetry.
+    note: reply?.note ?? (gated === "skipped" ? "no-claim (gated)" : ""),
     warnings,
     auditorTier: auditor.tier,
     sameFamily: auditor.sameFamily,
@@ -543,6 +653,6 @@ export async function audit(job: AuditJob, auditor: Auditor, embedder: Embedder 
     ...(error ? { error } : {}),
   };
 
-  logAuditTelemetry(job, verdict, promptChars);
+  logAuditTelemetry(job, verdict, promptChars, { gated, gateMissed, evidenceBytes });
   return verdict;
 }
