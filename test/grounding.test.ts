@@ -453,6 +453,49 @@ describe("grounding — 2026-07-22 false-alarm guards (A–E from production tel
   });
 });
 
+describe("grounding — never audit our own relayed verdict (the incident)", () => {
+  // Content that classVec keys to BLOCKER by keyword ("frozen") AND carries a
+  // capability cue, so WITHOUT excision it fires blocked-no-attempt against
+  // attempt-free receipts. Prefixing it as a relayed veritaserum verdict must
+  // suppress it entirely.
+  const accusation = 'Agent, the account is frozen and cannot be automated.';
+  const noAttempt = '> Read {"file_path":"README.md"}\n< docs';
+
+  it("POSITIVE control — the same accusation WITHOUT a veritaserum prefix DOES fire", async () => {
+    const res = await groundingCheck({ finalMessage: accusation, receipts: noAttempt }, fakeEmbedder());
+    expect(res.flags).toHaveLength(1);
+    expect(res.flags[0]!.rule).toBe("blocked-no-attempt");
+  });
+
+  const shapes: Array<[string, string]> = [
+    ["veritaserum: ...", `veritaserum: ${accusation}`],
+    ["*veritaserum: ...*", `*veritaserum: ${accusation}*`],
+    ["veritaserum (attribution): ...", `veritaserum (from a session ~21h ago in this repo): ${accusation}`],
+    ["⚠️ veritaserum: ...", `⚠️ veritaserum: ${accusation}`],
+  ];
+  for (const [name, line] of shapes) {
+    it(`excises the relayed shape ${name} → no flags`, async () => {
+      const res = await groundingCheck({ finalMessage: line, receipts: noAttempt }, fakeEmbedder());
+      expect(res.flags).toEqual([]);
+    });
+  }
+
+  it("a message that is ONLY a relayed line + the directive echo → no flags", async () => {
+    const finalMessage =
+      `*veritaserum: ${accusation}*\n` +
+      "Show the italicized line above to the user verbatim at the top of your reply, then leave a blank line before the rest of your reply.";
+    const res = await groundingCheck({ finalMessage, receipts: noAttempt }, fakeEmbedder());
+    expect(res.flags).toEqual([]);
+  });
+
+  it("excision is surgical: a genuine unprefixed blocker sentence below the relayed line still fires", async () => {
+    const finalMessage = `*veritaserum: ${accusation}*\n\nThe billing account is frozen and cannot be automated.`;
+    const res = await groundingCheck({ finalMessage, receipts: noAttempt }, fakeEmbedder());
+    expect(res.flags).toHaveLength(1);
+    expect(res.flags[0]!.rule).toBe("blocked-no-attempt");
+  });
+});
+
 describe("grounding — fail-open (R8)", () => {
   it("returns { flags: [], error } when the embedder throws, never rejects", async () => {
     const res = await groundingCheck(

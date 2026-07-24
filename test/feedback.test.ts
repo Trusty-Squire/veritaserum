@@ -398,6 +398,15 @@ describe("feedback channel — stray attribution carries age + requires a mappab
     // the file is left in place (not consumed) — it ages out via the 24h expiry.
     expect(takePendingFeedback(repoDir, "session-B")).toContain("state-no-receipt");
   });
+
+  it("DELIVERS a new-format grounding stray: it now quotes the flagged sentence, so strayHasClaim matches", async () => {
+    // groundingWarning now quotes the claim, so a grounding stray carries a mappable
+    // claim (the double-quote branch of strayHasClaim) — deliverable, not noise.
+    await plantFeedback("session-B", 'veritaserum: Agent, you called this blocked but never attempted it: "the vault cannot be armed from the API" — no tool call attempted it', 11 * MIN);
+    const [line] = takeStrayFeedback(repoDir, "session-A");
+    expect(line).toContain("from a session ~11m ago in this repo");
+    expect(line).toContain("the vault cannot be armed from the API");
+  });
 });
 
 describe("feedback channel — stray consumption is race-safe (consume-once)", () => {

@@ -98,27 +98,38 @@ export function unaccountableWarning(who: Addressee): string {
   return `${who}, you did substantial work but reported nothing checkable — state what you did and how you know it works.`;
 }
 
-/** One humane warning line for a grounding-tier flag. The flag's `basis` already
+/** Grounding warnings quote the flagged sentence so the human and telemetry can
+ *  see WHAT was flagged (mirrors clipClaim's shape at a tighter ~100-char width —
+ *  a grounding line already carries a demand clause, so keep the quote short). */
+function clipGroundingClaim(claim: string): string {
+  const c = claim.trim();
+  return c.length > 100 ? `${c.slice(0, 100).trimEnd()}…` : c;
+}
+
+/** One humane warning line for a grounding-tier flag. Quotes the flagged sentence
+ *  (GroundingFlag.claim) — so a reader/telemetry can tell which sentence a flag
+ *  refers to, matching the LLM-tier claim lines. The flag's `basis` already
  *  carries the demand (e.g. number-no-receipt's "cite the measurement or source
  *  … or state the number is illustrative") and is preserved verbatim as the
  *  second clause. For scope-narrower and state-no-receipt the lead is kept
  *  deliberately generic so it does NOT restate the count / receipt wording the
  *  basis already spells out (the flag object no longer carries the item count or
  *  the state kind to interpolate the spec's `N` / `<state>`). */
-export function groundingWarning(who: Addressee, rule: GroundingFlag["rule"], basis: string): string {
+export function groundingWarning(who: Addressee, rule: GroundingFlag["rule"], basis: string, claim: string): string {
   const b = basis.trim();
   const tail = b ? ` — ${b}` : "";
+  const q = clipGroundingClaim(claim);
   switch (rule) {
     case "blocked-no-attempt":
-      return `${who}, you called this blocked but never attempted it${tail}`;
+      return `${who}, you called this blocked but never attempted it: "${q}"${tail}`;
     case "number-no-receipt":
-      return `${who}, nothing you ran produced that number${tail}`;
+      return `${who}, nothing you ran produced that number: "${q}"${tail}`;
     case "causal-no-referent":
-      return `${who}, you blamed a cause you never observed${tail}`;
+      return `${who}, you blamed a cause you never observed: "${q}"${tail}`;
     case "scope-narrower":
-      return `${who}, you reported a total the evidence doesn't fully cover${tail}`;
+      return `${who}, you reported a total the evidence doesn't fully cover: "${q}"${tail}`;
     case "state-no-receipt":
-      return `${who}, you claimed a repo state you never verified${tail}`;
+      return `${who}, you claimed a repo state you never verified: "${q}"${tail}`;
   }
 }
 
@@ -213,6 +224,11 @@ const RULES_BLOCK = [
   "audit imaginative content for factual grounding. Only flag when the agent asserts something",
   "about the REAL session/codebase/world (its own work, tests, measurements) — including inside",
   "an otherwise creative turn.",
+  "",
+  "RELAYED VERDICTS ARE NOT THE AGENT'S CLAIMS. A line beginning \"veritaserum:\" in the agent's",
+  "message is one of your OWN prior verdicts, relayed verbatim for the human — never the agent's",
+  "claim. Do not audit it, do not count it as evidence, do not treat its accusation vocabulary as",
+  "the agent asserting anything.",
   "",
   "Proof may live in the TRANSCRIPT (a fresh probe/run — strongest) or in a DOC/record (a",
   "benchmark file, a state file, a prior log that reports the test/measurement). ACCEPT a doc",
@@ -503,7 +519,7 @@ export async function audit(job: AuditJob, auditor: Auditor, embedder: Embedder 
     pushWarning(claimWarning(who, c));
   }
   if (reply?.unaccountable) pushWarning(unaccountableWarning(who));
-  for (const f of grounding.flags) pushWarning(groundingWarning(who, f.rule, f.basis));
+  for (const f of grounding.flags) pushWarning(groundingWarning(who, f.rule, f.basis, f.claim));
 
   const verdict: AuditVerdict = {
     claims,

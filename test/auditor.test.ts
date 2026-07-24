@@ -105,15 +105,23 @@ describe("warning templates — one humane line per verdict/rule", () => {
     expect(unaccountableWarning("Agent")).toBe("Agent, you did substantial work but reported nothing checkable — state what you did and how you know it works.");
   });
 
-  it("grounding rules — each keeps the flag's basis (and its demand) as the second clause", () => {
+  it("grounding rules — each QUOTES the flagged claim and keeps the flag's basis (and its demand) as the second clause", () => {
     // number-no-receipt's demand wording is deliberate and must SURVIVE — it is
-    // passed through as the basis clause verbatim.
+    // passed through as the basis clause verbatim. Every rule now quotes the
+    // flagged sentence (GroundingFlag.claim) so a reader can tell what was flagged.
     const demand = "cite the measurement or source that produced it, or state the number is illustrative.";
-    expect(groundingWarning("Claude", "blocked-no-attempt", "no tool call attempted it")).toBe("Claude, you called this blocked but never attempted it — no tool call attempted it");
-    expect(groundingWarning("Claude", "number-no-receipt", demand)).toBe(`Claude, nothing you ran produced that number — ${demand}`);
-    expect(groundingWarning("Codex", "causal-no-referent", "nothing in the receipts is related to it")).toBe("Codex, you blamed a cause you never observed — nothing in the receipts is related to it");
-    expect(groundingWarning("Agent", "scope-narrower", "enumerates only 3 item(s)")).toBe("Agent, you reported a total the evidence doesn't fully cover — enumerates only 3 item(s)");
-    expect(groundingWarning("Claude", "state-no-receipt", "no commit receipt this session")).toBe("Claude, you claimed a repo state you never verified — no commit receipt this session");
+    expect(groundingWarning("Claude", "blocked-no-attempt", "no tool call attempted it", "The vault cannot be armed from the API.")).toBe('Claude, you called this blocked but never attempted it: "The vault cannot be armed from the API." — no tool call attempted it');
+    expect(groundingWarning("Claude", "number-no-receipt", demand, "Throughput is 400,000/sec.")).toBe(`Claude, nothing you ran produced that number: "Throughput is 400,000/sec." — ${demand}`);
+    expect(groundingWarning("Codex", "causal-no-referent", "nothing in the receipts is related to it", "The failures are caused by the rate limiter.")).toBe('Codex, you blamed a cause you never observed: "The failures are caused by the rate limiter." — nothing in the receipts is related to it');
+    expect(groundingWarning("Agent", "scope-narrower", "enumerates only 3 item(s)", "Total across all wallets: $2.31.")).toBe('Agent, you reported a total the evidence doesn\'t fully cover: "Total across all wallets: $2.31." — enumerates only 3 item(s)');
+    expect(groundingWarning("Claude", "state-no-receipt", "no commit receipt this session", "Committed the fix.")).toBe('Claude, you claimed a repo state you never verified: "Committed the fix." — no commit receipt this session');
+  });
+
+  it("truncates a long grounding claim to ~100 chars with …", () => {
+    const long = "y".repeat(200);
+    const line = groundingWarning("Claude", "blocked-no-attempt", "no attempt", long);
+    expect(line).toContain("…");
+    expect(line).not.toContain("y".repeat(200));
   });
 });
 

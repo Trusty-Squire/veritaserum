@@ -238,9 +238,11 @@ function friendlyAge(ageMs: number): string {
 }
 
 /** Does a stray line carry a claim a human can map to something? A double-quoted
- *  claim segment, or one of the colloquial verdict phrasings. The old pre-colloquial
- *  formats ("grounding: <rule> — ...") quote nothing and name no claim — undeliverable
- *  noise the reader can't attach to anything. */
+ *  claim segment, or one of the colloquial verdict phrasings. Grounding-tier lines
+ *  now quote the flagged sentence too (auditor.ts groundingWarning), so they match
+ *  the double-quote branch and are deliverable — consistent with this heuristic's
+ *  intent. The old pre-colloquial formats ("grounding: <rule> — ...") quote nothing
+ *  and name no claim — undeliverable noise the reader can't attach to anything. */
 function strayHasClaim(line: string): boolean {
   if (/"[^"]+"/.test(line)) return true;
   return /you have no basis|contradicts your claim|you did substantial work/.test(line);

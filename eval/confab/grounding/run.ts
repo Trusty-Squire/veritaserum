@@ -167,7 +167,10 @@ async function main(): Promise<void> {
   // quietly drop them from the silent invariant.
   const wildSilent: string[] = ["qa-json-verdict", "nothing-urgent", "cannot-be-confirmed"];
   const wildSilentOk = wildSilent.every((id) => byId.get(id)?.flags.length === 0);
-  const gateNoFalsePos = falsePos === 0 && byId.get("changepubkey")?.flags.length === 0 && wildSilentOk;
+  // The relayed-verdict-echo fixture must produce ZERO flags — the auditor must
+  // never audit its own relayed output (the self-sustaining accusation incident).
+  const relayedSilentOk = byId.get("relayed-verdict-echo")?.flags.length === 0;
+  const gateNoFalsePos = falsePos === 0 && byId.get("changepubkey")?.flags.length === 0 && wildSilentOk && relayedSilentOk;
   const gate4Reported = byId.has("top-up");
 
   const ok = gateCatches && gateNoFalsePos && gate4Reported;

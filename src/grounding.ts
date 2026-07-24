@@ -250,6 +250,27 @@ const CAPABILITY_CUE =
   /\b(can'?t|cannot|can\s?not|impossible|no way|blocked|lock(?:ed|s)?|denied|refus(?:e|es|ed|ing)|frozen|not permitted|unsupported|unavailable|only via|app-?only|out of (?:money|funds)|no endpoint|not allowed|forbidden|prohibited|can'?t be (?:done|automated)|cannot be automated)\b/i;
 
 // ---------------------------------------------------------------------------
+// Excise relayed verdict lines BEFORE splitting — the auditor must never audit
+// its own relayed output (the incident: veritaserum's verdict is surfaced BY the
+// audited agent at the top of its NEXT reply per cli.ts SHOW_DIRECTIVE, so that
+// verdict line becomes part of the agent's next final message; without this the
+// next audit read `*veritaserum: Claude, you have no basis to claim "…cannot…"*`
+// as the AGENT'S OWN claim and self-indicted on the accusation vocabulary it
+// carries — a self-sustaining false positive). Deterministic, no model: drop any
+// line that is a relayed verdict (optionally ⚠️- and/or `*`-wrapped, `veritaserum`
+// + optional parenthetical attribution + `:`) or an echo of the show-it directive.
+// ---------------------------------------------------------------------------
+const RELAYED_VERDICT_LINE = /^\s*(?:\*|⚠️?|\s)*veritaserum\b\s*(?:\([^)]*\))?\s*:/i;
+const DIRECTIVE_ECHO = /show the italicized line above/i;
+
+function exciseRelayedVerdicts(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .filter((line) => !RELAYED_VERDICT_LINE.test(line) && !DIRECTIVE_ECHO.test(line))
+    .join("\n");
+}
+
+// ---------------------------------------------------------------------------
 // Sentence splitting — newlines + list markers + terminators/semicolons.
 // Deliberately simple and never throws.
 // ---------------------------------------------------------------------------
@@ -755,11 +776,15 @@ export async function groundingCheck(
   embedder: Embedder,
 ): Promise<GroundingResult> {
   try {
+    // Excise any relayed verdict line the agent surfaced from our own prior audit
+    // (SHOW_DIRECTIVE) before anything classifies it — never audit our own words.
+    const finalMessage = exciseRelayedVerdicts(input.finalMessage || "");
+
     // Guard 1 — prose gate: a JSON verdict blob (or a message that is almost all
     // fenced code) is not a set of the agent's assertions. Skip the whole pass.
-    if (isStructuredOutput(input.finalMessage || "")) return { flags: [] };
+    if (isStructuredOutput(finalMessage)) return { flags: [] };
 
-    const sentences = splitSentences(input.finalMessage || "");
+    const sentences = splitSentences(finalMessage);
     const receiptLines = (input.receipts || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     const callLines = receiptLines.filter(isCallLine);
     if (sentences.length === 0) return { flags: [] };
