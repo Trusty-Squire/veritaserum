@@ -341,7 +341,7 @@ async function gatherGitState(dir: string): Promise<GitProbeState | undefined> {
   }
 }
 
-function buildPreGatheredPrompt(job: AuditJob, evidence: string): string {
+export function buildPreGatheredPrompt(job: AuditJob, evidence: string): string {
   return [
     RULES_BLOCK,
     "",
@@ -364,7 +364,7 @@ function buildPreGatheredPrompt(job: AuditJob, evidence: string): string {
 // Reply parsing — defensive. Any shape mismatch drops the offending item, never throws.
 // ---------------------------------------------------------------------------
 
-interface ParsedAuditReply {
+export interface ParsedAuditReply {
   claims: ClaimVerdict[];
   unaccountable: boolean;
   note: string;
@@ -375,7 +375,7 @@ function parseAdvisoryOutcome(v: unknown): AdvisoryOutcome | undefined {
   return v === "addressed-corrected" || v === "addressed-confirmed" || v === "ignored" ? v : undefined;
 }
 
-function parseReply(raw: string): ParsedAuditReply | null {
+export function parseReply(raw: string): ParsedAuditReply | null {
   const m = raw.match(/\{[\s\S]*\}/);
   if (!m) return null;
   let parsed: unknown;
