@@ -175,6 +175,7 @@ const DEFAULT_AUDITOR_TIMEOUT_MS = 300_000;
 const OLLAMA_AUDITOR_TIMEOUT_MS = 900_000;
 const DEFAULT_METERED_MODEL = "glm-4.2";
 const DEFAULT_OLLAMA_MODEL = "qwen2.5:3b";
+const AUDITOR_EFFORTS = new Set(["low", "medium", "high"]);
 
 /**
  * The auditor's model, pinned — NOT the user's default.
@@ -210,7 +211,11 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
           // argument at MAX_ARG_STRLEN (128 KiB), and a real session's receipts tail blows
           // past that, so an argv prompt made execve fail with E2BIG on exactly the long
           // sessions worth auditing — surfacing as a bogus "timeout" with no stderr.
-          const r = await execa("codex", ["exec", "-s", "read-only", ...(model ? ["-m", model] : []), "-"], {
+          // VS_AUDITOR_EFFORT (low|medium|high) opts into -c model_reasoning_effort=<value>;
+          // unset or anything else omits the flag and falls open to codex's own default.
+          const effort = process.env.VS_AUDITOR_EFFORT;
+          const effortArgs = effort && AUDITOR_EFFORTS.has(effort) ? ["-c", `model_reasoning_effort=${effort}`] : [];
+          const r = await execa("codex", ["exec", "-s", "read-only", ...(model ? ["-m", model] : []), ...effortArgs, "-"], {
             cwd: dir,
             input: prompt,
             env: AUDITOR_CHILD_ENV,

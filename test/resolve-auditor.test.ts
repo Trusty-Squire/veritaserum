@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, writeFile, chmod } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, chmod, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isExhausted, resolveAuditor, doctorReport, executorFamily } from "../src/resolve.js";
@@ -9,7 +9,7 @@ import { isExhausted, resolveAuditor, doctorReport, executorFamily } from "../sr
 // system dirs `sh`/`command` need, and points the 24h doctor cache at a fresh temp
 // file — never the real ~/.veritaserum/doctor.json, never the real CLIs.
 
-const ENV_KEYS = ["PATH", "VS_DOCTOR_CACHE_PATH", "VS_AUDITOR", "VS_AUDITOR_METERED", "OPENROUTER_API_KEY"] as const;
+const ENV_KEYS = ["PATH", "VS_DOCTOR_CACHE_PATH", "VS_AUDITOR", "VS_AUDITOR_METERED", "OPENROUTER_API_KEY", "VS_AUDITOR_EFFORT"] as const;
 let saved: Partial<Record<(typeof ENV_KEYS)[number], string>> = {};
 let shimDir: string;
 let cacheDir: string;
@@ -27,6 +27,7 @@ beforeEach(async () => {
   delete process.env.VS_AUDITOR;
   delete process.env.VS_AUDITOR_METERED;
   delete process.env.OPENROUTER_API_KEY;
+  delete process.env.VS_AUDITOR_EFFORT;
 });
 
 afterEach(async () => {
@@ -210,6 +211,50 @@ describe("doctor cache — 24h TTL (SPEC §2 'auth-probed... cached')", () => {
     const after = await resolveAuditor("claude");
     expect(after.tier).toBe("absent");
     await rm(freshCache, { recursive: true, force: true });
+  });
+});
+
+/** Shim codex to dump its argv (one per line) to a capture file, then exit 0 with a harmless reply. */
+async function shimCapturingArgv(captureFile: string): Promise<void> {
+  const p = join(shimDir, "codex");
+  await writeFile(p, `#!/bin/sh\nfor a in "$@"; do echo "$a" >> '${captureFile}'; done\necho ok\nexit 0\n`, "utf8");
+  await chmod(p, 0o755);
+}
+
+describe("codex reasoning-effort flag (VS_AUDITOR_EFFORT)", () => {
+  it("VS_AUDITOR_EFFORT=medium adds -c model_reasoning_effort=medium before the trailing -", async () => {
+    const captureFile = join(shimDir, "argv-medium.txt");
+    await shimCapturingArgv(captureFile);
+    process.env.VS_AUDITOR_EFFORT = "medium";
+    const a = await resolveAuditor("claude");
+    expect(a.vendor).toBe("codex");
+    await a.invoke("hello", shimDir);
+    const lines = (await readFile(captureFile, "utf8")).trim().split("\n");
+    expect(lines).toContain("-c");
+    const cIndex = lines.indexOf("-c");
+    expect(lines[cIndex + 1]).toBe("model_reasoning_effort=medium");
+    expect(lines[lines.length - 1]).toBe("-"); // trailing stdin marker still last
+  });
+
+  it("unset VS_AUDITOR_EFFORT omits the flag entirely", async () => {
+    const captureFile = join(shimDir, "argv-unset.txt");
+    await shimCapturingArgv(captureFile);
+    const a = await resolveAuditor("claude");
+    await a.invoke("hello", shimDir);
+    const lines = (await readFile(captureFile, "utf8")).trim().split("\n");
+    expect(lines).not.toContain("-c");
+    expect(lines.join(" ")).not.toContain("model_reasoning_effort");
+  });
+
+  it("a garbage VS_AUDITOR_EFFORT value omits the flag (fail-open, no throw)", async () => {
+    const captureFile = join(shimDir, "argv-garbage.txt");
+    await shimCapturingArgv(captureFile);
+    process.env.VS_AUDITOR_EFFORT = "ultra-max";
+    const a = await resolveAuditor("claude");
+    await expect(a.invoke("hello", shimDir)).resolves.not.toThrow();
+    const lines = (await readFile(captureFile, "utf8")).trim().split("\n");
+    expect(lines).not.toContain("-c");
+    expect(lines.join(" ")).not.toContain("model_reasoning_effort");
   });
 });
 
