@@ -226,11 +226,32 @@ export function drainAllPendingFeedback(dir: string): string | null {
  */
 const STRAY_AFTER_MS = 10 * 60 * 1000; // grace: the owning session's first claim
 
+/** A stray's age in a friendly unit — minutes under 2h, hours under 2d — so the
+ *  attribution carries a temporal anchor ("~21h ago") the reader can act on. */
+function friendlyAge(ageMs: number): string {
+  const minutes = Math.max(1, Math.round(ageMs / 60000));
+  if (ageMs < 2 * 60 * 60 * 1000) return `~${minutes}m ago`;
+  const hours = Math.round(ageMs / (60 * 60 * 1000));
+  if (ageMs < 2 * 24 * 60 * 60 * 1000) return `~${hours}h ago`;
+  const days = Math.round(ageMs / (24 * 60 * 60 * 1000));
+  return `~${days}d ago`;
+}
+
+/** Does a stray line carry a claim a human can map to something? A double-quoted
+ *  claim segment, or one of the colloquial verdict phrasings. The old pre-colloquial
+ *  formats ("grounding: <rule> — ...") quote nothing and name no claim — undeliverable
+ *  noise the reader can't attach to anything. */
+function strayHasClaim(line: string): boolean {
+  if (/"[^"]+"/.test(line)) return true;
+  return /you have no basis|contradicts your claim|you did substantial work/.test(line);
+}
+
 /** Weave attribution into a stray's leading tag so the reader knows it was earned
- *  by a DIFFERENT session in this repo (never presented as this session's own). */
-function attributeStray(line: string): string {
+ *  by a DIFFERENT session in this repo (never presented as this session's own),
+ *  and WHEN — the age anchors an otherwise context-free cross-session verdict. */
+function attributeStray(line: string, ageMs: number): string {
   const tag = "veritaserum: ";
-  const attributed = "veritaserum (from an earlier session in this repo): ";
+  const attributed = `veritaserum (from a session ${friendlyAge(ageMs)} in this repo): `;
   return line.startsWith(tag) ? attributed + line.slice(tag.length) : attributed + line;
 }
 
@@ -277,6 +298,10 @@ export function takeStrayFeedback(dir: string, excludeSessionId: string, cap = 3
     const age = now - parsed.ts;
     if (age < STRAY_AFTER_MS) continue; // still in the owning session's grace window
     if (age >= PENDING_FEEDBACK_MAX_AGE_MS) continue; // stale (>= 24h) — dropped, not delivered
+    // A verdict the reader cannot map to anything is noise: an old pre-colloquial
+    // format ("grounding: <rule> — ...") quotes no claim. SKIP it — do not deliver,
+    // do not consume; leave the file to age out via the 24h expiry.
+    if (!strayHasClaim(parsed.line)) continue;
     candidates.push({ p, ts: parsed.ts, line: parsed.line });
   }
   candidates.sort((a, b) => a.ts - b.ts); // oldest first
@@ -292,7 +317,7 @@ export function takeStrayFeedback(dir: string, excludeSessionId: string, cap = 3
       continue; // another sweeper claimed it first
     }
     rmSafely(claimed); // consumed — never redelivered, never ledgered
-    out.push(attributeStray(c.line));
+    out.push(attributeStray(c.line, now - c.ts));
   }
   return out;
 }

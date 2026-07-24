@@ -302,13 +302,13 @@ describe("feedback channel — injection (cli.ts hook-prompt)", () => {
 describe("feedback channel — stray sweep (Door 1: hook-prompt)", () => {
   it("delivers a >10min stray at another session's prompt WITH attribution, after that session's own line; consumes it; ledgers ONLY the own line", async () => {
     writePendingFeedback(repoDir, "session-A", "veritaserum: A's own warning"); // fresh, A's own
-    await plantFeedback("session-B", "veritaserum: B's stray warning", 11 * MIN); // past grace
+    await plantFeedback("session-B", 'veritaserum: Agent, you have no basis to claim "B\'s stray warning".', 11 * MIN); // past grace
 
     const r = await hookPrompt("session-A");
     expect(r.code).toBe(0);
-    // A's own line first, then the attributed stray.
+    // A's own line first, then the attributed stray — with a friendly age anchor.
     expect(r.out).toContain("A's own warning");
-    expect(r.out).toContain("from an earlier session in this repo");
+    expect(r.out).toContain("from a session ~11m ago in this repo");
     expect(r.out).toContain("B's stray warning");
     expect(r.out.indexOf("A's own warning")).toBeLessThan(r.out.indexOf("B's stray warning"));
 
@@ -325,7 +325,7 @@ describe("feedback channel — stray sweep (Door 1: hook-prompt)", () => {
   });
 
   it("a stray YOUNGER than 10min is NOT swept (grace gives its owner first claim)", async () => {
-    await plantFeedback("session-B", "veritaserum: B's fresh warning", 5 * MIN); // within grace
+    await plantFeedback("session-B", 'veritaserum: Agent, you have no basis to claim "B\'s fresh warning".', 5 * MIN); // within grace
 
     const r = await hookPrompt("session-A"); // A has no own feedback
     expect(r.code).toBe(0);
@@ -335,7 +335,7 @@ describe("feedback channel — stray sweep (Door 1: hook-prompt)", () => {
   });
 
   it("a stray older than 24h is dropped, never delivered", async () => {
-    await plantFeedback("session-B", "veritaserum: B's ancient warning", 25 * 60 * MIN); // > 24h
+    await plantFeedback("session-B", 'veritaserum: Agent, you have no basis to claim "B\'s ancient warning".', 25 * 60 * MIN); // > 24h
 
     const r = await hookPrompt("session-A");
     expect(r.code).toBe(0);
@@ -344,11 +344,11 @@ describe("feedback channel — stray sweep (Door 1: hook-prompt)", () => {
 
   it("caps at 3: with 5 strays present, only the 3 oldest are delivered in one prompt", async () => {
     // ages descending → oldest is stray-B (20min), newest stray-F (16min).
-    await plantFeedback("session-B", "veritaserum: stray-B", 20 * MIN);
-    await plantFeedback("session-C", "veritaserum: stray-C", 19 * MIN);
-    await plantFeedback("session-D", "veritaserum: stray-D", 18 * MIN);
-    await plantFeedback("session-E", "veritaserum: stray-E", 17 * MIN);
-    await plantFeedback("session-F", "veritaserum: stray-F", 16 * MIN);
+    await plantFeedback("session-B", 'veritaserum: Agent, you have no basis to claim "stray-B".', 20 * MIN);
+    await plantFeedback("session-C", 'veritaserum: Agent, you have no basis to claim "stray-C".', 19 * MIN);
+    await plantFeedback("session-D", 'veritaserum: Agent, you have no basis to claim "stray-D".', 18 * MIN);
+    await plantFeedback("session-E", 'veritaserum: Agent, you have no basis to claim "stray-E".', 17 * MIN);
+    await plantFeedback("session-F", 'veritaserum: Agent, you have no basis to claim "stray-F".', 16 * MIN);
 
     const r = await hookPrompt("session-A");
     expect(r.code).toBe(0);
@@ -364,11 +364,11 @@ describe("feedback channel — stray sweep (Door 1: hook-prompt)", () => {
 
 describe("feedback channel — stray sweep (Door 2: hook-session-start)", () => {
   it("delivers strays on a fresh session id, with attribution, exit 0", async () => {
-    await plantFeedback("session-B", "veritaserum: B's stray warning", 11 * MIN);
+    await plantFeedback("session-B", 'veritaserum: Agent, you have no basis to claim "B\'s stray warning".', 11 * MIN);
 
     const r = await hookSessionStart("fresh-session");
     expect(r.code).toBe(0);
-    expect(r.out).toContain("from an earlier session in this repo");
+    expect(r.out).toContain("from a session ~11m ago in this repo");
     expect(r.out).toContain("B's stray warning");
     // consumed
     expect(takePendingFeedback(repoDir, "session-B")).toBeNull();
@@ -381,15 +381,34 @@ describe("feedback channel — stray sweep (Door 2: hook-session-start)", () => 
   });
 });
 
+describe("feedback channel — stray attribution carries age + requires a mappable claim", () => {
+  it("rounds age to hours past 2h: a ~21h-old stray reads '~21h ago'", async () => {
+    await plantFeedback("session-B", 'veritaserum: Agent, you have no basis to claim "the token expired".', 21 * 60 * MIN);
+    const [line] = takeStrayFeedback(repoDir, "session-A");
+    expect(line).toContain("from a session ~21h ago in this repo");
+    expect(line).toContain("the token expired");
+  });
+
+  it("SKIPS an old-format claim-less stray: not delivered, and its file survives to age out", async () => {
+    // Pre-colloquial format — no quoted claim, no colloquial verdict phrasing. The
+    // reader cannot map it to anything, so it is neither delivered nor consumed.
+    await plantFeedback("session-B", "veritaserum: grounding: state-no-receipt — Asserted tests pass.", 11 * MIN);
+    const out = takeStrayFeedback(repoDir, "session-A");
+    expect(out).toEqual([]);
+    // the file is left in place (not consumed) — it ages out via the 24h expiry.
+    expect(takePendingFeedback(repoDir, "session-B")).toContain("state-no-receipt");
+  });
+});
+
 describe("feedback channel — stray consumption is race-safe (consume-once)", () => {
   it("consuming the same stray twice yields the line exactly once", async () => {
-    await plantFeedback("session-B", "veritaserum: B's stray warning", 11 * MIN);
+    await plantFeedback("session-B", 'veritaserum: Agent, you have no basis to claim "B\'s stray warning".', 11 * MIN);
 
     const first = takeStrayFeedback(repoDir, "session-A");
     const second = takeStrayFeedback(repoDir, "session-A");
 
     expect(first).toHaveLength(1);
-    expect(first[0]).toContain("from an earlier session in this repo");
+    expect(first[0]).toContain("from a session ~11m ago in this repo");
     expect(first[0]).toContain("B's stray warning");
     expect(second).toEqual([]); // already consumed — never a second delivery
   });

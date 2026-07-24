@@ -132,6 +132,22 @@ describe("audit — agentic prompt content (SPEC §2 rules)", () => {
     expect(prompt).toContain("READ-ONLY");
   });
 
+  it("carries the ABSTENTION, JUDGMENT, and FICTION protected-deliverable guards", async () => {
+    const dir = await repo();
+    const auditor = fakeAuditor("agentic", OK_REPLY);
+    await audit(job(dir), auditor, nullEmbedder());
+    const prompt = auditor.calls[0]!.prompt;
+    // The confabulation-guard family: honest hedges, argued judgments, and requested
+    // fiction are all the deliverable, never flagged for lacking a receipt.
+    expect(prompt).toContain("ABSTENTION IS NOT CONFABULATION");
+    expect(prompt).toContain("JUDGMENT IS NOT CONFABULATION");
+    expect(prompt).toContain("FICTION IS NOT CONFABULATION");
+    // The judgment guard audits cited evidence, never the opinion itself.
+    expect(prompt).toContain("Audit the EVIDENCE a judgment cites, never the judgment");
+    // The fiction guard still catches real-world assertions inside a creative turn.
+    expect(prompt).toContain("REAL session/codebase/world");
+  });
+
   it("passes the repo dir through to invoke (agentic auditors run their own probes there)", async () => {
     const dir = await repo();
     const auditor = fakeAuditor("agentic", OK_REPLY);
