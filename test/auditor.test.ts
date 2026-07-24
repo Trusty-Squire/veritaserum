@@ -140,6 +140,16 @@ describe("audit — agentic prompt content (SPEC §2 rules)", () => {
     expect(prompt).toContain("READ-ONLY");
   });
 
+  it("defines LOAD-BEARING sharply — not just confident, but something the user would act on", async () => {
+    const dir = await repo();
+    const auditor = fakeAuditor("agentic", OK_REPLY);
+    await audit(job(dir), auditor, nullEmbedder());
+    const prompt = auditor.calls[0]!.prompt;
+    expect(prompt).toContain("RELY on it unexamined");
+    expect(prompt).toContain("does not make a claim load-bearing");
+    expect(prompt).toContain("the user is already their check");
+  });
+
   it("carries the ABSTENTION, JUDGMENT, and FICTION protected-deliverable guards", async () => {
     const dir = await repo();
     const auditor = fakeAuditor("agentic", OK_REPLY);
