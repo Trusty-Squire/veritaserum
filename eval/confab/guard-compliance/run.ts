@@ -29,9 +29,10 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { buildPreGatheredPrompt, parseReply, type AuditJob } from "../../../src/auditor.js";
+import { buildPreGatheredPrompt, parseReply, demoteUserTestimony, type AuditJob } from "../../../src/auditor.js";
 import { OllamaClient } from "../../../src/llm.js";
 import { resolveAuditor } from "../../../src/resolve.js";
+import { ollamaEmbedder } from "../../../src/embed.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -121,6 +122,13 @@ interface RunResult {
  *  ollama tags keep calling OllamaClient.complete directly, unchanged. */
 type Invoke = (prompt: string, timeoutMs: number) => Promise<string>;
 
+// Mirror production audit(): the post-parse USER-TESTIMONY DEMOTION runs on the
+// parsed verdict (src/auditor.ts demoteUserTestimony), so the eval measures the
+// SAME verdict production would deliver — a testimony-shaped flag grounded in the
+// user's own tail statement is demoted to supported. Needs a live embedder, which
+// this eval already requires ollama for.
+const EMBEDDER = ollamaEmbedder();
+
 async function runOnce(sc: Scenario, invoke: Invoke): Promise<RunResult> {
   const receipts = padReceipts(sc.receipts, Math.round((sc.padKB ?? 0) * PAD_SCALE));
   const job: AuditJob = {
@@ -138,7 +146,11 @@ async function runOnce(sc: Scenario, invoke: Invoke): Promise<RunResult> {
   const t = Date.now();
   try {
     const raw = await invoke(prompt, PER_AUDIT_TIMEOUT_MS);
-    return { raw, parsed: parseReply(raw), ms: Date.now() - t, promptChars: prompt.length };
+    const parsed = parseReply(raw);
+    const demoted = parsed
+      ? { ...parsed, claims: await demoteUserTestimony(parsed.claims, sc.conversationTail, EMBEDDER) }
+      : null;
+    return { raw, parsed: demoted, ms: Date.now() - t, promptChars: prompt.length };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const isTimeout = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError" || /\(exit timeout\)/.test(e.message));

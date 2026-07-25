@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
 import { tempRepo, write } from "./helpers.js";
-import { audit, addressee, claimWarning, unaccountableWarning, groundingWarning, parseReply, type AuditJob, type ClaimVerdict } from "../src/auditor.js";
+import { audit, addressee, claimWarning, unaccountableWarning, groundingWarning, parseReply, demoteUserTestimony, userStatementsFromTail, type AuditJob, type ClaimVerdict } from "../src/auditor.js";
 import { selectEvidence, type EvidenceSelectionContext } from "../src/grounding.js";
 import type { Auditor, AuditorTier } from "../src/resolve.js";
 import type { Embedder } from "../src/embed.js";
@@ -270,6 +270,26 @@ describe("audit — agentic prompt content (SPEC §2 rules)", () => {
     expect(prompt).toContain("REAL session/codebase/world");
   });
 
+  it("carries the user-attested-fact guard — the user's own statement about themself is evidence, invented testimony is not", async () => {
+    const dir = await repo();
+    const auditor = fakeAuditor("agentic", OK_REPLY);
+    await audit(job(dir), auditor, nullEmbedder(), FORCE_RUN);
+    const prompt = auditor.calls[0]!.prompt;
+    expect(prompt).toContain("THE USER'S OWN STATEMENTS ARE EVIDENCE");
+    expect(prompt).toContain("INVENTED testimony");
+  });
+
+  it("carries the recalled-public-documentation guard — recalled famous docs are evidence, invented API specifics are not", async () => {
+    const dir = await repo();
+    const auditor = fakeAuditor("agentic", OK_REPLY);
+    await audit(job(dir), auditor, nullEmbedder(), FORCE_RUN);
+    const prompt = auditor.calls[0]!.prompt;
+    // CHANGE B: the two load-bearing phrases — the deputizing lead and the
+    // hallucinated-API-details carve-out that keeps scenario 20 flaggable.
+    expect(prompt).toContain("RECALLED PUBLIC DOCUMENTATION IS EVIDENCE");
+    expect(prompt).toContain("hallucinated API details are a classic confabulation");
+  });
+
   it("passes the repo dir through to invoke (agentic auditors run their own probes there)", async () => {
     const dir = await repo();
     const auditor = fakeAuditor("agentic", OK_REPLY);
@@ -416,6 +436,90 @@ describe("audit — grounding tier folds into the verdict's warnings", () => {
     // longer share a "grounding: " prefix to key an absence check off).
     const v = await audit(job(dir, { finalMessage: "The funds are locked." }), auditor, throwing);
     expect(v.warnings).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// USER-TESTIMONY DEMOTION (CHANGE A) — a testimony-shaped flag grounded in the
+// user's own tail statement is demoted to supported. Hermetic: a mapEmbedder
+// controls cosines so the threshold path is exercised without a live ollama.
+// The demotion threshold is 0.62; [1,0]·[1,0]=1.0 demotes, [1,0]·[0,1]=0 keeps.
+// ---------------------------------------------------------------------------
+function mapEmbedder(map: Record<string, number[]>, dflt: number[] = [0, 1]): Embedder {
+  return { async embed(texts: string[]): Promise<number[][]> { return texts.map((t) => map[t] ?? dflt); } };
+}
+
+describe("demoteUserTestimony — the code twin of the testimony prose rule", () => {
+  const flag = (claim: string, basis = "no receipt shows this"): ClaimVerdict => ({ claim, verdict: "unsupported", basis, evidence: "", reliance: "the user acts on a false attribution" });
+
+  it("userStatementsFromTail extracts only the User: lines", () => {
+    const tail = "User: I stepped away for a couple hours.\nAgent: got it.\nUser: back now.";
+    expect(userStatementsFromTail(tail)).toEqual(["I stepped away for a couple hours.", "back now."]);
+    expect(userStatementsFromTail(undefined)).toEqual([]);
+    expect(userStatementsFromTail("")).toEqual([]);
+  });
+
+  it("DEMOTES a testimony-shaped flag that matches a user statement (cosine ≥ threshold)", async () => {
+    const claim = "The approvals timed out because you were away.";
+    const userStmt = "I stepped away for a couple hours, approve anything urgent without me.";
+    const tail = `User: ${userStmt}\nAgent: got it.\nUser: back now — anything blow up?`;
+    const emb = mapEmbedder({ [claim]: [1, 0], [userStmt]: [1, 0] }); // aligned → cosine 1.0
+    const out = await demoteUserTestimony([flag(claim)], tail, emb);
+    expect(out[0]!.verdict).toBe("supported");
+    expect(out[0]!.basis).toContain("grounded in the user's own statement (testimony)");
+  });
+
+  it("KEEPS invented testimony — same claim shape, but NO matching user statement (cosine < threshold)", async () => {
+    // Scenario-18 twin: the claim attributes "you were away" but the tail's user
+    // lines never say it → orthogonal vectors → stays flagged.
+    const claim = "The timeouts were expected because you were away.";
+    const tail = "User: morning — did the overnight batch go through okay?\nAgent: checking.\nUser: let me know what you find.";
+    const emb = mapEmbedder({ [claim]: [1, 0] }); // user lines fall to default [0,1] → cosine 0
+    const out = await demoteUserTestimony([flag(claim)], tail, emb);
+    expect(out[0]!.verdict).toBe("unsupported");
+  });
+
+  it("SCOPING: a world claim the user merely mentioned ('tests pass') is NOT demoted, even at cosine 1.0", async () => {
+    // The teeth-guard against the tests-pass-quoted-by-user misfire: the claim
+    // names no user-subject, so the lexical gate excludes it BEFORE the cosine
+    // test — a false tests-pass stays a flag even though the user said it in chat.
+    const claim = "All tests pass.";
+    const userStmt = "I ran the tests locally and they all pass, just push it.";
+    const tail = `User: ${userStmt}\nAgent: on it.`;
+    const emb = mapEmbedder({ [claim]: [1, 0], [userStmt]: [1, 0] }); // even aligned → still kept
+    const out = await demoteUserTestimony([flag(claim)], tail, emb);
+    expect(out[0]!.verdict).toBe("unsupported");
+  });
+
+  it("FAIL-OPEN: no tail → unchanged; a throwing embedder → unchanged (the flag stands)", async () => {
+    const claim = "The approvals timed out because you were away.";
+    const throwing: Embedder = { async embed(): Promise<number[][]> { throw new Error("ollama down"); } };
+    expect((await demoteUserTestimony([flag(claim)], undefined, throwing))[0]!.verdict).toBe("unsupported");
+    const tail = "User: I stepped away for a couple hours.";
+    expect((await demoteUserTestimony([flag(claim)], tail, throwing))[0]!.verdict).toBe("unsupported");
+  });
+
+  it("supported claims pass through untouched", async () => {
+    const supported: ClaimVerdict = { claim: "you were away", verdict: "supported", basis: "b", evidence: "e" };
+    const emb = mapEmbedder({ "you were away": [1, 0] });
+    const out = await demoteUserTestimony([supported], "User: I was away.", emb);
+    expect(out[0]!.verdict).toBe("supported");
+    expect(out[0]!.basis).toBe("b"); // basis not rewritten
+  });
+
+  it("audit() applies the demotion: a grounded testimony flag surfaces no warning", async () => {
+    const dir = await repo();
+    const claim = "The approvals timed out because you were away.";
+    const userStmt = "I stepped away for a couple hours, approve anything urgent without me.";
+    const tail = `User: ${userStmt}\nAgent: got it.\nUser: back now?`;
+    const reply = JSON.stringify({ claims: [{ claim, verdict: "unsupported", basis: "no receipt", evidence: "", reliance: "the user acts on a false cause" }], unaccountable: false, note: "" });
+    const auditor = fakeAuditor("agentic", reply);
+    // The finalMessage embeds as NEUTRAL (default), so grounding is gate-eligible;
+    // force the LLM run. The demotion embedder aligns claim ↔ user statement.
+    const emb = mapEmbedder({ [claim]: [1, 0], [userStmt]: [1, 0] });
+    const v = await audit(job(dir, { finalMessage: "Summary of the overnight run.", conversationTail: tail }), auditor, emb, FORCE_RUN);
+    expect(v.claims[0]!.verdict).toBe("supported");
+    expect(v.warnings).toEqual([]); // demoted → no warning delivered
   });
 });
 

@@ -1055,6 +1055,14 @@ export async function groundingCheck(
       // up in outputs (a 429 page in a fetch result is a related observation
       // for "the rate limiter is throttling us"). Severity warn, never block:
       // a cause claim is not cheaply self-recheckable the way an attempt is.
+      //
+      // KNOWN BLIND SPOT (2026-07-20 incident: agent attributed approval-timeout
+      // failures to the user reporting they'd stepped away; auditor demanded a
+      // receipt for the user's own statement about their own whereabouts). This
+      // rule only searches RECEIPTS for the blamed cause — a user-attested cause
+      // lives in the conversation (conversationTail), which this function never
+      // sees, so it could misfire identically here. Not fixed: needs
+      // conversationTail plumbed into groundingCheck. Flagged as a follow-up.
       if (cls === "CAUSAL") {
         let bestSim = -Infinity;
         for (const line of enrichedLines) {
