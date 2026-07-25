@@ -31,6 +31,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { buildPreGatheredPrompt, parseReply, type AuditJob } from "../../../src/auditor.js";
 import { OllamaClient } from "../../../src/llm.js";
+import { resolveAuditor } from "../../../src/resolve.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -53,6 +54,19 @@ function arg(name: string, dflt: string): string {
 
 const MODEL = arg("model", "qwen2.5:14b");
 const RUNS = Number(arg("runs", "2"));
+
+// A bare model name (e.g. "qwen2.5:14b") is an ollama tag, not a vendor spec — the ":"
+// there separates family from size, not vendor from model. Only these four prefixes are
+// recognized vendor specs (src/resolve.ts parseAuditorSpec's AUDITOR_VENDORS); anything
+// else keeps the original hardwired OllamaClient path (back-compat with the recorded
+// 14B baseline invocation).
+const VENDOR_PREFIXES = ["codex:", "claude:", "ollama:", "openrouter:"];
+const isVendorSpec = VENDOR_PREFIXES.some((p) => MODEL.startsWith(p));
+
+/** Filesystem-safe stand-in for a model spec, e.g. "codex:gpt-5.6-luna" → "codex-gpt-5.6-luna". */
+function sanitizeModel(m: string): string {
+  return m.replace(/[:/]/g, "-");
+}
 const PAD_SCALE = Number(process.env.VS_GC_PAD_SCALE ?? "1");
 // 280s: just under undici's 300s time-to-headers cap, so a too-slow audit aborts
 // cleanly (TimeoutError) instead of throwing an opaque "fetch failed".
@@ -100,7 +114,12 @@ interface RunResult {
   promptChars: number;
 }
 
-async function runOnce(sc: Scenario, client: OllamaClient): Promise<RunResult> {
+/** Invoke the model under test on one prompt. Vendor specs (codex:/claude:/ollama:/
+ *  openrouter:) go through the production Auditor abstraction (src/resolve.ts); bare
+ *  ollama tags keep calling OllamaClient.complete directly, unchanged. */
+type Invoke = (prompt: string, timeoutMs: number) => Promise<string>;
+
+async function runOnce(sc: Scenario, invoke: Invoke): Promise<RunResult> {
   const receipts = padReceipts(sc.receipts, Math.round((sc.padKB ?? 0) * PAD_SCALE));
   const job: AuditJob = {
     dir: HERE,
@@ -115,11 +134,11 @@ async function runOnce(sc: Scenario, client: OllamaClient): Promise<RunResult> {
   const prompt = buildPreGatheredPrompt(job, evidence);
   const t = Date.now();
   try {
-    const raw = await client.complete({ prompt, timeoutMs: PER_AUDIT_TIMEOUT_MS });
+    const raw = await invoke(prompt, PER_AUDIT_TIMEOUT_MS);
     return { raw, parsed: parseReply(raw), ms: Date.now() - t, promptChars: prompt.length };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    const isTimeout = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
+    const isTimeout = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError" || /\(exit timeout\)/.test(e.message));
     return { raw: "", parsed: null, ms: Date.now() - t, error: isTimeout ? `timeout>${PER_AUDIT_TIMEOUT_MS}ms` : msg, promptChars: prompt.length };
   }
 }
@@ -145,7 +164,20 @@ function verdictTag(p: ReturnType<typeof parseReply>): string {
 
 async function main(): Promise<void> {
   const ds = JSON.parse(readFileSync(join(HERE, "dataset.json"), "utf8")) as { scenarios: Scenario[] };
-  const client = new OllamaClient(MODEL);
+
+  let invoke: Invoke;
+  if (isVendorSpec) {
+    // Same resolution path production uses for VS_AUDITOR overrides: the vendor spec
+    // is taken literally, no auth-probing or fallback rules (those only apply when no
+    // override is given). `executor` is irrelevant on the override path.
+    const auditor = await resolveAuditor("eval-harness", MODEL);
+    console.log(`auditor: vendor=${auditor.vendor} model=${auditor.model ?? "(default)"} tier=${auditor.tier}`);
+    invoke = (prompt, timeoutMs) => auditor.invoke(prompt, HERE, timeoutMs);
+  } else {
+    const client = new OllamaClient(MODEL);
+    invoke = (prompt, timeoutMs) => client.complete({ prompt, timeoutMs });
+  }
+
   console.log(`guard-compliance: ${ds.scenarios.length} scenarios × ${RUNS} runs, model=${MODEL}, pad_scale=${PAD_SCALE}`);
   console.log(`per-audit timeout=${PER_AUDIT_TIMEOUT_MS}ms (undici headers cap is ~300s)\n`);
 
@@ -155,7 +187,7 @@ async function main(): Promise<void> {
 
   for (const sc of ds.scenarios) {
     const results: RunResult[] = [];
-    for (let r = 0; r < RUNS; r++) results.push(await runOnce(sc, client));
+    for (let r = 0; r < RUNS; r++) results.push(await runOnce(sc, invoke));
 
     const passes = results.map((res) => (res.parsed ? score(sc.expect, res.parsed) : false));
     const runPass = passes.every(Boolean);
@@ -186,11 +218,14 @@ async function main(): Promise<void> {
   console.log(`\noverall guard-compliance: ${passBoth}/${ds.scenarios.length} (${rate}%) pass on BOTH runs`);
   console.log(`determinism: ${disagree}/${ds.scenarios.length} scenarios disagreed across the two runs`);
 
+  // Per-model output file: results.json is the committed qwen2.5:14b baseline and is
+  // never overwritten (see README — per-model files are the convention now).
+  const outPath = join(HERE, `results-${sanitizeModel(MODEL)}.json`);
   writeFileSync(
-    join(HERE, "results.json"),
+    outPath,
     JSON.stringify({ model: MODEL, runs: RUNS, pad_scale: PAD_SCALE, passBoth, total: ds.scenarios.length, disagree, rows }, null, 2) + "\n",
   );
-  console.log(`\nwrote ${join(HERE, "results.json")}`);
+  console.log(`\nwrote ${outPath}`);
 }
 
 main().catch((e) => {

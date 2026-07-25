@@ -33,6 +33,11 @@ actually obey it?
 
 ## Results (real run — qwen2.5:14b, live ollama, temperature 0)
 
+Each model now writes its own `results-<sanitized-model>.json` (e.g.
+`results-codex-gpt-5.6-luna.json`) instead of overwriting a shared file; the
+committed `results.json` in this directory is left in place as the qwen2.5:14b
+baseline below.
+
 <!-- RESULTS_TABLE -->
 
 ## The second ceiling this eval surfaced (undici 300s headers cap)
