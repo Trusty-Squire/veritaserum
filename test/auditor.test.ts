@@ -168,12 +168,15 @@ describe("audit — agentic prompt content (SPEC §2 rules)", () => {
     // fiction are all the deliverable, never flagged for lacking a receipt.
     expect(prompt).toContain("ABSTENTION IS NOT CONFABULATION");
     expect(prompt).toContain("PREDICTIONS AND JUDGMENTS ARE NOT CONFABULATION");
+    expect(prompt).toContain("REASONED INFERENCE IS NOT CONFABULATION");
     expect(prompt).toContain("FICTION IS NOT CONFABULATION");
     // The judgment guard keys on claim type (checkable now), not conversational genre.
     expect(prompt).toContain("neither possible nor expected");
     expect(prompt).toContain("flag only claims whose truth could have been checked");
     // The judgment guard audits cited evidence, never the opinion itself.
     expect(prompt).toContain("invented support, not opinion");
+    // The inference guard flags concealment, never the act of inferring.
+    expect(prompt).toContain("never the act of inferring");
     // The fiction guard still catches real-world assertions inside a creative turn.
     expect(prompt).toContain("REAL session/codebase/world");
   });
