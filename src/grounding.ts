@@ -433,8 +433,11 @@ function specificNumbersIn(text: string): number[] {
 }
 
 /** A "specific quantity" worth grounding: currency, %, k/M/B suffix, a
- *  decimal, or an integer ≥ 100. Bare small counts ("3 wallets") don't qualify. */
-function hasSpecificQuantity(text: string): boolean {
+ *  decimal, or an integer ≥ 100. Bare small counts ("3 wallets") don't qualify.
+ *  Exported so the delivery policy (src/auditor.ts) can reuse the SAME
+ *  fabricated-figure bar — a quantified unsupported claim is the gas-number class
+ *  that stays deliverable under VS_DELIVERY=quiet. */
+export function hasSpecificQuantity(text: string): boolean {
   const clean = stripHex(text);
   if (/\$\s?\d/.test(clean)) return true;
   if (/\d\s?%/.test(clean)) return true;
@@ -598,8 +601,11 @@ const STATE_LABEL: Record<StateKind, { claim: string; receipt: string }> = {
 };
 
 /** Which external-state kinds a sentence ASSERTS (lexical; a sentence may assert
- *  more than one, e.g. "committed and pushed"). Empty when it asserts none. */
-function stateKindsOf(sentence: string): StateKind[] {
+ *  more than one, e.g. "committed and pushed"). Empty when it asserts none.
+ *  Exported so the delivery policy (src/auditor.ts) can reuse the SAME
+ *  completion/verification lexicon — a "tests pass / committed / pushed / deployed /
+ *  changes made" unsupported claim stays deliverable under VS_DELIVERY=quiet. */
+export function stateKindsOf(sentence: string): StateKind[] {
   const kinds: StateKind[] = [];
   if (/\b(all\s+)?(tests?|specs?|checks?|suite)\b[^.]*\b(pass|passing|passed|green|succeed|succeeded|ok)\b/i.test(sentence)) kinds.push("tests");
   if (/\bcommit(ted|s|ting)?\b/i.test(sentence)) kinds.push("commit");

@@ -80,6 +80,13 @@ export interface Firing {
    *  shipped (gated-skip, or no receipts). Paired with prompt_chars, this makes
    *  the token saving measurable. */
   evidence_bytes?: number;
+  /** DELIVERY POLICY (VS_DELIVERY=quiet|full): what the delivery gate did with this
+   *  turn's warnings. "full" — full mode, every warning delivered. "quiet" — quiet
+   *  mode, nothing suppressed (all warnings were deliverable). "suppressed-quiet" —
+   *  quiet mode held ≥1 warning back from the pending-feedback file (still deduped +
+   *  telemetered, just not surfaced). Absent when the turn produced no warnings. The
+   *  suppression rate is the query `delivery:"suppressed-quiet"`. */
+  delivery?: "full" | "quiet" | "suppressed-quiet";
 }
 
 export function telemetryPath(): string {

@@ -36,6 +36,7 @@ const ENV_KEYS = [
   "VS_EXECUTOR",
   "VS_AUDITOR",
   "VS_AUDITOR_METERED",
+  "VS_DELIVERY",
   "OPENROUTER_API_KEY",
 ] as const;
 let saved: Partial<Record<(typeof ENV_KEYS)[number], string>> = {};
@@ -77,6 +78,13 @@ beforeEach(async () => {
   process.env.VS_QUEUE_ROOT = queueDir;
   process.env.VS_TELEMETRY_PATH = join(telemetryDir, "telemetry.jsonl");
   process.env.VS_EXECUTOR = "unknown";
+  // These tests exercise the feedback CHANNEL plumbing — session routing,
+  // latest-wins, expiry, the stray sweep — which is independent of the
+  // VS_DELIVERY=quiet|full policy (that policy is tested directly in
+  // auditor.test.ts). Pin `full` so a warn always reaches the channel and the
+  // routing assertions are not entangled with quiet's suppression rule (some
+  // fixtures use unquantified "claim A/B" texts that quiet would suppress).
+  process.env.VS_DELIVERY = "full";
   delete process.env.VS_AUDITOR;
   delete process.env.VS_AUDITOR_METERED;
   delete process.env.OPENROUTER_API_KEY;

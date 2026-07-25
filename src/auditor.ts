@@ -21,7 +21,7 @@
 import { execa } from "execa";
 import { logFiring } from "./telemetry.js";
 import type { Auditor, AuditorTier } from "./resolve.js";
-import { groundingCheck, selectEvidence, type GitProbeState, type GroundingFlag } from "./grounding.js";
+import { groundingCheck, selectEvidence, hasSpecificQuantity, stateKindsOf, type GitProbeState, type GroundingFlag } from "./grounding.js";
 import { ollamaEmbedder, cosine, type Embedder } from "./embed.js";
 
 export interface AuditJob {
@@ -147,14 +147,70 @@ export function groundingWarning(who: Addressee, rule: GroundingFlag["rule"], ba
   }
 }
 
+// ---------------------------------------------------------------------------
+// DELIVERY POLICY — VS_DELIVERY=quiet|full (default "quiet").
+//
+// Owner-derived, after nine production specimens (see the specimen table in
+// test/auditor.test.ts "delivery policy — quiet suppression"): interruptions are
+// wanted ONLY for (1) CONTRADICTED verdicts (evidence refutes the claim), and
+// (2) UNSUPPORTED verdicts whose claim carries a SPECIFIC FIGURE (the fabricated-
+// statistic / gas-number class) OR is COMPLETION/VERIFICATION-shaped (tests pass /
+// committed / pushed / built / deployed / changes made). Everything else —
+// unquantified inferential narration, mid-task system-behavior predictions,
+// housekeeping assessments — must NOT interrupt regardless of the LLM's verdict:
+// it is telemetry-only under quiet.
+//
+// "Deliverable" means the warning reaches the pending-feedback file (the next
+// UserPromptSubmit). A NON-deliverable warning is NOT lost: it still lands in
+// telemetry (`caught` + delivery:"suppressed-quiet") and in the session warning
+// store for R5 dedupe — it just does not interrupt. `full` restores today's
+// behaviour (every warning deliverable). FAIL-OPEN: any VS_DELIVERY value other
+// than "full" is treated as "quiet".
+// ---------------------------------------------------------------------------
+export type DeliveryMode = "quiet" | "full";
+
+/** The active delivery mode. Default + fail-open target is "quiet"; only the
+ *  exact value "full" opts into delivering every warning. */
+export function deliveryMode(): DeliveryMode {
+  return process.env.VS_DELIVERY === "full" ? "full" : "quiet";
+}
+
+/** Under quiet, a claim-verdict warning is deliverable iff the verdict is
+ *  `contradicted`, OR it is `unsupported` AND the claim carries a specific figure
+ *  (hasSpecificQuantity) or a completion/verification state shape (stateKindsOf).
+ *  Supported claims never produce a warning, so this is only consulted for the
+ *  non-supported ones. */
+export function claimDeliverableUnderQuiet(c: ClaimVerdict): boolean {
+  if (c.verdict === "contradicted") return true;
+  if (c.verdict === "unsupported") return hasSpecificQuantity(c.claim) || stateKindsOf(c.claim).length > 0;
+  return false;
+}
+
+/** Under quiet, a grounding-tier flag is deliverable iff it is a block-severity
+ *  flag (blocked-no-attempt, or a git-probe state contradiction) OR one of the
+ *  number/state rules (number-no-receipt / state-no-receipt). The warn-only
+ *  inferential rules — causal-no-referent, scope-narrower — follow the same quiet
+ *  suppression as unquantified narration and are telemetry-only. */
+export function groundingDeliverableUnderQuiet(f: GroundingFlag): boolean {
+  return f.severity === "block" || f.rule === "number-no-receipt" || f.rule === "state-no-receipt";
+}
+
 export interface AuditVerdict {
   claims: ClaimVerdict[];
   /** R9: substantial work, no load-bearing claims. */
   unaccountable: boolean;
   note: string;
   /** New (non-duplicate-of-priorWarnings) warning lines from this run — includes
-   *  per-claim flags, R9 unaccountable work, and grounding-tier flags. */
+   *  per-claim flags, R9 unaccountable work, and grounding-tier flags. This is the
+   *  FULL set (deliverable + quiet-suppressed): it feeds telemetry `caught` and the
+   *  R5 session dedupe store, so a suppressed warning is never lost. */
   warnings: string[];
+  /** The subset of `warnings` the delivery policy (deliveryMode) permits to reach
+   *  the pending-feedback file this turn. Under `full` this equals `warnings`;
+   *  under `quiet` it is the contradicted / quantified-unsupported / completion-
+   *  shaped / R9 / block-or-number/state-grounding subset. Ordered worst-first, so
+   *  deliverableWarnings[0] is the lead line run-audit.ts delivers. */
+  deliverableWarnings: string[];
   auditorTier: AuditorTier;
   sameFamily: boolean;
   vendor: string;
@@ -687,6 +743,9 @@ interface AuditTelemetryExtras {
   gateMissed?: boolean;
   /** CHANGE 2: bytes of the selected receipts payload actually shipped. */
   evidenceBytes?: number;
+  /** DELIVERY POLICY: what the quiet/full gate did with this turn's warnings.
+   *  Absent when the turn produced no warnings at all. */
+  delivery?: "full" | "quiet" | "suppressed-quiet";
 }
 
 function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict, promptChars = 0, extra: AuditTelemetryExtras = {}): void {
@@ -737,6 +796,8 @@ function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict, promptChars = 0
     gated: extra.gated,
     gate_missed: extra.gateMissed || undefined,
     evidence_bytes: extra.evidenceBytes,
+    // DELIVERY POLICY: quiet/full/suppressed-quiet, undefined when no warnings.
+    delivery: extra.delivery,
   });
 }
 
@@ -860,23 +921,46 @@ export async function audit(
 
   // R5: warnings never repeat verbatim for the same claim in a session, and a
   // grounding flag is deduped the same way (against priorWarnings + this run).
+  // DELIVERY POLICY: every warning enters `warnings` (telemetry + R5 dedupe store),
+  // but only those the mode permits enter `deliverableWarnings` (the pending-feedback
+  // file). Under `quiet` (default) that is the contradicted / quantified-unsupported
+  // / completion-shaped / R9 / block-or-number/state-grounding subset; under `full`
+  // it is everything. A quiet-suppressed warning is NOT lost — it is still deduped
+  // and still telemetered, it just does not interrupt.
+  const mode = deliveryMode();
   const prior = new Set(job.priorWarnings ?? []);
   const warnings: string[] = [];
-  const pushWarning = (w: string): void => {
-    if (!prior.has(w) && !warnings.includes(w)) warnings.push(w);
+  const deliverableWarnings: string[] = [];
+  const pushWarning = (w: string, deliverable: boolean): void => {
+    if (prior.has(w) || warnings.includes(w)) return;
+    warnings.push(w);
+    if (mode === "full" || deliverable) deliverableWarnings.push(w);
   };
   // The humane line is built ONCE here (claimWarning/unaccountableWarning/
   // groundingWarning) addressed to the executor, and ordered WORST-FIRST
-  // (contradicted → unsupported → unaccountable → grounding) so warnings[0] is
-  // the lead line every downstream audience delivers.
+  // (contradicted → unsupported → unaccountable → grounding) so [0] is the lead
+  // line every downstream audience delivers.
   const who = addressee(job.executor);
   const nonSupported = claims.filter((c) => c.verdict !== "supported");
   const rank = (v: ClaimVerdict["verdict"]): number => (v === "contradicted" ? 0 : 1);
   for (const c of [...nonSupported].sort((a, b) => rank(a.verdict) - rank(b.verdict))) {
-    pushWarning(claimWarning(who, c));
+    pushWarning(claimWarning(who, c), claimDeliverableUnderQuiet(c));
   }
-  if (reply?.unaccountable) pushWarning(unaccountableWarning(who));
-  for (const f of grounding.flags) pushWarning(groundingWarning(who, f.rule, f.basis, f.claim));
+  // R9 unaccountable is deliverable by definition — it IS a completion-shaped claim.
+  if (reply?.unaccountable) pushWarning(unaccountableWarning(who), true);
+  for (const f of grounding.flags) pushWarning(groundingWarning(who, f.rule, f.basis, f.claim), groundingDeliverableUnderQuiet(f));
+
+  // DELIVERY POLICY telemetry: legible on the audit row so the suppression rate is
+  // a query, not a belief. undefined when the turn produced no warnings; otherwise
+  // "full", "quiet" (nothing suppressed), or "suppressed-quiet" (≥1 warning held back).
+  const delivery: AuditTelemetryExtras["delivery"] =
+    warnings.length === 0
+      ? undefined
+      : mode === "full"
+        ? "full"
+        : warnings.length > deliverableWarnings.length
+          ? "suppressed-quiet"
+          : "quiet";
 
   const verdict: AuditVerdict = {
     claims,
@@ -885,6 +969,7 @@ export async function audit(
     // reason it never reached the LLM is legible in the verdict, not just telemetry.
     note: reply?.note ?? (gated === "skipped" ? "no-claim (gated)" : ""),
     warnings,
+    deliverableWarnings,
     auditorTier: auditor.tier,
     sameFamily: auditor.sameFamily,
     vendor: auditor.vendor,
@@ -893,6 +978,6 @@ export async function audit(
     ...(error ? { error } : {}),
   };
 
-  logAuditTelemetry(job, verdict, promptChars, { gated, gateMissed, evidenceBytes });
+  logAuditTelemetry(job, verdict, promptChars, { gated, gateMissed, evidenceBytes, delivery });
   return verdict;
 }

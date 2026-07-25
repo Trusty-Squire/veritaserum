@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
 import { tempRepo, write } from "./helpers.js";
-import { audit, addressee, claimWarning, unaccountableWarning, groundingWarning, parseReply, demoteUserTestimony, userStatementsFromTail, type AuditJob, type ClaimVerdict } from "../src/auditor.js";
-import { selectEvidence, type EvidenceSelectionContext } from "../src/grounding.js";
+import { audit, addressee, claimWarning, unaccountableWarning, groundingWarning, parseReply, demoteUserTestimony, userStatementsFromTail, deliveryMode, claimDeliverableUnderQuiet, groundingDeliverableUnderQuiet, type AuditJob, type ClaimVerdict } from "../src/auditor.js";
+import { selectEvidence, type EvidenceSelectionContext, type GroundingFlag } from "../src/grounding.js";
 import type { Auditor, AuditorTier } from "../src/resolve.js";
 import type { Embedder } from "../src/embed.js";
 import { readFirings, type Firing } from "../src/telemetry.js";
@@ -847,5 +847,157 @@ describe("selectEvidence — unit (pure, reuses precomputed vectors)", () => {
     const r = selectEvidence(ctx(lines), 3 * 1024); // > 2KB tail, < full → fill has room
     expect(r.text).toContain("RELEVANT the load-bearing detail"); // relevance beat the noise
     expect(r.elided).toBeGreaterThan(0); // and some noise was genuinely dropped
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DELIVERY POLICY — VS_DELIVERY=quiet|full. The nine-specimen owner rule,
+// validated against the REAL specimen texts (not new evals): under quiet a
+// warning reaches the pending-feedback file ONLY for a contradicted verdict, a
+// quantified unsupported claim (the fabricated-statistic / gas-number class), or
+// a completion/verification-shaped unsupported claim; everything else is
+// telemetry-only. Non-deliverable warnings are NOT lost — they still enter
+// `warnings` (telemetry + R5 dedupe), just not `deliverableWarnings`.
+// ---------------------------------------------------------------------------
+describe("delivery policy — deliveryMode() fail-open", () => {
+  let prev: string | undefined;
+  beforeEach(() => { prev = process.env.VS_DELIVERY; });
+  afterEach(() => { if (prev === undefined) delete process.env.VS_DELIVERY; else process.env.VS_DELIVERY = prev; });
+
+  it("defaults to quiet when unset, and for any non-'full' value (fail-open)", () => {
+    delete process.env.VS_DELIVERY;
+    expect(deliveryMode()).toBe("quiet");
+    process.env.VS_DELIVERY = "quiet";
+    expect(deliveryMode()).toBe("quiet");
+    process.env.VS_DELIVERY = "banana"; // unknown → quiet (fail-open)
+    expect(deliveryMode()).toBe("quiet");
+    process.env.VS_DELIVERY = "FULL"; // case-sensitive; only exact "full" opts in
+    expect(deliveryMode()).toBe("quiet");
+    process.env.VS_DELIVERY = "full";
+    expect(deliveryMode()).toBe("full");
+  });
+});
+
+describe("delivery policy — quiet suppression predicate (nine-specimen validation)", () => {
+  const c = (verdict: ClaimVerdict["verdict"], claim: string): ClaimVerdict => ({ claim, verdict, basis: "b", evidence: "e", reliance: "r".repeat(30) });
+
+  // Each specimen is a real production-shaped claim text with its verdict and the
+  // owner's expected deliverability under quiet. DELIVERED = interrupts; SUPPRESSED
+  // = telemetry-only.
+  const DELIVERED: Array<[string, ClaimVerdict]> = [
+    ["PR#39 contradicted flip", c("contradicted", "PR #39 is merged and CI is green.")],
+    ["fabricated 2% revert rate (unsupported + quantified)", c("unsupported", "The revert rate holds steady at 2%.")],
+    ["false 'all tests pass' (verification-shaped)", c("unsupported", "All tests pass.")],
+    ["'committed the fix' state claim", c("unsupported", "I committed the fix.")],
+  ];
+  const SUPPRESSED: Array<[string, ClaimVerdict]> = [
+    ["phone-gate inference (unsupported, unquantified, not completion-shaped)",
+      c("unsupported", "A US or foreign phone number will be rejected, so a valid JP number is the actual remaining gate.")],
+    ["monitor-housekeeping remark",
+      c("unsupported", "The monitor is still running and looks healthy, nothing needs attention right now.")],
+    ["Discord-fits-better judgment",
+      c("unsupported", "Discord fits this workflow better than Slack would.")],
+    ["'deterministic residuals' adverb claim",
+      c("unsupported", "The residuals are deterministic across runs.")],
+  ];
+
+  for (const [name, claim] of DELIVERED) {
+    it(`DELIVERED under quiet: ${name}`, () => {
+      expect(claimDeliverableUnderQuiet(claim)).toBe(true);
+    });
+  }
+  for (const [name, claim] of SUPPRESSED) {
+    it(`SUPPRESSED under quiet: ${name}`, () => {
+      expect(claimDeliverableUnderQuiet(claim)).toBe(false);
+    });
+  }
+
+  it("grounding flags: block-severity and number/state rules deliver; causal/scope warn flags are suppressed", () => {
+    const gf = (rule: GroundingFlag["rule"], severity: GroundingFlag["severity"]): GroundingFlag =>
+      ({ claim: "x", rule, severity, basis: "b", evidence: "e" });
+    // block severity (blocked-no-attempt, or a git-probe state contradiction) → deliver
+    expect(groundingDeliverableUnderQuiet(gf("blocked-no-attempt", "block"))).toBe(true);
+    expect(groundingDeliverableUnderQuiet(gf("state-no-receipt", "block"))).toBe(true);
+    // number/state rules at warn severity → deliver
+    expect(groundingDeliverableUnderQuiet(gf("number-no-receipt", "warn"))).toBe(true);
+    expect(groundingDeliverableUnderQuiet(gf("state-no-receipt", "warn"))).toBe(true);
+    // warn-only inferential rules → suppressed
+    expect(groundingDeliverableUnderQuiet(gf("causal-no-referent", "warn"))).toBe(false);
+    expect(groundingDeliverableUnderQuiet(gf("scope-narrower", "warn"))).toBe(false);
+  });
+});
+
+describe("audit() — delivery policy wired end-to-end", () => {
+  let tmpDir: string;
+  let prevPath: string | undefined;
+  let prevDelivery: string | undefined;
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "vs-delivery-telemetry-"));
+    prevPath = process.env.VS_TELEMETRY_PATH;
+    prevDelivery = process.env.VS_DELIVERY;
+    process.env.VS_TELEMETRY_PATH = join(tmpDir, "telemetry.jsonl");
+  });
+  afterEach(async () => {
+    if (prevPath === undefined) delete process.env.VS_TELEMETRY_PATH; else process.env.VS_TELEMETRY_PATH = prevPath;
+    if (prevDelivery === undefined) delete process.env.VS_DELIVERY; else process.env.VS_DELIVERY = prevDelivery;
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+  const lastFiring = (): Firing => { const fs = readFirings(); return fs[fs.length - 1]!; };
+  const single = (verdict: string, claim: string): string =>
+    JSON.stringify({ claims: [{ claim, verdict, basis: "b", evidence: "e", reliance: "the user acts on this claim before the next exchange" }], unaccountable: false, note: "" });
+
+  it("quiet (default): an unquantified, non-completion unsupported claim is telemetered + deduped but NOT delivered", async () => {
+    delete process.env.VS_DELIVERY;
+    const dir = await repo();
+    const claim = "Discord fits this workflow better than Slack would.";
+    const auditor = fakeAuditor("agentic", single("unsupported", claim));
+    const v = await audit(job(dir, { finalMessage: "Some narration." }), auditor, nullEmbedder(), FORCE_RUN);
+    // The warning IS built (dedupe + telemetry) but is held back from delivery.
+    expect(v.warnings).toHaveLength(1);
+    expect(v.deliverableWarnings).toEqual([]);
+    // Telemetry records the suppression AND still carries the caught text.
+    const f = lastFiring();
+    expect(f.delivery).toBe("suppressed-quiet");
+    expect(f.caught).toContain("Discord fits this workflow better");
+  });
+
+  it("quiet: a contradicted claim is delivered; telemetry delivery is 'quiet' (nothing suppressed)", async () => {
+    delete process.env.VS_DELIVERY;
+    const dir = await repo();
+    const claim = "PR #39 is merged and CI is green.";
+    const auditor = fakeAuditor("agentic", single("contradicted", claim));
+    const v = await audit(job(dir, { finalMessage: "Status update." }), auditor, nullEmbedder(), FORCE_RUN);
+    expect(v.warnings).toHaveLength(1);
+    expect(v.deliverableWarnings).toEqual(v.warnings);
+    expect(lastFiring().delivery).toBe("quiet");
+  });
+
+  it("quiet: a quantified unsupported claim (2%) is delivered", async () => {
+    delete process.env.VS_DELIVERY;
+    const dir = await repo();
+    const auditor = fakeAuditor("agentic", single("unsupported", "The revert rate holds steady at 2%."));
+    const v = await audit(job(dir, { finalMessage: "Metrics summary." }), auditor, nullEmbedder(), FORCE_RUN);
+    expect(v.deliverableWarnings).toHaveLength(1);
+  });
+
+  it("quiet: R9 unaccountable is delivered (completion-shaped by definition)", async () => {
+    delete process.env.VS_DELIVERY;
+    const dir = await repo();
+    const auditor = fakeAuditor("agentic", '{"claims":[],"unaccountable":true,"note":"say what you did"}');
+    const v = await audit(job(dir, { finalMessage: "Done." }), auditor, nullEmbedder(), FORCE_RUN);
+    expect(v.deliverableWarnings).toHaveLength(1);
+    expect(v.deliverableWarnings[0]).toContain("did substantial work but reported nothing checkable");
+    expect(lastFiring().delivery).toBe("quiet");
+  });
+
+  it("full: the same unquantified unsupported claim IS delivered (today's behavior restored)", async () => {
+    process.env.VS_DELIVERY = "full";
+    const dir = await repo();
+    const claim = "Discord fits this workflow better than Slack would.";
+    const auditor = fakeAuditor("agentic", single("unsupported", claim));
+    const v = await audit(job(dir, { finalMessage: "Some narration." }), auditor, nullEmbedder(), FORCE_RUN);
+    expect(v.deliverableWarnings).toEqual(v.warnings);
+    expect(v.deliverableWarnings).toHaveLength(1);
+    expect(lastFiring().delivery).toBe("full");
   });
 });

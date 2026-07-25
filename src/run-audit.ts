@@ -61,9 +61,13 @@ function loadTurnMaterial(job: AuditJob): { finalMessage: string; userRequest: s
  * ambient. The humane line is built ONCE in auditor.ts (claimWarning et al.,
  * addressed to the executor and ordered worst-first), so this just prefixes the
  * source tag to the lead warning. Returns null when there's nothing to say.
+ *
+ * DELIVERY POLICY: the pending-feedback file draws from `deliverableWarnings`, NOT
+ * the full `warnings` set — under VS_DELIVERY=quiet a suppressed warning is deduped
+ * and telemetered but must never interrupt the next turn.
  */
 function buildFeedbackLine(verdict: AuditVerdict): string | null {
-  const lead = verdict.warnings[0];
+  const lead = verdict.deliverableWarnings[0];
   if (!lead) return null;
   return `veritaserum: ${lead}`.slice(0, 600);
 }
