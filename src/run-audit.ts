@@ -18,7 +18,7 @@
  * defensive/best-effort so that path is a last resort, not the normal one.
  */
 import { readGooseSession } from "./goose.js";
-import { readLastAssistantMessage, readLastUserMessage, readReceiptsTail } from "./transcript.js";
+import { readLastAssistantMessage, readLastUserMessage, readReceiptsTail, readConversationTail } from "./transcript.js";
 import { resolveAuditor, isExhausted } from "./resolve.js";
 import { audit, type AuditJob as AuditContentJob, type AuditVerdict } from "./auditor.js";
 import { logFiring } from "./telemetry.js";
@@ -33,12 +33,13 @@ import {
 
 /** Step 1: the turn's final message, the user's request, and a receipt tail —
  *  from goose's sessions.db (session id) or a Claude Code transcript (path). */
-function loadTurnMaterial(job: AuditJob): { finalMessage: string; userRequest: string; receipts?: string } {
+function loadTurnMaterial(job: AuditJob): { finalMessage: string; userRequest: string; receipts?: string; conversationTail?: string } {
   if (job.transcriptPath) {
     const finalMessage = job.finalMessage ?? readLastAssistantMessage(job.transcriptPath);
     const userRequest = job.userRequest ?? readLastUserMessage(job.transcriptPath);
     const receipts = readReceiptsTail(job.transcriptPath);
-    return { finalMessage, userRequest, ...(receipts ? { receipts } : {}) };
+    const conversationTail = readConversationTail(job.transcriptPath);
+    return { finalMessage, userRequest, ...(receipts ? { receipts } : {}), ...(conversationTail ? { conversationTail } : {}) };
   }
   // A payload-supplied final message (codex's documented content field — "never
   // discard") is authoritative even without a transcript path; only a job with
@@ -68,7 +69,7 @@ function buildFeedbackLine(verdict: AuditVerdict): string | null {
 }
 
 export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
-  const { finalMessage, userRequest, receipts } = loadTurnMaterial(job);
+  const { finalMessage, userRequest, receipts, conversationTail } = loadTurnMaterial(job);
 
   const executor = job.executor || "unknown";
   const auditor = await resolveAuditor(executor, job.auditor);
@@ -89,6 +90,7 @@ export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
     finalMessage,
     userRequest,
     ...(receipts ? { receipts } : {}),
+    ...(conversationTail ? { conversationTail } : {}),
     ...(priorWarnings.length ? { priorWarnings } : {}),
     ...(deliveredWarnings.length ? { deliveredWarnings } : {}),
     harness: job.harness || "unknown",

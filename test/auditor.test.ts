@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
 import { tempRepo, write } from "./helpers.js";
-import { audit, addressee, claimWarning, unaccountableWarning, groundingWarning, type AuditJob } from "../src/auditor.js";
+import { audit, addressee, claimWarning, unaccountableWarning, groundingWarning, parseReply, type AuditJob, type ClaimVerdict } from "../src/auditor.js";
 import { selectEvidence, type EvidenceSelectionContext } from "../src/grounding.js";
 import type { Auditor, AuditorTier } from "../src/resolve.js";
 import type { Embedder } from "../src/embed.js";
@@ -132,6 +132,95 @@ describe("warning templates — one humane line per verdict/rule", () => {
     expect(line).toContain("…");
     expect(line).not.toContain("y".repeat(200));
   });
+
+  // MECHANISM 3: the concrete-harm sentence is surfaced in the delivered line.
+  it("appends the reliance clause as ': if false — <reliance>' when present", () => {
+    const c: ClaimVerdict = {
+      claim: "all tests pass",
+      verdict: "contradicted",
+      basis: "the run shows 1 failing",
+      evidence: "",
+      reliance: "the user is about to merge on this all-pass",
+    };
+    expect(claimWarning("Codex", c)).toBe(
+      'Codex, the evidence contradicts your claim "all tests pass" — the run shows 1 failing: if false — the user is about to merge on this all-pass',
+    );
+  });
+
+  it("omits the reliance clause (and keeps the trailing period) when reliance is absent", () => {
+    const c: ClaimVerdict = { claim: "tests pass", verdict: "unsupported", basis: "no run on record", evidence: "" };
+    expect(claimWarning("Claude", c)).toBe('Claude, you have no basis to claim "tests pass" — no run on record.');
+  });
+});
+
+// MECHANISMS 2 (top-1 budget) + 3 (name-the-harm) enforced in CODE by parseReply,
+// independent of whether the model honored the prompt budget.
+describe("parseReply — top-1 budget + reliance enforcement", () => {
+  const RELIANCE = "the user is about to merge this on the strength of the claim";
+  const claim = (verdict: string, claimText: string, reliance?: string): Record<string, unknown> => ({
+    claim: claimText,
+    verdict,
+    basis: "b",
+    evidence: "e",
+    ...(reliance !== undefined ? { reliance } : {}),
+  });
+  const wrap = (claims: Record<string, unknown>[]): string => JSON.stringify({ claims, unaccountable: false, note: "" });
+  const flagged = (p: NonNullable<ReturnType<typeof parseReply>>): ClaimVerdict[] => p.claims.filter((c) => c.verdict !== "supported");
+
+  it("top-1: three non-supported in → one out, the worst (contradicted) kept", () => {
+    const p = parseReply(wrap([
+      claim("unsupported", "a", RELIANCE),
+      claim("contradicted", "b", RELIANCE),
+      claim("unsupported", "c", RELIANCE),
+    ]))!;
+    expect(flagged(p)).toHaveLength(1);
+    expect(flagged(p)[0]!.verdict).toBe("contradicted");
+    expect(flagged(p)[0]!.claim).toBe("b");
+  });
+
+  it("top-1 among ties: three unsupported → the FIRST kept, the rest dropped", () => {
+    const p = parseReply(wrap([
+      claim("unsupported", "first", RELIANCE),
+      claim("unsupported", "second", RELIANCE),
+      claim("unsupported", "third", RELIANCE),
+    ]))!;
+    expect(flagged(p)).toHaveLength(1);
+    expect(flagged(p)[0]!.claim).toBe("first");
+  });
+
+  it("supported claims are always kept alongside the one surviving flag", () => {
+    const p = parseReply(wrap([
+      claim("supported", "s1"),
+      claim("unsupported", "u1", RELIANCE),
+      claim("supported", "s2"),
+      claim("unsupported", "u2", RELIANCE),
+    ]))!;
+    expect(p.claims.filter((c) => c.verdict === "supported")).toHaveLength(2);
+    expect(flagged(p)).toHaveLength(1);
+  });
+
+  it("reliance-missing demotion: a non-supported claim with no reliance is dropped", () => {
+    const p = parseReply(wrap([claim("unsupported", "x")]))!;
+    expect(p.claims).toHaveLength(0);
+  });
+
+  it("generic-reliance demotion: cop-outs and sub-20-char reliance are dropped", () => {
+    const p = parseReply(wrap([
+      claim("unsupported", "x", "the user might be misled"),
+      claim("unsupported", "y", "could cause confusion"),
+      claim("unsupported", "z", "bad"),
+    ]))!;
+    expect(p.claims).toHaveLength(0);
+  });
+
+  it("a concrete-reliance flag survives when a generic one is dropped", () => {
+    const p = parseReply(wrap([
+      claim("unsupported", "generic", "the user might be misled"),
+      claim("unsupported", "concrete", RELIANCE),
+    ]))!;
+    expect(flagged(p)).toHaveLength(1);
+    expect(flagged(p)[0]!.claim).toBe("concrete");
+  });
 });
 
 describe("audit — agentic prompt content (SPEC §2 rules)", () => {
@@ -253,13 +342,16 @@ describe("audit — verdict parsing never throws (R8)", () => {
 describe("audit — R5 duplicate-warning suppression", () => {
   it("the same claim's warning is not repeated once it's in priorWarnings", async () => {
     const dir = await repo();
-    const reply = '{"claims":[{"claim":"fixed the bug","verdict":"unsupported","basis":"no diff shows this change","evidence":""}],"unaccountable":false,"note":""}';
+    // MECHANISM 3: a non-supported claim must carry a concrete `reliance` or
+    // parseReply demotes it — so the dedupe fixture now names its harm.
+    const reply = '{"claims":[{"claim":"fixed the bug","verdict":"unsupported","basis":"no diff shows this change","evidence":"","reliance":"the user ships the bug believing it was fixed"}],"unaccountable":false,"note":""}';
     const auditor = fakeAuditor("agentic", reply);
     const first = await audit(job(dir), auditor, nullEmbedder(), FORCE_RUN);
     // CHANGE 1 correction: the warning is now the colloquial direct-address line
     // (built once in auditor.ts), not the old coroner's-report `claim — verdict:
-    // basis`. Default job has no executor → addressee "Agent".
-    expect(first.warnings).toEqual(['Agent, you have no basis to claim "fixed the bug" — no diff shows this change.']);
+    // basis`. Default job has no executor → addressee "Agent". MECHANISM 3 appends
+    // the reliance clause.
+    expect(first.warnings).toEqual(['Agent, you have no basis to claim "fixed the bug" — no diff shows this change: if false — the user ships the bug believing it was fixed']);
 
     const second = await audit(job(dir, { priorWarnings: first.warnings }), auditor, nullEmbedder(), FORCE_RUN);
     expect(second.warnings).toEqual([]);
@@ -344,7 +436,7 @@ describe("audit — telemetry (one event per audit)", () => {
   it("logs one 'audit' event with the v3 fields populated", async () => {
     const dir = await repo();
     const reply =
-      '{"claims":[{"claim":"x","verdict":"unsupported","basis":"y","evidence":"z"}],"unaccountable":false,"note":""}';
+      '{"claims":[{"claim":"x","verdict":"unsupported","basis":"y","evidence":"z","reliance":"the user relies on x and is burned when it is false"}],"unaccountable":false,"note":""}';
     const auditor = fakeAuditor("agentic", reply, { vendor: "codex", sameFamily: true });
     await audit(job(dir), auditor, nullEmbedder(), FORCE_RUN);
 
@@ -475,7 +567,7 @@ describe("audit — CHANGE 1: the gate (skips the no-claim 81%)", () => {
 
   it("a shadow audit that finds a substantive verdict sets gate_missed:true", async () => {
     const dir = await repo();
-    const reply = '{"claims":[{"claim":"tests pass","verdict":"unsupported","basis":"no run","evidence":""}],"unaccountable":false,"note":""}';
+    const reply = '{"claims":[{"claim":"tests pass","verdict":"unsupported","basis":"no run","evidence":"","reliance":"the user merges believing the suite is green when no run exists"}],"unaccountable":false,"note":""}';
     const auditor = fakeAuditor("agentic", reply);
     await audit(
       job(dir, { finalMessage: "Thanks, all good." }),

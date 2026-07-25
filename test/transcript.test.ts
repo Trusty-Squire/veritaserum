@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { readLastAssistantMessage, readLastUserMessage, readReceiptsTail } from "../src/transcript.js";
+import { readLastAssistantMessage, readLastUserMessage, readReceiptsTail, readConversationTail } from "../src/transcript.js";
 
 describe("Claude Code transcript reader", () => {
   it("extracts the last assistant text from a JSONL transcript", () => {
@@ -79,6 +79,56 @@ describe("Claude Code transcript reader", () => {
       expect(receipts).toContain("node --test && git diff --check");
       expect(receipts).toContain("ℹ pass 1");
       expect(receipts).toContain("ℹ fail 0");
+    } finally {
+      require("node:fs").rmSync(p, { force: true });
+    }
+  });
+});
+
+describe("readConversationTail — recent prose exchange for reliance judgment", () => {
+  it("extracts recent user/assistant prose and drops tool_use / tool_result noise", () => {
+    const lines = [
+      JSON.stringify({ type: "user", message: { role: "user", content: "is it safe to merge?" } }),
+      JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", name: "Bash", input: { command: "pnpm test" } }] } }),
+      JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "tool_result", content: "Tests 4 passed" }] } }),
+      JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "all tests pass, safe to merge" }] } }),
+    ].join("\n");
+    const p = join(tmpdir(), `vs-cache-convtail-${process.pid}.jsonl`);
+    require("node:fs").writeFileSync(p, lines);
+    try {
+      const tail = readConversationTail(p);
+      expect(tail).toContain("User: is it safe to merge?");
+      expect(tail).toContain("Agent: all tests pass, safe to merge");
+      // tool noise never leaks into the reliance tail
+      expect(tail).not.toContain("pnpm test");
+      expect(tail).not.toContain("Tests 4 passed");
+    } finally {
+      require("node:fs").rmSync(p, { force: true });
+    }
+  });
+
+  it("reads the codex event_msg user/agent shapes", () => {
+    const lines = [
+      JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: "which two still fail?" } }),
+      JSON.stringify({ type: "event_msg", payload: { type: "agent_message", message: "the two stubborn ones" } }),
+    ].join("\n");
+    const p = join(tmpdir(), `vs-cache-convtail-codex-${process.pid}.jsonl`);
+    require("node:fs").writeFileSync(p, lines);
+    try {
+      const tail = readConversationTail(p);
+      expect(tail).toContain("User: which two still fail?");
+      expect(tail).toContain("Agent: the two stubborn ones");
+    } finally {
+      require("node:fs").rmSync(p, { force: true });
+    }
+  });
+
+  it("is tolerant of garbage and a missing file → '' (never throws)", () => {
+    expect(readConversationTail("/no/such/file.jsonl")).toBe("");
+    const p = join(tmpdir(), `vs-cache-convtail-garbage-${process.pid}.jsonl`);
+    require("node:fs").writeFileSync(p, "not json\n{bad json\n\n[[[\n");
+    try {
+      expect(readConversationTail(p)).toBe("");
     } finally {
       require("node:fs").rmSync(p, { force: true });
     }

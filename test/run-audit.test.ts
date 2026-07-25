@@ -38,7 +38,7 @@ let repoDir: string;
 let repoCleanup: () => Promise<void>;
 
 const REPLY =
-  '{"claims":[{"claim":"fixed the bug","verdict":"unsupported","basis":"no diff shows this change","evidence":""}],"demands":[],"unaccountable":false,"note":""}';
+  '{"claims":[{"claim":"fixed the bug","verdict":"unsupported","basis":"no diff shows this change","evidence":"","reliance":"the user believes the bug is fixed and closes the ticket without a real fix"}],"demands":[],"unaccountable":false,"note":""}';
 
 beforeEach(async () => {
   shimDir = await mkdtemp(join(tmpdir(), "vs-run-audit-shim-"));
@@ -110,7 +110,7 @@ describe("run-audit.ts — R5 session warning store, wired end-to-end", () => {
     const stored = loadSessionWarnings(repoDir, "session-A");
     // CHANGE 1 correction: the stored warning is now the colloquial direct-address
     // line (built once in auditor.ts). VS_EXECUTOR is "unknown" here → "Agent".
-    expect(stored).toEqual(['Agent, you have no basis to claim "fixed the bug" — no diff shows this change.']);
+    expect(stored).toEqual(['Agent, you have no basis to claim "fixed the bug" — no diff shows this change: if false — the user believes the bug is fixed and closes the ticket without a real fix']);
 
     const firings1 = readFirings();
     expect(firings1).toHaveLength(1);
@@ -138,7 +138,7 @@ describe("run-audit.ts — R5 session warning store, wired end-to-end", () => {
     expect(firings[0]!.caught).toContain('you have no basis to claim "fixed the bug"');
     expect(firings[1]!.caught).toContain('you have no basis to claim "fixed the bug"'); // different session — still surfaced
 
-    expect(loadSessionWarnings(repoDir, "session-B")).toEqual(['Agent, you have no basis to claim "fixed the bug" — no diff shows this change.']);
+    expect(loadSessionWarnings(repoDir, "session-B")).toEqual(['Agent, you have no basis to claim "fixed the bug" — no diff shows this change: if false — the user believes the bug is fixed and closes the ticket without a real fix']);
   });
 });
 

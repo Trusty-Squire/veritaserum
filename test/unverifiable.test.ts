@@ -69,7 +69,7 @@ afterEach(async () => {
 
 function contradicted(claim: string, basis: string, evidence: string) {
   return JSON.stringify({
-    claims: [{ claim, verdict: "contradicted", basis, evidence }],
+    claims: [{ claim, verdict: "contradicted", basis, evidence, reliance: "the user carries a fabricated performance figure into a capacity decision" }],
     demands: [],
     unaccountable: false,
     note: "",
@@ -87,7 +87,7 @@ function supported(claim: string, basis: string, evidence: string) {
 
 function unsupported(claim: string, basis: string, evidence: string) {
   return JSON.stringify({
-    claims: [{ claim, verdict: "unsupported", basis, evidence }],
+    claims: [{ claim, verdict: "unsupported", basis, evidence, reliance: "the user carries an unverified performance figure into a capacity decision" }],
     demands: [],
     unaccountable: false,
     note: "",

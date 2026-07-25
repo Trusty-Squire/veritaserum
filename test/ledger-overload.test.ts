@@ -64,6 +64,7 @@ function fakeAuditor(): Auditor {
               verdict: "contradicted",
               basis: "the hidden ground truth (and a fresh probe of listEntries({category}) here) shows category filtering no longer excludes non-matching rows — the tags change regressed it",
               evidence: "listEntries({category:'food'}) returns rows of every category after this commit",
+              reliance: "the user ships a category filter that silently returns every row, believing the suite still passes",
             },
           ],
           demands: [],

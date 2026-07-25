@@ -66,7 +66,7 @@ afterEach(async () => {
 
 function contradicted(claim: string, basis: string, evidence: string) {
   return JSON.stringify({
-    claims: [{ claim, verdict: "contradicted", basis, evidence }],
+    claims: [{ claim, verdict: "contradicted", basis, evidence, reliance: "the user codes against a config value that contradicts what the repo actually holds" }],
     demands: [],
     unaccountable: false,
     note: "",

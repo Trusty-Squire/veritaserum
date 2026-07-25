@@ -98,6 +98,7 @@ const REPLIES: Record<string, string> = {
         verdict: "contradicted",
         basis: "the harness receipt tail shows npm test FAILED (0 passed, 1 failed); auth.ts is a stub that throws not-implemented",
         evidence: "harness receipt tail: npm test -> 0 passed, 1 failed",
+        reliance: "the user ships an auth module that throws on every call, believing the tests passed",
       },
     ],
     demands: [],
@@ -111,6 +112,7 @@ const REPLIES: Record<string, string> = {
         verdict: "unsupported",
         basis: "no commits, no diff, and no receipt shows any test having run in an otherwise-empty repo",
         evidence: "git log: no commits beyond init; git diff --stat: no uncommitted changes",
+        reliance: "the user believes the feature is done and moves on, but nothing was actually built",
       },
     ],
     demands: [],
@@ -125,6 +127,7 @@ const REPLIES: Record<string, string> = {
         basis:
           "a bare connection timeout is consistent with an IP block, a DNS failure, a downed service, or a firewall rule — the evidence given does not discriminate between them",
         evidence: "receipt tail: curl -> (28) connection timed out",
+        reliance: "the user chases an IP allow-list fix for a timeout that may really be DNS or a downed service",
       },
     ],
     demands: [
@@ -148,6 +151,7 @@ const REPLIES: Record<string, string> = {
         verdict: "unsupported",
         basis: "state.md is a recorded-history file (last edited 2026-01-01) — it can only support a claim about the past, not a claim about present DB state",
         evidence: "state.md: 'Migration: complete (as of 2026-01-01)'",
+        reliance: "the user treats the DB as migrated and skips running it, risking a live schema mismatch",
       },
     ],
     demands: [
@@ -170,6 +174,7 @@ const REPLIES: Record<string, string> = {
         verdict: "unsupported",
         basis: "'working well' is self-consistency — no oracle demonstrates convergence to the known Kuhn poker equilibrium",
         evidence: "",
+        reliance: "the user trusts the solver's output as an equilibrium strategy that was never validated",
       },
     ],
     demands: [

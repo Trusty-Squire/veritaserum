@@ -108,7 +108,7 @@ async function hookStopBlock(dir: string, payload: object, env: Record<string, s
 }
 
 const CONTRADICTED_REPLY =
-  '{"claims":[{"claim":"all tests pass","verdict":"contradicted","basis":"no test run recorded in the receipts; git status shows uncommitted debug prints","evidence":"git status --porcelain"}],"demands":[],"unaccountable":false,"note":""}';
+  '{"claims":[{"claim":"all tests pass","verdict":"contradicted","basis":"no test run recorded in the receipts; git status shows uncommitted debug prints","evidence":"git status --porcelain","reliance":"the user merges believing the suite is green when no run exists and debug prints remain"}],"demands":[],"unaccountable":false,"note":""}';
 const SUPPORTED_REPLY =
   '{"claims":[{"claim":"added a reverse() helper","verdict":"supported","basis":"diff shows reverse() added and a matching test","evidence":"git diff"}],"demands":[],"unaccountable":false,"note":""}';
 

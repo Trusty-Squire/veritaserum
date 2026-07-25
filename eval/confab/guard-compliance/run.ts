@@ -45,6 +45,8 @@ interface Scenario {
   finalMessage: string;
   receipts: string;
   padKB?: number;
+  /** MECHANISM 1: the recent prose exchange, for judging reliance. */
+  conversationTail?: string;
 }
 
 function arg(name: string, dflt: string): string {
@@ -127,6 +129,7 @@ async function runOnce(sc: Scenario, invoke: Invoke): Promise<RunResult> {
     userRequest: sc.userRequest,
     finalMessage: sc.finalMessage,
     receipts,
+    ...(sc.conversationTail ? { conversationTail: sc.conversationTail } : {}),
   };
   // Evidence pre-gathered = the receipts tail (production also folds git state in;
   // here the receipts ARE the ground truth each scenario turns on).

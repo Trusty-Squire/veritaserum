@@ -96,6 +96,65 @@ export function readLastUserMessage(path: string): string {
   }
 }
 
+/** Per-message clip for the conversation tail: keep the head (the ask / the
+ *  point) so a long turn doesn't eat the whole 2KB budget. */
+function clipExchange(text: string, cap = 320): string {
+  const t = text.trim().replace(/\s+/g, " ");
+  return t.length > cap ? `${t.slice(0, cap).trimEnd()}…` : t;
+}
+
+/**
+ * The last few user/assistant TEXT exchanges (tool-noise-free), for judging
+ * RELIANCE — is the user about to act on this turn, or still exploring? Mirrors
+ * readLastUserMessage's tolerant style: unknown/renamed shapes degrade to "",
+ * never throws. tool_use / tool_result parts carry no top-level `.text`, so
+ * textFromContent drops them — the tail is prose only. Each message is clipped
+ * head-biased and the whole thing capped (~2KB) tail-biased, so the most recent
+ * exchange always survives.
+ */
+export function readConversationTail(path: string, maxMessages = 12, capBytes = 2 * 1024): string {
+  try {
+    if (!existsSync(path)) return "";
+    const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
+    const msgs: Array<{ role: "User" | "Agent"; text: string }> = [];
+    for (const line of lines) {
+      let obj: unknown;
+      try {
+        obj = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (!obj || typeof obj !== "object") continue;
+      const o = obj as Record<string, unknown>;
+      const payload = o.payload as Record<string, unknown> | undefined;
+      if (o.type === "event_msg" && payload?.type === "user_message" && typeof payload.message === "string") {
+        const t = clipExchange(payload.message);
+        if (t) msgs.push({ role: "User", text: t });
+        continue;
+      }
+      if (o.type === "event_msg" && payload?.type === "agent_message" && typeof payload.message === "string") {
+        const t = clipExchange(payload.message);
+        if (t) msgs.push({ role: "Agent", text: t });
+        continue;
+      }
+      const role = o.role ?? (o.message as Record<string, unknown> | undefined)?.role ?? o.type;
+      if (role !== "user" && role !== "assistant") continue;
+      const content = (o.message as Record<string, unknown> | undefined)?.content ?? o.content;
+      const t = clipExchange(textFromContent(content));
+      if (t) msgs.push({ role: role === "user" ? "User" : "Agent", text: t });
+    }
+    if (!msgs.length) return "";
+    let out = msgs
+      .slice(-maxMessages)
+      .map((m) => `${m.role}: ${m.text}`)
+      .join("\n");
+    if (out.length > capBytes) out = out.slice(out.length - capBytes);
+    return out;
+  } catch {
+    return "";
+  }
+}
+
 interface TranscriptPart {
   type?: string;
   text?: string;

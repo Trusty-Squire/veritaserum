@@ -69,7 +69,7 @@ describe("integration — sync enqueue → real runAudit → telemetry (SPEC §2
     });
 
     const CANNED_REPLY = JSON.stringify({
-      claims: [{ claim: "wrote an MCCFR solver, it's working well", verdict: "unsupported", basis: "no Kuhn-anchor test found", evidence: "" }],
+      claims: [{ claim: "wrote an MCCFR solver, it's working well", verdict: "unsupported", basis: "no Kuhn-anchor test found", evidence: "", reliance: "the user trusts the solver's output as an equilibrium strategy that was never validated" }],
       unaccountable: false,
       note: "",
     });

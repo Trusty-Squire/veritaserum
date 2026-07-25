@@ -137,7 +137,7 @@ const MIN = 60 * 1000;
 describe("feedback channel — emission (run-audit.ts)", () => {
   it("an unsupported-claim verdict writes pending feedback (warn)", async () => {
     const codex = JSON.stringify({
-      claims: [{ claim: "fixed the bug", verdict: "unsupported", basis: "no diff shows this change", evidence: "" }],
+      claims: [{ claim: "fixed the bug", verdict: "unsupported", basis: "no diff shows this change", evidence: "", reliance: "the user believes the bug is fixed and closes the ticket without a real fix" }],
       demands: [],
       unaccountable: false,
       note: "",
@@ -169,7 +169,7 @@ describe("feedback channel — emission (run-audit.ts)", () => {
 
   it("latest-wins WITHIN a session: a second audit for the same session replaces its pending line", async () => {
     const first = JSON.stringify({
-      claims: [{ claim: "claim A", verdict: "unsupported", basis: "basis A", evidence: "" }],
+      claims: [{ claim: "claim A", verdict: "unsupported", basis: "basis A", evidence: "", reliance: "the user acts on claim A believing it holds when it does not" }],
       demands: [],
       unaccountable: false,
       note: "",
@@ -178,7 +178,7 @@ describe("feedback channel — emission (run-audit.ts)", () => {
     await runAudit(job("s1", await transcript("Done — claim A.")));
 
     const second = JSON.stringify({
-      claims: [{ claim: "claim B", verdict: "unsupported", basis: "basis B", evidence: "" }],
+      claims: [{ claim: "claim B", verdict: "unsupported", basis: "basis B", evidence: "", reliance: "the user acts on claim B believing it holds when it does not" }],
       demands: [],
       unaccountable: false,
       note: "",
@@ -193,7 +193,7 @@ describe("feedback channel — emission (run-audit.ts)", () => {
 
   it("two sessions in one repo keep SEPARATE pending feedback — neither overwrites the other", async () => {
     const a = JSON.stringify({
-      claims: [{ claim: "claim A", verdict: "unsupported", basis: "basis A", evidence: "" }],
+      claims: [{ claim: "claim A", verdict: "unsupported", basis: "basis A", evidence: "", reliance: "the user acts on claim A believing it holds when it does not" }],
       unaccountable: false,
       note: "",
     });
@@ -201,7 +201,7 @@ describe("feedback channel — emission (run-audit.ts)", () => {
     await runAudit(job("session-A", await transcript("Done — claim A.")));
 
     const b = JSON.stringify({
-      claims: [{ claim: "claim B", verdict: "unsupported", basis: "basis B", evidence: "" }],
+      claims: [{ claim: "claim B", verdict: "unsupported", basis: "basis B", evidence: "", reliance: "the user acts on claim B believing it holds when it does not" }],
       unaccountable: false,
       note: "",
     });
@@ -216,7 +216,7 @@ describe("feedback channel — emission (run-audit.ts)", () => {
 describe("feedback channel — injection (cli.ts hook-prompt)", () => {
   it("prints the pending line once, then clears it — a second UserPromptSubmit gets nothing", async () => {
     const codex = JSON.stringify({
-      claims: [{ claim: "fixed the bug", verdict: "unsupported", basis: "no receipt", evidence: "" }],
+      claims: [{ claim: "fixed the bug", verdict: "unsupported", basis: "no receipt", evidence: "", reliance: "the user believes the bug is fixed and closes the ticket without a real fix" }],
       demands: [],
       unaccountable: false,
       note: "",
