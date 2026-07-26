@@ -1006,8 +1006,10 @@ describe("audit() — delivery policy wired end-to-end", () => {
 // THE ANCHOR (depends_on) — load-bearing made objective. A model can fake a harm
 // sentence; it cannot fake a verbatim span that survives string-matching. These
 // verify the string layer (normalizeAnchor/verifyAnchor), the deliverability
-// synthesis it feeds, the delivered "relied on by" clause, and the end-to-end
-// re-admission of proposal-bearing inference under quiet.
+// synthesis it feeds (the anchor no longer grants deliverability for the
+// inferential class — that lane was retired 2026-07-26; anchor verification
+// still runs for telemetry and the delivered "relied on by" clause), and the
+// end-to-end behavior under quiet.
 // ---------------------------------------------------------------------------
 describe("verifyAnchor — verbatim string verification", () => {
   const FINAL = "The flakiness comes from the shared session cache. So I'm ripping the shared cache out now — this refactor lands tonight.";
@@ -1067,8 +1069,8 @@ describe("claimDeliverableUnderQuiet — the four-row deliverability matrix", ()
     expect(claimDeliverableUnderQuiet(c("unsupported", "All tests pass."), false)).toBe(true);
   });
 
-  it("row 3 — unsupported inferential WITH a verified anchor → deliverable (re-admitted)", () => {
-    expect(claimDeliverableUnderQuiet(c("unsupported", "The flakiness comes from the shared session cache."), true)).toBe(true);
+  it("row 3 — unsupported inferential WITH a verified anchor → NOT deliverable (lane retired 2026-07-26)", () => {
+    expect(claimDeliverableUnderQuiet(c("unsupported", "The flakiness comes from the shared session cache."), true)).toBe(false);
   });
 
   it("row 4 — unsupported inferential WITHOUT a verified anchor → NOT deliverable (proposal-less narration)", () => {
@@ -1098,7 +1100,7 @@ describe("claimWarning — the delivered 'relied on by' clause", () => {
   });
 });
 
-describe("audit() — anchor re-admits proposal-bearing inference under quiet", () => {
+describe("audit() — anchor no longer re-admits proposal-bearing inference under quiet (lane retired)", () => {
   let tmpDir: string;
   let prevPath: string | undefined;
   let prevDelivery: string | undefined;
@@ -1121,15 +1123,16 @@ describe("audit() — anchor re-admits proposal-bearing inference under quiet", 
   const replyWith = (dependsOn: string): string =>
     JSON.stringify({ claims: [{ claim: CLAIM, verdict: "unsupported", basis: "correlation only", evidence: "", reliance: "the user rips out the cache tonight on a false cause", depends_on: dependsOn }], unaccountable: false, note: "" });
 
-  it("a VERIFIED anchor delivers the inferential flag under quiet + telemetry anchor:'verified' + 'relied on by' clause", async () => {
+  it("a VERIFIED anchor still suppresses the inferential flag under quiet, but keeps anchor:'verified' telemetry + the 'relied on by' clause in warnings", async () => {
     const dir = await repo();
     const auditor = fakeAuditor("agentic", replyWith("this refactor lands tonight"));
     const v = await audit(job(dir, { finalMessage: FINAL }), auditor, nullEmbedder(), FORCE_RUN);
-    expect(v.deliverableWarnings).toHaveLength(1);
-    expect(v.deliverableWarnings[0]).toContain('relied on by: "this refactor lands tonight"');
+    expect(v.warnings).toHaveLength(1); // still telemetered + deduped
+    expect(v.warnings[0]).toContain('relied on by: "this refactor lands tonight"');
+    expect(v.deliverableWarnings).toEqual([]); // but held back — the lane is retired
     const f = lastFiring();
     expect(f.anchor).toBe("verified");
-    expect(f.delivery).toBe("quiet"); // nothing suppressed — the one warning delivered
+    expect(f.delivery).toBe("suppressed-quiet");
   });
 
   it("a VOID anchor (paraphrase) suppresses the same inferential flag under quiet + telemetry anchor:'void'", async () => {

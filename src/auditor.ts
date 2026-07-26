@@ -191,23 +191,28 @@ export function deliveryMode(): DeliveryMode {
 }
 
 /** Under quiet, a claim-verdict warning is deliverable per the DELIVERABILITY
- *  SYNTHESIS (this both tightens AND relaxes quiet mode):
+ *  SYNTHESIS:
  *   - contradicted → deliverable (refutation is absolute; anchor not required).
  *   - unsupported + specific figure (hasSpecificQuantity) OR completion/verification
  *     shape (stateKindsOf) → deliverable (fabrication/verification lies are absolute;
  *     anchor not required).
- *   - unsupported, everything else — the inferential class quiet used to kill
- *     wholesale — is deliverable ONLY with a VERIFIED depends_on anchor
- *     (`anchorVerified`). This re-admits genuinely proposal-bearing inference (the
- *     owner's "heavily relied on to make a proposal") while keeping proposal-less
- *     narration structurally unflaggable.
+ *   - unsupported, everything else (the inferential class) → NOT deliverable, anchor
+ *     verified or not. This lane briefly re-admitted proposal-bearing inference on a
+ *     VERIFIED depends_on anchor; measured over a 16h production trial it was 8/8
+ *     recent deliveries and 0 valued by the owner, who retired the lane on 2026-07-26.
+ *     `anchorVerified` is kept as a parameter (call sites still compute and pass it)
+ *     because the anchor is not dead: it still verifies, still feeds telemetry
+ *     (`anchor:"verified"|"void"`), still drives the delivered "relied on by" clause
+ *     on OTHER lanes (claimWarning), and is still the structural-validity check for
+ *     the inferential class under VS_DELIVERY=full (which surfaces everything
+ *     regardless of this function, but the anchor is what makes an inferential flag
+ *     legible rather than bare narration).
  *  Supported claims never produce a warning, so this is only consulted for the
  *  non-supported ones. */
 export function claimDeliverableUnderQuiet(c: ClaimVerdict, anchorVerified = false): boolean {
   if (c.verdict === "contradicted") return true;
   if (c.verdict === "unsupported") {
-    if (hasSpecificQuantity(c.claim) || stateKindsOf(c.claim).length > 0) return true;
-    return anchorVerified;
+    return hasSpecificQuantity(c.claim) || stateKindsOf(c.claim).length > 0;
   }
   return false;
 }
@@ -1036,9 +1041,10 @@ export async function audit(
   const nonSupported = claims.filter((c) => c.verdict !== "supported");
   // THE ANCHOR: verify each non-supported claim's depends_on against the turn's
   // own text (finalMessage + conversationTail). Verified → the flag carries the
-  // quote (the delivered "relied on by" clause) and, for the inferential class,
-  // becomes deliverable; void/n-a → the inferential class stays telemetry-only
-  // under quiet, while contradicted / figure / completion flags deliver regardless.
+  // quote (the delivered "relied on by" clause) for telemetry/legibility, but no
+  // longer changes deliverability (the inferential class stays telemetry-only
+  // under quiet regardless of anchor outcome; contradicted / figure / completion
+  // flags deliver regardless of the anchor either way).
   const anchorOf = new Map<ClaimVerdict, AnchorOutcome>();
   for (const c of nonSupported) anchorOf.set(c, verifyAnchor(c.depends_on, job.finalMessage, job.conversationTail));
   const rank = (v: ClaimVerdict["verdict"]): number => (v === "contradicted" ? 0 : 1);
