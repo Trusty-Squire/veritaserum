@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
 import { tempRepo, write } from "./helpers.js";
-import { audit, addressee, claimWarning, unaccountableWarning, groundingWarning, parseReply, demoteUserTestimony, userStatementsFromTail, deliveryMode, claimDeliverableUnderQuiet, groundingDeliverableUnderQuiet, type AuditJob, type ClaimVerdict } from "../src/auditor.js";
+import { audit, addressee, claimWarning, unaccountableWarning, groundingWarning, parseReply, demoteUserTestimony, userStatementsFromTail, deliveryMode, claimDeliverableUnderQuiet, groundingDeliverableUnderQuiet, verifyAnchor, normalizeAnchor, type AuditJob, type ClaimVerdict } from "../src/auditor.js";
 import { selectEvidence, type EvidenceSelectionContext, type GroundingFlag } from "../src/grounding.js";
 import type { Auditor, AuditorTier } from "../src/resolve.js";
 import type { Embedder } from "../src/embed.js";
@@ -999,5 +999,138 @@ describe("audit() — delivery policy wired end-to-end", () => {
     expect(v.deliverableWarnings).toEqual(v.warnings);
     expect(v.deliverableWarnings).toHaveLength(1);
     expect(lastFiring().delivery).toBe("full");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE ANCHOR (depends_on) — load-bearing made objective. A model can fake a harm
+// sentence; it cannot fake a verbatim span that survives string-matching. These
+// verify the string layer (normalizeAnchor/verifyAnchor), the deliverability
+// synthesis it feeds, the delivered "relied on by" clause, and the end-to-end
+// re-admission of proposal-bearing inference under quiet.
+// ---------------------------------------------------------------------------
+describe("verifyAnchor — verbatim string verification", () => {
+  const FINAL = "The flakiness comes from the shared session cache. So I'm ripping the shared cache out now — this refactor lands tonight.";
+
+  it("verbatim quote from the final message → verified", () => {
+    expect(verifyAnchor("this refactor lands tonight", FINAL, undefined)).toBe("verified");
+  });
+
+  it("whitespace + markdown normalization: emphasized/re-spaced source still matches", () => {
+    const final = "So I'm **applying the fix now**   across\nthe module.";
+    // the model quotes it clean and quoted; the source has ** and odd whitespace
+    expect(verifyAnchor('"applying the fix now"', final, undefined)).toBe("verified");
+  });
+
+  it("a paraphrase that is not verbatim → void", () => {
+    expect(verifyAnchor("I am going to remove the cache tonight", FINAL, undefined)).toBe("void");
+  });
+
+  it("a quote shorter than 15 chars → void", () => {
+    expect(verifyAnchor("lands tonight", FINAL, undefined)).toBe("void"); // 13 chars
+  });
+
+  it("a quote taken from the conversationTail (the user's own move) → verified", () => {
+    const tail = "User: if you're confident on the cause, go ahead and fix it tonight.\nAgent: on it.";
+    expect(verifyAnchor("go ahead and fix it tonight", "Short summary.", tail)).toBe("verified");
+  });
+
+  it("no depends_on → n/a (not void — the claim carried no quote to verify)", () => {
+    expect(verifyAnchor(undefined, FINAL, undefined)).toBe("n/a");
+    expect(verifyAnchor("", FINAL, undefined)).toBe("n/a");
+  });
+
+  it("normalizeAnchor strips emphasis + surrounding quotes, collapses whitespace, lowercases", () => {
+    expect(normalizeAnchor('  **"Applying   the Fix"**  ')).toBe("applying the fix");
+  });
+});
+
+describe("claimDeliverableUnderQuiet — the four-row deliverability matrix", () => {
+  const c = (verdict: ClaimVerdict["verdict"], claim: string): ClaimVerdict => ({ claim, verdict, basis: "b", evidence: "e", reliance: "r".repeat(30) });
+
+  it("row 1 — contradicted → deliverable, anchor not required", () => {
+    expect(claimDeliverableUnderQuiet(c("contradicted", "PR #39 is merged."), false)).toBe(true);
+  });
+
+  it("row 2 — unsupported + specific figure OR completion shape → deliverable, anchor not required", () => {
+    expect(claimDeliverableUnderQuiet(c("unsupported", "The revert rate holds at 2%."), false)).toBe(true);
+    expect(claimDeliverableUnderQuiet(c("unsupported", "All tests pass."), false)).toBe(true);
+  });
+
+  it("row 3 — unsupported inferential WITH a verified anchor → deliverable (re-admitted)", () => {
+    expect(claimDeliverableUnderQuiet(c("unsupported", "The flakiness comes from the shared session cache."), true)).toBe(true);
+  });
+
+  it("row 4 — unsupported inferential WITHOUT a verified anchor → NOT deliverable (proposal-less narration)", () => {
+    expect(claimDeliverableUnderQuiet(c("unsupported", "The flakiness comes from the shared session cache."), false)).toBe(false);
+  });
+});
+
+describe("claimWarning — the delivered 'relied on by' clause", () => {
+  const c: ClaimVerdict = { claim: "the flakiness comes from the shared cache", verdict: "unsupported", basis: "correlation only, no isolating test", evidence: "", reliance: "the user rips out the cache tonight on a false cause" };
+
+  it("appends the verified anchor as a quoted 'relied on by' clause after the reliance", () => {
+    expect(claimWarning("Codex", c, "this refactor lands tonight")).toBe(
+      'Codex, you have no basis to claim "the flakiness comes from the shared cache" — correlation only, no isolating test: if false — the user rips out the cache tonight on a false cause — relied on by: "this refactor lands tonight"',
+    );
+  });
+
+  it("truncates a long anchor to 80 chars with …", () => {
+    const long = "z".repeat(120);
+    const line = claimWarning("Codex", c, long);
+    expect(line).toContain('relied on by: "' + "z".repeat(80));
+    expect(line).toContain("…");
+    expect(line).not.toContain("z".repeat(120));
+  });
+
+  it("no anchor → no clause (unchanged line)", () => {
+    expect(claimWarning("Codex", c)).not.toContain("relied on by");
+  });
+});
+
+describe("audit() — anchor re-admits proposal-bearing inference under quiet", () => {
+  let tmpDir: string;
+  let prevPath: string | undefined;
+  let prevDelivery: string | undefined;
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "vs-anchor-telemetry-"));
+    prevPath = process.env.VS_TELEMETRY_PATH;
+    prevDelivery = process.env.VS_DELIVERY;
+    process.env.VS_TELEMETRY_PATH = join(tmpDir, "telemetry.jsonl");
+    delete process.env.VS_DELIVERY; // quiet
+  });
+  afterEach(async () => {
+    if (prevPath === undefined) delete process.env.VS_TELEMETRY_PATH; else process.env.VS_TELEMETRY_PATH = prevPath;
+    if (prevDelivery === undefined) delete process.env.VS_DELIVERY; else process.env.VS_DELIVERY = prevDelivery;
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+  const lastFiring = (): Firing => { const fs = readFirings(); return fs[fs.length - 1]!; };
+
+  const CLAIM = "The flakiness comes from the shared session cache.";
+  const FINAL = "The flakiness comes from the shared session cache. So I'm ripping the shared cache out now — this refactor lands tonight.";
+  const replyWith = (dependsOn: string): string =>
+    JSON.stringify({ claims: [{ claim: CLAIM, verdict: "unsupported", basis: "correlation only", evidence: "", reliance: "the user rips out the cache tonight on a false cause", depends_on: dependsOn }], unaccountable: false, note: "" });
+
+  it("a VERIFIED anchor delivers the inferential flag under quiet + telemetry anchor:'verified' + 'relied on by' clause", async () => {
+    const dir = await repo();
+    const auditor = fakeAuditor("agentic", replyWith("this refactor lands tonight"));
+    const v = await audit(job(dir, { finalMessage: FINAL }), auditor, nullEmbedder(), FORCE_RUN);
+    expect(v.deliverableWarnings).toHaveLength(1);
+    expect(v.deliverableWarnings[0]).toContain('relied on by: "this refactor lands tonight"');
+    const f = lastFiring();
+    expect(f.anchor).toBe("verified");
+    expect(f.delivery).toBe("quiet"); // nothing suppressed — the one warning delivered
+  });
+
+  it("a VOID anchor (paraphrase) suppresses the same inferential flag under quiet + telemetry anchor:'void'", async () => {
+    const dir = await repo();
+    const auditor = fakeAuditor("agentic", replyWith("I plan to remove the cache soon"));
+    const v = await audit(job(dir, { finalMessage: FINAL }), auditor, nullEmbedder(), FORCE_RUN);
+    expect(v.warnings).toHaveLength(1); // still telemetered + deduped
+    expect(v.deliverableWarnings).toEqual([]); // but held back
+    expect(v.deliverableWarnings.join("")).not.toContain("relied on by"); // void → no clause
+    const f = lastFiring();
+    expect(f.anchor).toBe("void");
+    expect(f.delivery).toBe("suppressed-quiet");
   });
 });

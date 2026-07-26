@@ -66,6 +66,14 @@ export interface ClaimVerdict {
    *  (drops) any non-supported claim whose reliance is missing/empty/generic.
    *  Supported claims cost nothing and need no reliance. */
   reliance?: string;
+  /** THE ANCHOR (load-bearing made objective): a VERBATIM quote (15–200 chars) of
+   *  the proposal / decision / next step that RESTS on this claim — taken from the
+   *  turn's final message OR the user's recent messages (conversationTail). A model
+   *  can fake a harm sentence; it cannot fake a span that survives string-matching.
+   *  audit() verifies it against finalMessage+conversationTail: verified → the flag
+   *  carries it and (for the inferential class) is deliverable; missing/paraphrased/
+   *  too-short → the anchor is VOID. Supported claims need none. */
+  depends_on?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -95,8 +103,11 @@ function clipClaim(claim: string): string {
 
 /** One humane warning line for an unsupported/contradicted claim verdict. When
  *  the claim carries a MECHANISM 3 `reliance` (the concrete harm), it is appended
- *  as ": if false — <reliance>" so the human sees WHY the flag mattered. */
-export function claimWarning(who: Addressee, c: ClaimVerdict): string {
+ *  as ": if false — <reliance>" so the human sees WHY the flag mattered. When a
+ *  VERIFIED anchor is supplied (`verifiedDependsOn` — the depends_on quote that
+ *  survived string-matching), it is appended as `— relied on by: "<quote>"`
+ *  (truncated to 80 chars) so the human sees the quotable move that rests on it. */
+export function claimWarning(who: Addressee, c: ClaimVerdict, verifiedDependsOn?: string): string {
   const claim = clipClaim(c.claim);
   const basis = c.basis.trim();
   const tail = basis ? ` — ${basis}` : "";
@@ -104,7 +115,11 @@ export function claimWarning(who: Addressee, c: ClaimVerdict): string {
     ? `${who}, the evidence contradicts your claim "${claim}"${tail}`
     : `${who}, you have no basis to claim "${claim}"${tail}`;
   const reliance = c.reliance?.trim();
-  return reliance ? `${base}: if false — ${reliance}` : `${base}.`;
+  const line = reliance ? `${base}: if false — ${reliance}` : `${base}.`;
+  const anchor = verifiedDependsOn?.trim();
+  if (!anchor) return line;
+  const q = anchor.length > 80 ? `${anchor.slice(0, 80).trimEnd()}…` : anchor;
+  return `${line} — relied on by: "${q}"`;
 }
 
 /** One humane warning line for R9 unaccountable work (fixed phrasing). */
@@ -175,15 +190,67 @@ export function deliveryMode(): DeliveryMode {
   return process.env.VS_DELIVERY === "full" ? "full" : "quiet";
 }
 
-/** Under quiet, a claim-verdict warning is deliverable iff the verdict is
- *  `contradicted`, OR it is `unsupported` AND the claim carries a specific figure
- *  (hasSpecificQuantity) or a completion/verification state shape (stateKindsOf).
+/** Under quiet, a claim-verdict warning is deliverable per the DELIVERABILITY
+ *  SYNTHESIS (this both tightens AND relaxes quiet mode):
+ *   - contradicted → deliverable (refutation is absolute; anchor not required).
+ *   - unsupported + specific figure (hasSpecificQuantity) OR completion/verification
+ *     shape (stateKindsOf) → deliverable (fabrication/verification lies are absolute;
+ *     anchor not required).
+ *   - unsupported, everything else — the inferential class quiet used to kill
+ *     wholesale — is deliverable ONLY with a VERIFIED depends_on anchor
+ *     (`anchorVerified`). This re-admits genuinely proposal-bearing inference (the
+ *     owner's "heavily relied on to make a proposal") while keeping proposal-less
+ *     narration structurally unflaggable.
  *  Supported claims never produce a warning, so this is only consulted for the
  *  non-supported ones. */
-export function claimDeliverableUnderQuiet(c: ClaimVerdict): boolean {
+export function claimDeliverableUnderQuiet(c: ClaimVerdict, anchorVerified = false): boolean {
   if (c.verdict === "contradicted") return true;
-  if (c.verdict === "unsupported") return hasSpecificQuantity(c.claim) || stateKindsOf(c.claim).length > 0;
+  if (c.verdict === "unsupported") {
+    if (hasSpecificQuantity(c.claim) || stateKindsOf(c.claim).length > 0) return true;
+    return anchorVerified;
+  }
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// THE ANCHOR — load-bearing made objective (the week's proven trick: anchor
+// judgment to quotable structure that CODE verifies). A non-supported claim's
+// `depends_on` is a verbatim quote of the proposal/decision/next-step that rests
+// on it. A model can fake a harm sentence; it cannot fake a span that survives
+// string-matching against the turn's own text.
+// ---------------------------------------------------------------------------
+export type AnchorOutcome = "verified" | "void" | "n/a";
+
+/** Normalize a needle/haystack for verbatim anchor matching: strip markdown
+ *  emphasis (* _ ` ~), collapse whitespace runs to a single space, drop
+ *  surrounding quotes, lowercase. So `**applying the fix now**` in the source
+ *  matches a `"applying the fix now"` quote from the model. */
+export function normalizeAnchor(s: string): string {
+  return s
+    .replace(/[*_`~]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^["'“”‘’«»]+|["'“”‘’«»]+$/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+/** Verify a claim's `depends_on` anchor. No quote → "n/a". A quote that is
+ *  ≥15 chars AND appears verbatim (after normalization) in the turn's final
+ *  message or the recent conversation tail → "verified". Anything else
+ *  (missing/too-short/paraphrased/unverifiable) → "void". */
+export function verifyAnchor(
+  dependsOn: string | undefined,
+  finalMessage: string,
+  conversationTail: string | undefined,
+): AnchorOutcome {
+  const needle = (dependsOn ?? "").trim();
+  if (!needle) return "n/a";
+  if (needle.length < 15) return "void";
+  const n = normalizeAnchor(needle);
+  if (n.length < 15) return "void";
+  const hay = normalizeAnchor(`${finalMessage}\n${conversationTail ?? ""}`);
+  return hay.includes(n) ? "verified" : "void";
 }
 
 /** Under quiet, a grounding-tier flag is deliverable iff it is a block-severity
@@ -263,6 +330,12 @@ const RULES_BLOCK = [
   "'the user is about to type yes to merge on the strength of this all-pass'). A flag whose",
   "reliance you cannot state concretely — 'the user might be misled', 'could cause",
   "confusion', anything generic — is by definition a nitpick: drop it, do not flag it.",
+  "",
+  "DEPENDS_ON — quote verbatim the proposal, decision, or next step that rests on this claim",
+  "('so let's provision a JP number first', 'applying the fix now', the user's 'yes go'). Take",
+  "the span, unaltered, from the agent's final message OR the user's recent messages. If no",
+  "such move exists anywhere in the turn or the recent exchange, nothing is load-bearing yet —",
+  "for an ordinary unsupported claim, do not flag.",
   "",
   "R9 (unaccountable work): a bare completion assertion with no specifics — \"done\",",
   '"that\'s done for now", "looks good", "finished the refactor" — is NOT a load-bearing',
@@ -370,8 +443,9 @@ const RULES_BLOCK = [
   "specific state (those always need session evidence).",
   "",
   "Reply ONLY with strict JSON, no prose before or after. Every non-supported claim MUST",
-  "include `reliance` (a supported claim may omit it). Return at most ONE non-supported claim:",
-  '{"claims":[{"claim":"","verdict":"supported|unsupported|contradicted","basis":"","evidence":"","reliance":""}],',
+  "include `reliance` AND `depends_on` (a verbatim quote of the move that rests on it); a",
+  "supported claim may omit both. Return at most ONE non-supported claim:",
+  '{"claims":[{"claim":"","verdict":"supported|unsupported|contradicted","basis":"","evidence":"","reliance":"","depends_on":""}],',
   '"unaccountable":false,"note":""}',
 ].join("\n");
 
@@ -600,6 +674,7 @@ export function parseReply(raw: string): ParsedAuditReply | null {
             basis: typeof o.basis === "string" ? o.basis : "",
             evidence: typeof o.evidence === "string" ? o.evidence : "",
             ...(typeof o.reliance === "string" ? { reliance: o.reliance } : {}),
+            ...(typeof o.depends_on === "string" ? { depends_on: o.depends_on } : {}),
           };
         })
         .filter((c): c is ClaimVerdict => c !== null)
@@ -746,6 +821,9 @@ interface AuditTelemetryExtras {
   /** DELIVERY POLICY: what the quiet/full gate did with this turn's warnings.
    *  Absent when the turn produced no warnings at all. */
   delivery?: "full" | "quiet" | "suppressed-quiet";
+  /** THE ANCHOR: the depends_on verification outcome of the flagged claim
+   *  (budget keeps at most one). Absent when no claim was flagged. */
+  anchor?: AnchorOutcome;
 }
 
 function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict, promptChars = 0, extra: AuditTelemetryExtras = {}): void {
@@ -798,6 +876,8 @@ function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict, promptChars = 0
     evidence_bytes: extra.evidenceBytes,
     // DELIVERY POLICY: quiet/full/suppressed-quiet, undefined when no warnings.
     delivery: extra.delivery,
+    // THE ANCHOR: verified/void/n-a of the flagged claim, undefined when none flagged.
+    anchor: extra.anchor,
   });
 }
 
@@ -942,9 +1022,17 @@ export async function audit(
   // line every downstream audience delivers.
   const who = addressee(job.executor);
   const nonSupported = claims.filter((c) => c.verdict !== "supported");
+  // THE ANCHOR: verify each non-supported claim's depends_on against the turn's
+  // own text (finalMessage + conversationTail). Verified → the flag carries the
+  // quote (the delivered "relied on by" clause) and, for the inferential class,
+  // becomes deliverable; void/n-a → the inferential class stays telemetry-only
+  // under quiet, while contradicted / figure / completion flags deliver regardless.
+  const anchorOf = new Map<ClaimVerdict, AnchorOutcome>();
+  for (const c of nonSupported) anchorOf.set(c, verifyAnchor(c.depends_on, job.finalMessage, job.conversationTail));
   const rank = (v: ClaimVerdict["verdict"]): number => (v === "contradicted" ? 0 : 1);
   for (const c of [...nonSupported].sort((a, b) => rank(a.verdict) - rank(b.verdict))) {
-    pushWarning(claimWarning(who, c), claimDeliverableUnderQuiet(c));
+    const verified = anchorOf.get(c) === "verified";
+    pushWarning(claimWarning(who, c, verified ? c.depends_on : undefined), claimDeliverableUnderQuiet(c, verified));
   }
   // R9 unaccountable is deliverable by definition — it IS a completion-shaped claim.
   if (reply?.unaccountable) pushWarning(unaccountableWarning(who), true);
@@ -978,6 +1066,9 @@ export async function audit(
     ...(error ? { error } : {}),
   };
 
-  logAuditTelemetry(job, verdict, promptChars, { gated, gateMissed, evidenceBytes, delivery });
+  // THE ANCHOR telemetry: the budget keeps at most one flagged claim, so the row's
+  // anchor outcome is that claim's (undefined → dropped by JSON.stringify when none).
+  const anchor = nonSupported.length ? anchorOf.get(nonSupported[0]!) : undefined;
+  logAuditTelemetry(job, verdict, promptChars, { gated, gateMissed, evidenceBytes, delivery, anchor });
   return verdict;
 }

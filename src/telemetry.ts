@@ -87,6 +87,12 @@ export interface Firing {
    *  telemetered, just not surfaced). Absent when the turn produced no warnings. The
    *  suppression rate is the query `delivery:"suppressed-quiet"`. */
   delivery?: "full" | "quiet" | "suppressed-quiet";
+  /** THE ANCHOR (depends_on verification): outcome for the single flagged claim.
+   *  "verified" — the quote survived string-matching against the turn's text;
+   *  "void" — missing/too-short/paraphrased; "n/a" — the claim carried no quote.
+   *  The void rate is the query `anchor:"void"` — a high one means the mechanical
+   *  fallback (connective+distance linkage) is the follow-up. Absent when no flag. */
+  anchor?: "verified" | "void" | "n/a";
 }
 
 export function telemetryPath(): string {
