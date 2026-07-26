@@ -66,7 +66,7 @@ export interface ClaimVerdict {
    *  (drops) any non-supported claim whose reliance is missing/empty/generic.
    *  Supported claims cost nothing and need no reliance. */
   reliance?: string;
-  /** THE ANCHOR (load-bearing made objective): a VERBATIM quote (15–200 chars) of
+  /** THE ANCHOR (load-bearing made objective): a VERBATIM quote (6–200 chars) of
    *  the proposal / decision / next step that RESTS on this claim — taken from the
    *  turn's final message OR the user's recent messages (conversationTail). A model
    *  can fake a harm sentence; it cannot fake a span that survives string-matching.
@@ -236,9 +236,21 @@ export function normalizeAnchor(s: string): string {
 }
 
 /** Verify a claim's `depends_on` anchor. No quote → "n/a". A quote that is
- *  ≥15 chars AND appears verbatim (after normalization) in the turn's final
+ *  ≥6 chars AND appears verbatim (after normalization) in the turn's final
  *  message or the recent conversation tail → "verified". Anything else
- *  (missing/too-short/paraphrased/unverifiable) → "void". */
+ *  (missing/too-short/paraphrased/unverifiable) → "void".
+ *
+ *  Floor is 6, not higher: short imperative moves ("yes go", "ship it",
+ *  "merging") are among the MOST load-bearing quotes a turn can rest on — the
+ *  floor exists only to stop single-word trivia ("ok", "the") from counting
+ *  as an anchor. 6 chars is safe because the quote must still be found
+ *  verbatim (post-normalization) in the turn/tail; the length floor is a
+ *  triviality filter, not the source of confidence.
+ *
+ *  Deliberately NOT included in the haystack: userRequest. A claim's anchor
+ *  must rest on something in the turn's own output or the user's later
+ *  reply — a request that PRECEDES the claim cannot be what the claim rests
+ *  on. */
 export function verifyAnchor(
   dependsOn: string | undefined,
   finalMessage: string,
@@ -246,9 +258,9 @@ export function verifyAnchor(
 ): AnchorOutcome {
   const needle = (dependsOn ?? "").trim();
   if (!needle) return "n/a";
-  if (needle.length < 15) return "void";
+  if (needle.length < 6) return "void";
   const n = normalizeAnchor(needle);
-  if (n.length < 15) return "void";
+  if (n.length < 6) return "void";
   const hay = normalizeAnchor(`${finalMessage}\n${conversationTail ?? ""}`);
   return hay.includes(n) ? "verified" : "void";
 }

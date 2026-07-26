@@ -1026,8 +1026,18 @@ describe("verifyAnchor — verbatim string verification", () => {
     expect(verifyAnchor("I am going to remove the cache tonight", FINAL, undefined)).toBe("void");
   });
 
-  it("a quote shorter than 15 chars → void", () => {
-    expect(verifyAnchor("lands tonight", FINAL, undefined)).toBe("void"); // 13 chars
+  it("a quote shorter than 6 chars → void", () => {
+    expect(verifyAnchor("ok", FINAL, undefined)).toBe("void"); // 2 chars
+  });
+
+  it("a short load-bearing imperative (\"Safe to merge.\", 14 chars) still verifies", () => {
+    const final = "Tests are green and the diff is reviewed. Safe to merge.";
+    expect(verifyAnchor("Safe to merge.", final, undefined)).toBe("verified");
+  });
+
+  it("a 6-char imperative quote from the conversationTail (\"yes go\") verifies at the floor", () => {
+    const tail = "User: yes go\nAgent: on it.";
+    expect(verifyAnchor("yes go", "Short summary.", tail)).toBe("verified");
   });
 
   it("a quote taken from the conversationTail (the user's own move) → verified", () => {
