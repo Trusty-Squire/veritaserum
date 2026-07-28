@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readdirSync, writeFileSync, chmodSync } from "no
 import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { queueJob, queueRoot, runQueue, type AuditJob, type RunAudit } from "../src/audit-runner.js";
+import { queueJob, queueRoot, runQueue, loadVerifiedClaims, appendVerifiedClaims, verifiedClaimsPath, type AuditJob, type RunAudit } from "../src/audit-runner.js";
 
 let root: string;
 // chmod-based denial is a no-op for uid 0: the kernel ignores permission bits
@@ -42,6 +42,37 @@ function addQueueNoise(qdir: string, count: number): void {
     );
   }
 }
+describe("FIX 2 — verified-claims store (roundtrip + expiry)", () => {
+  it("appends, dedupes by claim keeping the freshest ts, and reads back", () => {
+    const now = Date.now();
+    appendVerifiedClaims(dir, "sess-A", [{ claim: "deploy OK", evidence: "probe 200", ts: now - 1000 }]);
+    appendVerifiedClaims(dir, "sess-A", [{ claim: "deploy OK", evidence: "probe 200 (rechecked)", ts: now }]);
+    const loaded = loadVerifiedClaims(dir, "sess-A");
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0]!.evidence).toBe("probe 200 (rechecked)");
+  });
+
+  it("is session-scoped — another session sees nothing", () => {
+    appendVerifiedClaims(dir, "sess-A", [{ claim: "x", evidence: "y", ts: Date.now() }]);
+    expect(loadVerifiedClaims(dir, "sess-B")).toEqual([]);
+  });
+
+  it("drops entries older than the 24h expiry on load", () => {
+    const stale = Date.now() - 25 * 60 * 60 * 1000;
+    const fresh = Date.now();
+    appendVerifiedClaims(dir, "sess-C", [
+      { claim: "stale one", evidence: "old", ts: stale },
+      { claim: "fresh one", evidence: "new", ts: fresh },
+    ]);
+    const loaded = loadVerifiedClaims(dir, "sess-C");
+    expect(loaded.map((v) => v.claim)).toEqual(["fresh one"]);
+  });
+
+  it("best-effort: a missing store is just [] (never throws)", () => {
+    expect(loadVerifiedClaims(dir, "never-written")).toEqual([]);
+    expect(verifiedClaimsPath(dir, "s")).toContain("verified");
+  });
+});
 
 describe("runQueue — TESTBED drain", () => {
   it("drains every job, in enqueue order, regardless of session", async () => {

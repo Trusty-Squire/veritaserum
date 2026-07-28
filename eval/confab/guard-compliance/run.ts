@@ -29,7 +29,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { buildPreGatheredPrompt, parseReply, demoteUserTestimony, type AuditJob } from "../../../src/auditor.js";
+import { buildPreGatheredPrompt, parseReply, demoteUserTestimony, demoteSubagentReport, demoteVerifiedClaims, type AuditJob, type VerifiedClaim } from "../../../src/auditor.js";
 import { OllamaClient } from "../../../src/llm.js";
 import { resolveAuditor } from "../../../src/resolve.js";
 import { ollamaEmbedder } from "../../../src/embed.js";
@@ -48,6 +48,11 @@ interface Scenario {
   padKB?: number;
   /** MECHANISM 1: the recent prose exchange, for judging reliance. */
   conversationTail?: string;
+  /** FIX 2 (minimal single-turn support): pre-seed the per-session verified-claims
+   *  store so a scenario can exercise the "verified earlier this session" demotion
+   *  in the single-turn eval shape (the real store is populated across turns; here
+   *  the earlier turn's verified claim is supplied directly). */
+  seedVerifiedClaims?: VerifiedClaim[];
 }
 
 function arg(name: string, dflt: string): string {
@@ -147,9 +152,13 @@ async function runOnce(sc: Scenario, invoke: Invoke): Promise<RunResult> {
   try {
     const raw = await invoke(prompt, PER_AUDIT_TIMEOUT_MS);
     const parsed = parseReply(raw);
-    const demoted = parsed
-      ? { ...parsed, claims: await demoteUserTestimony(parsed.claims, sc.conversationTail, EMBEDDER) }
-      : null;
+    // Mirror production audit()'s demotion chain so the eval measures the SAME
+    // verdict: user testimony (FIX pre-existing), subagent report (FIX 1), and
+    // session verified-claims (FIX 2, pre-seeded per scenario for the single-turn shape).
+    let claims = parsed ? await demoteUserTestimony(parsed.claims, sc.conversationTail, EMBEDDER) : [];
+    if (parsed) claims = await demoteSubagentReport(claims, receipts, EMBEDDER);
+    if (parsed) claims = await demoteVerifiedClaims(claims, sc.seedVerifiedClaims, EMBEDDER);
+    const demoted = parsed ? { ...parsed, claims } : null;
     return { raw, parsed: demoted, ms: Date.now() - t, promptChars: prompt.length };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

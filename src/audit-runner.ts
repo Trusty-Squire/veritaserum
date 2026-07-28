@@ -18,6 +18,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logFiring } from "./telemetry.js";
+import type { VerifiedClaim } from "./auditor.js";
 
 export interface AuditJob {
   /** The repo this turn happened in — runAudit's own git probes and law reads run here. */
@@ -99,6 +100,60 @@ export function appendSessionWarnings(dir: string, sessionId: string, warnings: 
     mkdirSync(dirname(p), { recursive: true });
     const merged = [...new Set([...loadSessionWarnings(dir, sessionId), ...warnings])];
     writeFileSync(p, JSON.stringify(merged), "utf8");
+  } catch {
+    /* best-effort (R8) */
+  }
+}
+
+/**
+ * FIX 2 session verified-claims store: sibling of the R5 warning store —
+ * ~/.veritaserum/queue/<repo-key>/verified/<session>.json. Each entry is a claim
+ * this session concluded SUPPORTED with named evidence on an earlier turn. A later
+ * turn passes these as `verifiedClaims` so audit()'s demoteVerifiedClaims can ground
+ * a re-asserted claim whose verifying receipt has scrolled out of the window
+ * ("verified earlier this session"). Session-scoped, so no cross-session bleed;
+ * entries older than the 24h feedback bound are dropped on load (expire with the
+ * session — a stale verification should not silently ground a claim forever).
+ */
+export function verifiedClaimsPath(dir: string, sessionId: string): string {
+  return join(queueRoot(dir), "verified", `${sanitize(sessionId)}.json`);
+}
+
+const VERIFIED_CLAIMS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/** Best-effort read (R8): a missing/corrupt store is "nothing verified yet"; stale
+ *  (>= 24h) entries are filtered out. */
+export function loadVerifiedClaims(dir: string, sessionId: string): VerifiedClaim[] {
+  try {
+    const raw: unknown = JSON.parse(readFileSync(verifiedClaimsPath(dir, sessionId), "utf8"));
+    if (!Array.isArray(raw)) return [];
+    const now = Date.now();
+    return raw.filter(
+      (v): v is VerifiedClaim =>
+        !!v &&
+        typeof v === "object" &&
+        typeof (v as VerifiedClaim).claim === "string" &&
+        typeof (v as VerifiedClaim).evidence === "string" &&
+        typeof (v as VerifiedClaim).ts === "number" &&
+        now - (v as VerifiedClaim).ts < VERIFIED_CLAIMS_MAX_AGE_MS,
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Best-effort merge-append (R8): dedupe by claim text, keeping the freshest ts. */
+export function appendVerifiedClaims(dir: string, sessionId: string, verified: VerifiedClaim[]): void {
+  if (!verified.length) return;
+  try {
+    const p = verifiedClaimsPath(dir, sessionId);
+    mkdirSync(dirname(p), { recursive: true });
+    const byClaim = new Map<string, VerifiedClaim>();
+    for (const v of [...loadVerifiedClaims(dir, sessionId), ...verified]) {
+      const existing = byClaim.get(v.claim);
+      if (!existing || v.ts > existing.ts) byClaim.set(v.claim, v);
+    }
+    writeFileSync(p, JSON.stringify([...byClaim.values()]), "utf8");
   } catch {
     /* best-effort (R8) */
   }

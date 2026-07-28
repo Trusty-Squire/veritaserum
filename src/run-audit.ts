@@ -24,7 +24,9 @@ import { audit, type AuditJob as AuditContentJob, type AuditVerdict } from "./au
 import { logFiring } from "./telemetry.js";
 import {
   appendSessionWarnings,
+  appendVerifiedClaims,
   loadSessionWarnings,
+  loadVerifiedClaims,
   takeDeliveredWarnings,
   writePendingFeedback,
   type AuditJob,
@@ -87,6 +89,10 @@ export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
   // auditor judges each delivered warning's outcome exactly once.
   const deliveredWarnings = takeDeliveredWarnings(job.dir, job.sessionId);
 
+  // FIX 2: claims this session verified (supported + named evidence) on an earlier
+  // turn, so audit() can ground a re-asserted claim whose receipt scrolled out.
+  const verifiedClaims = loadVerifiedClaims(job.dir, job.sessionId);
+
   const contentJob: AuditContentJob = {
     dir: job.dir,
     sessionId: job.sessionId,
@@ -97,6 +103,7 @@ export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
     ...(conversationTail ? { conversationTail } : {}),
     ...(priorWarnings.length ? { priorWarnings } : {}),
     ...(deliveredWarnings.length ? { deliveredWarnings } : {}),
+    ...(verifiedClaims.length ? { verifiedClaims } : {}),
     harness: job.harness || "unknown",
     schedulingMode: job.mode,
     // The addressee of every warning line — claude→"Claude", codex→"Codex", else "Agent".
@@ -143,6 +150,15 @@ export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
   // R5 (SPEC §6.5): remember this session's warnings so a later turn never
   // repeats one verbatim.
   appendSessionWarnings(job.dir, job.sessionId, verdict.warnings);
+
+  // FIX 2: remember this turn's SUPPORTED-with-named-evidence claims so a later
+  // turn re-asserting one is grounded even after its receipt scrolls out of the
+  // window. Only claims the auditor independently verified (non-empty evidence) —
+  // not the code-demoted ones (their attribution lives in `basis`, not evidence).
+  const newlyVerified = verdict.claims
+    .filter((c) => c.verdict === "supported" && c.evidence.trim())
+    .map((c) => ({ claim: c.claim, evidence: c.evidence.trim(), ts: Date.now() }));
+  appendVerifiedClaims(job.dir, job.sessionId, newlyVerified);
 
   // Feedback channel (SPEC §2, R7): a fresh warn/unaccountable verdict queues one
   // terse line for the next UserPromptSubmit (cli.ts's hook-prompt case).

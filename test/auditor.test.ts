@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
 import { tempRepo, write } from "./helpers.js";
-import { audit, addressee, claimWarning, unaccountableWarning, groundingWarning, parseReply, demoteUserTestimony, userStatementsFromTail, deliveryMode, claimDeliverableUnderQuiet, groundingDeliverableUnderQuiet, verifyAnchor, normalizeAnchor, type AuditJob, type ClaimVerdict } from "../src/auditor.js";
+import { audit, addressee, claimWarning, unaccountableWarning, groundingWarning, parseReply, demoteUserTestimony, userStatementsFromTail, demoteSubagentReport, subagentReportsFromReceipts, demoteVerifiedClaims, buildPreGatheredPrompt, deliveryMode, claimDeliverableUnderQuiet, groundingDeliverableUnderQuiet, verifyAnchor, normalizeAnchor, type AuditJob, type ClaimVerdict, type VerifiedClaim } from "../src/auditor.js";
 import { selectEvidence, type EvidenceSelectionContext, type GroundingFlag } from "../src/grounding.js";
 import type { Auditor, AuditorTier } from "../src/resolve.js";
 import type { Embedder } from "../src/embed.js";
@@ -520,6 +520,130 @@ describe("demoteUserTestimony — the code twin of the testimony prose rule", ()
     const v = await audit(job(dir, { finalMessage: "Summary of the overnight run.", conversationTail: tail }), auditor, emb, FORCE_RUN);
     expect(v.claims[0]!.verdict).toBe("supported");
     expect(v.warnings).toEqual([]); // demoted → no warning delivered
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIX 1 — SUBAGENT-REPORT DEMOTION. A non-supported claim grounded in a completed
+// subagent's report in the receipts is demoted to supported; a claim about the
+// DELEGATE'S completion state stays flaggable (scope guard). Hermetic mapEmbedder
+// (0.62 threshold: [1,0]·[1,0]=1.0 demotes, [1,0]·[0,1]=0 keeps).
+// ---------------------------------------------------------------------------
+describe("subagentReportsFromReceipts — the detection heuristic", () => {
+  it("extracts a report block from a Task call + its result, ignoring non-subagent calls", () => {
+    const receipts = [
+      "> Read {\"path\":\"src/x.ts\"}",
+      "< file contents that are not a report",
+      "> Task {\"subagent_type\":\"researcher\"}",
+      "< The market is estimated at $9.4 billion this year. Cross-checked across three reports.",
+    ].join("\n");
+    const reports = subagentReportsFromReceipts(receipts);
+    expect(reports.some((r) => r.includes("$9.4 billion"))).toBe(true);
+    expect(reports.some((r) => r.includes("not a report"))).toBe(false);
+  });
+
+  it("returns [] for empty/absent receipts or receipts with no subagent call", () => {
+    expect(subagentReportsFromReceipts(undefined)).toEqual([]);
+    expect(subagentReportsFromReceipts("")).toEqual([]);
+    expect(subagentReportsFromReceipts("> Read {}\n< just a file read")).toEqual([]);
+  });
+});
+
+describe("demoteSubagentReport — the code twin of the delegated-research prose rule", () => {
+  const flag = (claim: string): ClaimVerdict => ({ claim, verdict: "unsupported", basis: "no independent check", evidence: "", reliance: "the user builds a plan on a figure that may be invented" });
+  const receipts = "> Task {\"subagent_type\":\"researcher\"}\n< The mid-market segment is estimated at $9.4 billion.";
+
+  it("DEMOTES a claim that matches the subagent report (cosine ≥ threshold)", async () => {
+    const claim = "The mid-market segment is a $9.4 billion market.";
+    const emb = mapEmbedder({ [claim]: [1, 0], "The mid-market segment is estimated at $9.4 billion.": [1, 0] });
+    const out = await demoteSubagentReport([flag(claim)], receipts, emb);
+    expect(out[0]!.verdict).toBe("supported");
+    expect(out[0]!.basis).toContain("grounded in a completed subagent report");
+  });
+
+  it("KEEPS a claim that does NOT match any report content (cosine < threshold)", async () => {
+    const claim = "Our latency dropped 40% after the cache change.";
+    const emb = mapEmbedder({ [claim]: [1, 0] }); // report line falls to default [0,1] → cosine 0
+    const out = await demoteSubagentReport([flag(claim)], receipts, emb);
+    expect(out[0]!.verdict).toBe("unsupported");
+  });
+
+  it("SCOPE GUARD: a delegate-completion-state claim is NOT demoted, even at cosine 1.0", async () => {
+    // "the analysis is done" asserts the delegate's OWN completion — flaggable
+    // against actual completion receipts, so it never reaches the cosine test.
+    const claim = "The analysis is done — the subagent finished the audit.";
+    const emb = mapEmbedder({ [claim]: [1, 0], "The mid-market segment is estimated at $9.4 billion.": [1, 0] });
+    const out = await demoteSubagentReport([flag(claim)], receipts, emb);
+    expect(out[0]!.verdict).toBe("unsupported");
+  });
+
+  it("FAIL-OPEN: no receipts → unchanged; a throwing embedder → unchanged", async () => {
+    const claim = "The mid-market segment is a $9.4 billion market.";
+    const throwing: Embedder = { async embed(): Promise<number[][]> { throw new Error("ollama down"); } };
+    expect((await demoteSubagentReport([flag(claim)], undefined, throwing))[0]!.verdict).toBe("unsupported");
+    expect((await demoteSubagentReport([flag(claim)], receipts, throwing))[0]!.verdict).toBe("unsupported");
+  });
+
+  it("supported claims pass through untouched", async () => {
+    const supported: ClaimVerdict = { claim: "x", verdict: "supported", basis: "b", evidence: "e" };
+    const emb = mapEmbedder({ x: [1, 0] });
+    const out = await demoteSubagentReport([supported], receipts, emb);
+    expect(out[0]!.basis).toBe("b");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIX 2 — SESSION VERIFIED-CLAIMS DEMOTION. A claim this session already verified
+// (supported + named evidence) grounds a later re-assertion whose receipt scrolled
+// out of the window.
+// ---------------------------------------------------------------------------
+describe("demoteVerifiedClaims — the window-bug guard", () => {
+  const flag = (claim: string): ClaimVerdict => ({ claim, verdict: "unsupported", basis: "no probe this turn", evidence: "", reliance: "the user announces a launch on an unverified deploy" });
+  const verified: VerifiedClaim[] = [{ claim: "The API is deployed and the health probe returns 200.", evidence: "GET /health 200, deploy succeeded", ts: Date.now() }];
+
+  it("DEMOTES a claim matching an earlier-verified claim, citing the remembered evidence", async () => {
+    const claim = "The API is deployed and verified live in production.";
+    const emb = mapEmbedder({ [claim]: [1, 0], "The API is deployed and the health probe returns 200.": [1, 0] });
+    const out = await demoteVerifiedClaims([flag(claim)], verified, emb);
+    expect(out[0]!.verdict).toBe("supported");
+    expect(out[0]!.basis).toContain("verified earlier this session");
+    expect(out[0]!.basis).toContain("GET /health 200");
+    expect(out[0]!.basis).toContain("may be stale");
+  });
+
+  it("KEEPS a claim that matches nothing in the store", async () => {
+    const claim = "The migration wiped no rows.";
+    const emb = mapEmbedder({ [claim]: [1, 0] });
+    const out = await demoteVerifiedClaims([flag(claim)], verified, emb);
+    expect(out[0]!.verdict).toBe("unsupported");
+  });
+
+  it("FAIL-OPEN: empty store → unchanged; throwing embedder → unchanged", async () => {
+    const claim = "The API is deployed and verified live in production.";
+    const throwing: Embedder = { async embed(): Promise<number[][]> { throw new Error("down"); } };
+    expect((await demoteVerifiedClaims([flag(claim)], [], throwing))[0]!.verdict).toBe("unsupported");
+    expect((await demoteVerifiedClaims([flag(claim)], verified, throwing))[0]!.verdict).toBe("unsupported");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIXES 1/3/4 — prompt pins. The prose lines must actually reach the auditor.
+// ---------------------------------------------------------------------------
+describe("RULES_BLOCK prompt pins (via buildPreGatheredPrompt)", () => {
+  const prompt = buildPreGatheredPrompt(
+    { dir: "/x", sessionId: "s", finalMessage: "m", userRequest: "u" },
+    "evidence",
+  );
+  it("FIX 1: pins the delegated-research-is-evidence line", () => {
+    expect(prompt).toContain("DELEGATED RESEARCH IS EVIDENCE");
+  });
+  it("FIX 3: pins the claim-time staleness line", () => {
+    expect(prompt).toContain("AT THE TIME IT WAS UTTERED");
+    expect(prompt).toContain("STALE, not false");
+  });
+  it("FIX 4: pins the project-docs-are-evidence line", () => {
+    expect(prompt).toContain("PROJECT DOCS ARE EVIDENCE");
+    expect(prompt).toContain("CLAUDE.md");
   });
 });
 
