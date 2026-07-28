@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
 import { tempRepo, write } from "./helpers.js";
-import { audit, addressee, claimWarning, unaccountableWarning, groundingWarning, parseReply, demoteUserTestimony, userStatementsFromTail, demoteSubagentReport, subagentReportsFromReceipts, demoteVerifiedClaims, buildPreGatheredPrompt, deliveryMode, claimDeliverableUnderQuiet, groundingDeliverableUnderQuiet, verifyAnchor, normalizeAnchor, type AuditJob, type ClaimVerdict, type VerifiedClaim } from "../src/auditor.js";
+import { audit, addressee, claimWarning, unaccountableWarning, groundingWarning, parseReply, demoteUserTestimony, userStatementsFromTail, demoteSubagentReport, subagentReportsFromReceipts, demoteVerifiedClaims, demoteFullSessionFigures, buildPreGatheredPrompt, deliveryMode, claimDeliverableUnderQuiet, groundingDeliverableUnderQuiet, verifyAnchor, normalizeAnchor, type AuditJob, type ClaimVerdict, type VerifiedClaim } from "../src/auditor.js";
 import { selectEvidence, type EvidenceSelectionContext, type GroundingFlag } from "../src/grounding.js";
 import type { Auditor, AuditorTier } from "../src/resolve.js";
 import type { Embedder } from "../src/embed.js";
@@ -623,6 +623,76 @@ describe("demoteVerifiedClaims — the window-bug guard", () => {
     const throwing: Embedder = { async embed(): Promise<number[][]> { throw new Error("down"); } };
     expect((await demoteVerifiedClaims([flag(claim)], [], throwing))[0]!.verdict).toBe("unsupported");
     expect((await demoteVerifiedClaims([flag(claim)], verified, throwing))[0]!.verdict).toBe("unsupported");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE FALSE-FLAG MECHANISM fix (2026-07-27) — demoteFullSessionFigures. The
+// production incident: "cart: $60.00 subtotal, free shipping, $60.00 total"
+// was verbatim in a tool_result two turns earlier; the 64KB receipts tail had
+// scrolled it out, so the LLM auditor flagged "no basis". This is a sync,
+// no-embedder pass: given the full session's tool-result text (already
+// extracted by transcript.ts's readFullSessionToolResults — see
+// test/transcript.test.ts for the extraction/anti-laundering/bail coverage),
+// demote a matching quantity-bearing claim.
+// ---------------------------------------------------------------------------
+describe("demoteFullSessionFigures — the false-flag mechanism fix (full-session figure rescue)", () => {
+  const flag = (claim: string): ClaimVerdict => ({ claim, verdict: "unsupported", basis: "no receipt this turn", evidence: "", reliance: "the user carries this total into a decision" });
+
+  it("DEMOTES a claim whose figure is verbatim in an earlier tool_result outside the audited window", () => {
+    const claim = "cart: $60.00 subtotal, free shipping, $60.00 total";
+    const fullSession = "some earlier turn's output\ncart: $60.00 subtotal, free shipping, $60.00 total\nmore unrelated tool output";
+    const out = demoteFullSessionFigures([flag(claim)], fullSession);
+    expect(out[0]!.verdict).toBe("supported");
+    expect(out[0]!.basis).toContain("session receipts outside the audited window");
+    expect(out[0]!.basis).toContain("may be stale");
+    expect(out[0]!.basis).toContain("not re-verified this turn");
+    expect(out[0]!.basis).toContain("60.00"); // carries the matched snippet
+  });
+
+  it("KEEPS a fabricated figure that matches NOTHING anywhere in the session (protects the scenario-1 fabrication class)", () => {
+    const claim = "throughput is 253,000 requests per second";
+    const fullSession = "git log: 3 commits\ntest run: 12 passed\nunrelated tool output with no matching number";
+    const out = demoteFullSessionFigures([flag(claim)], fullSession);
+    expect(out[0]!.verdict).toBe("unsupported");
+  });
+
+  it("normalization variants: $60.00 claim matches a bare '60' receipt, and a 'Total $60.00' receipt matches a bare '60.00' claim", () => {
+    expect(demoteFullSessionFigures([flag("the total is $60.00")], "receipt line: 60 units shipped")[0]!.verdict).toBe("supported");
+    expect(demoteFullSessionFigures([flag("the total is 60.00")], "invoice says Total $60.00 due")[0]!.verdict).toBe("supported");
+  });
+
+  it("leaves non-quantity claims (state/causal, no figure) untouched — out of scope for this pass", () => {
+    const claim = "committed and pushed the fix";
+    const fullSession = "totally unrelated content, even the word committed appears here";
+    const out = demoteFullSessionFigures([flag(claim)], fullSession);
+    expect(out[0]!.verdict).toBe("unsupported");
+    expect(out[0]!.basis).toBe("no receipt this turn"); // untouched, not even rewritten
+  });
+
+  it("FAIL-OPEN: no full-session text (undefined/empty) → unchanged", () => {
+    const claim = "cart total is $60.00";
+    expect(demoteFullSessionFigures([flag(claim)], undefined)[0]!.verdict).toBe("unsupported");
+    expect(demoteFullSessionFigures([flag(claim)], "")[0]!.verdict).toBe("unsupported");
+  });
+
+  it("supported claims pass through untouched", () => {
+    const supported: ClaimVerdict = { claim: "x is $60.00", verdict: "supported", basis: "b", evidence: "e" };
+    const out = demoteFullSessionFigures([supported], "$60.00 appears right here");
+    expect(out[0]!.basis).toBe("b");
+  });
+
+  it("ANTI-SELF-LAUNDERING (integration with transcript.ts): a figure present only in the agent's own prior assistant text — never a tool_result — does NOT demote", () => {
+    const claim = "the total is $60.00";
+    // Simulates what readFullSessionToolResults would hand back for a transcript
+    // where the agent asserted the figure in its own prose but no tool ever
+    // produced it: the extractor structurally excludes assistant/tool_use text,
+    // so the string passed here never contains "$60.00" — reproduced directly
+    // (see test/transcript.test.ts's ANTI-SELF-LAUNDERING GUARD test for the
+    // extraction-level proof) so this file's fail-open assertion stands alone.
+    const fullSessionToolResultsOnly = "unrelated tool_result: 200 OK";
+    const out = demoteFullSessionFigures([flag(claim)], fullSessionToolResultsOnly);
+    expect(out[0]!.verdict).toBe("unsupported");
   });
 });
 

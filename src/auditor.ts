@@ -21,7 +21,8 @@
 import { execa } from "execa";
 import { logFiring } from "./telemetry.js";
 import type { Auditor, AuditorTier } from "./resolve.js";
-import { groundingCheck, selectEvidence, hasSpecificQuantity, stateKindsOf, type GitProbeState, type GroundingFlag } from "./grounding.js";
+import { groundingCheck, selectEvidence, hasSpecificQuantity, specificNumbersIn, findNumberSnippet, stateKindsOf, type GitProbeState, type GroundingFlag } from "./grounding.js";
+import { readFullSessionToolResults } from "./transcript.js";
 import { ollamaEmbedder, cosine, type Embedder } from "./embed.js";
 
 export interface AuditJob {
@@ -49,6 +50,13 @@ export interface AuditJob {
    *  later turn's flag whose content matches one (cosine) is demoted to grounded
    *  ("verified earlier this session"). Absent → no demotion. */
   verifiedClaims?: VerifiedClaim[];
+  /** THE FALSE-FLAG MECHANISM fix (2026-07-27): path to the FULL session
+   *  transcript (Claude Code's transcript_path / codex's rollout path), for
+   *  demoteFullSessionFigures's uncapped tool-result scan — a figure that
+   *  scrolled out of the 64KB receipts tail (`receipts` above) but is verbatim
+   *  in an earlier tool_result should demote the flag, not confirm it as
+   *  confabulation. Absent → the pass is skipped (fail-open). */
+  transcriptPath?: string;
   harness?: string;
   schedulingMode?: "live" | "testbed";
   /** The executor vendor being audited — the ADDRESSEE of every warning line
@@ -1060,6 +1068,75 @@ export async function demoteVerifiedClaims(
 }
 
 // ---------------------------------------------------------------------------
+// FULL-SESSION FIGURE RESCUE (2026-07-27 — THE FALSE-FLAG MECHANISM). Production
+// incident: an agent reported "cart: $60.00 subtotal, free shipping, $60.00
+// total"; those exact figures were verbatim in a huge browser-observe tool
+// result TWO TURNS earlier, but the 64KB receipts TAIL (transcript.ts
+// readReceiptsTail) had scrolled it out of the audited window — so the LLM
+// auditor saw no receipt for the claim and flagged "no basis": a false
+// accusation of a claim that WAS grounded, just outside what this turn's
+// audit was shown.
+//
+// The fix: for each remaining non-supported, QUANTITY-BEARING claim (state/
+// causal claims with no figure are OUT OF SCOPE — they have the other
+// demotions above), do one more fail-open pass over the FULL session
+// transcript's tool results (readFullSessionToolResults, transcript.ts — no
+// 64KB tail cap, only capped by an honest ~5MB file-size bail) looking for the
+// claimed figure(s), string/number-normalized exactly like grounding.ts's
+// numbersIn ($60.00 / 60 / 60.00, k/M/B suffixes, commas — findNumberSnippet).
+// A match demotes the claim to supported, with a basis that names the window
+// problem explicitly and quotes the matched snippet (~60 chars), so a reader
+// sees this is a "may be stale" rescue, not a fresh re-verification.
+//
+// ANTI-SELF-LAUNDERING GUARD: readFullSessionToolResults collects ONLY
+// tool_result / custom_tool_call_output content — never assistant/agent text.
+// An agent cannot invent a figure in its own prior prose and have THIS pass
+// launder it into "grounded"; only what a TOOL actually returned counts. This
+// is what keeps a genuinely fabricated figure (scenario-1 class) flagged: it
+// matches nothing a tool ever produced, so no snippet is ever found for it.
+//
+// FAIL-OPEN (R8): no transcript path, no tool-result text, or no match
+// anywhere → claims unchanged, the flag stands. The ~5MB bail is enforced by
+// the caller (audit()) checking readFullSessionToolResults's `bailed` flag
+// before ever calling this function — a bailed scan must never look like "we
+// searched and found nothing".
+// ---------------------------------------------------------------------------
+
+/**
+ * Demote a non-supported, quantity-bearing claim whose figure(s) appear
+ * verbatim (normalized) somewhere in the full session's tool-result text, even
+ * though that text scrolled out of the audited receipts tail. Pure string/
+ * number matching — no embeddings, no model call. Never throws (R8); any
+ * input absence or match failure is a no-op (the flag stands).
+ */
+export function demoteFullSessionFigures(
+  claims: ClaimVerdict[],
+  fullSessionToolResults: string | undefined,
+): ClaimVerdict[] {
+  const text = fullSessionToolResults ?? "";
+  if (!text.trim()) return claims;
+
+  try {
+    return claims.map((c) => {
+      if (c.verdict === "supported" || !hasSpecificQuantity(c.claim)) return c;
+      for (const value of specificNumbersIn(c.claim)) {
+        const snippet = findNumberSnippet(value, text);
+        if (snippet) {
+          return {
+            ...c,
+            verdict: "supported" as const,
+            basis: `figure appears in session receipts outside the audited window (${snippet}), may be stale — not re-verified this turn`,
+          };
+        }
+      }
+      return c;
+    });
+  } catch {
+    return claims; // R8 fail-open
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Telemetry
 // ---------------------------------------------------------------------------
 
@@ -1249,6 +1326,16 @@ export async function audit(
   let claims = reply ? await demoteUserTestimony(reply.claims, job.conversationTail, embedder) : [];
   claims = await demoteSubagentReport(claims, job.receipts, embedder);
   claims = await demoteVerifiedClaims(claims, job.verifiedClaims, embedder);
+  // THE FALSE-FLAG MECHANISM fix: one more fail-open pass over the FULL session
+  // transcript's tool results (not just the 64KB receipts tail) for a claimed
+  // figure that scrolled out of the audited window. Sync, string/number-only —
+  // no embedder involved. Skipped entirely when no transcript path was supplied,
+  // or the transcript exceeds the ~5MB scan cap (an honest bail — never treated
+  // as "scanned, no match").
+  if (job.transcriptPath) {
+    const fullScan = readFullSessionToolResults(job.transcriptPath);
+    if (!fullScan.bailed) claims = demoteFullSessionFigures(claims, fullScan.text);
+  }
 
   // SHADOW SAFETY: if a gated turn's shadow audit returned a substantive verdict
   // (unsupported/contradicted/unaccountable), the gate WOULD have wrongly skipped

@@ -393,8 +393,10 @@ function stripHex(text: string): string {
   return text.replace(/0x[0-9a-fA-F]+/g, " ");
 }
 
-/** All normalized numeric values in `text` (currency, %, k/M/B, decimals, ints). */
-function numbersIn(text: string): number[] {
+/** All normalized numeric values in `text` (currency, %, k/M/B, decimals, ints).
+ *  Exported so auditor.ts's full-session figure rescue (findNumberSnippet's
+ *  sibling, THE FALSE-FLAG MECHANISM fix) can reuse the same normalization. */
+export function numbersIn(text: string): number[] {
   const clean = stripHex(text);
   const out: number[] = [];
   const re = /\$?\s?([\d]{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?([kKmMbB])?\s?%?/g;
@@ -413,8 +415,10 @@ function numbersIn(text: string): number[] {
 /** Only the SPECIFIC quantities in a claim sentence — the same bar
  *  hasSpecificQuantity sets per number: currency, %, k/M/B suffix, a decimal,
  *  or ≥3 digits. A bare small count ("the 3 tracked wallets") is not a
- *  load-bearing value and must not be hunted in the receipts. */
-function specificNumbersIn(text: string): number[] {
+ *  load-bearing value and must not be hunted in the receipts. Exported so
+ *  auditor.ts's full-session figure rescue can extract the same claim-side
+ *  quantities it gates on via hasSpecificQuantity. */
+export function specificNumbersIn(text: string): number[] {
   const clean = stripHex(text);
   const out: number[] = [];
   const re = /(\$)?\s?([\d]{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?([kKmMbB]\b)?\s?(%)?/g;
@@ -450,6 +454,32 @@ export function hasSpecificQuantity(text: string): boolean {
 function approxEq(a: number, b: number): boolean {
   const scale = Math.max(Math.abs(a), Math.abs(b), 1e-9);
   return Math.abs(a - b) / scale <= 0.01;
+}
+
+/** Locate a claimed quantity within arbitrary text (same $/%/k-M-B/comma
+ *  normalization as numbersIn, ±1% tolerance via approxEq) and return a short
+ *  snippet (~60 chars) around the first match, or null if the value never
+ *  appears. Backs auditor.ts's full-session figure rescue (THE FALSE-FLAG
+ *  MECHANISM fix, 2026-07-27): a claimed figure that scrolled out of the
+ *  audited receipts tail but is verbatim in an earlier tool_result should
+ *  demote the flag, not confirm confabulation. */
+export function findNumberSnippet(value: number, haystack: string, snippetRadius = 30): string | null {
+  const clean = stripHex(haystack);
+  const re = /\$?\s?([\d]{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s?([kKmMbB])?\s?%?/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(clean)) !== null) {
+    if (!m[1]) continue;
+    let v = parseFloat(m[1].replace(/,/g, ""));
+    if (Number.isNaN(v)) continue;
+    const suf = m[2]?.toLowerCase();
+    if (suf && SUFFIX[suf]) v *= SUFFIX[suf];
+    if (approxEq(v, value)) {
+      const start = Math.max(0, m.index - snippetRadius);
+      const end = Math.min(clean.length, m.index + m[0].length + snippetRadius);
+      return clean.slice(start, end).replace(/\s+/g, " ").trim();
+    }
+  }
+  return null;
 }
 
 /** A line whose numbers SUM to `claimed` (≥2 numbers, and no single one already

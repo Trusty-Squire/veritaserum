@@ -104,6 +104,10 @@ export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
     ...(priorWarnings.length ? { priorWarnings } : {}),
     ...(deliveredWarnings.length ? { deliveredWarnings } : {}),
     ...(verifiedClaims.length ? { verifiedClaims } : {}),
+    // THE FALSE-FLAG MECHANISM fix: the full transcript path, so audit() can scan
+    // the WHOLE session's tool results (not just the 64KB receipts tail) for a
+    // claimed figure that scrolled out of the audited window.
+    ...(job.transcriptPath ? { transcriptPath: job.transcriptPath } : {}),
     harness: job.harness || "unknown",
     schedulingMode: job.mode,
     // The addressee of every warning line — claude→"Claude", codex→"Codex", else "Agent".

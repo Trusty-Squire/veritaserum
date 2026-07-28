@@ -4,7 +4,7 @@
  * — a transcript-shape change can't take down the sync path or the async audit
  * job (R8).
  */
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 
 function textFromContent(content: unknown): string {
   if (typeof content === "string") return content;
@@ -255,5 +255,68 @@ export function readReceiptsTail(path: string, capBytes: number = RECEIPTS_TAIL_
     return tail;
   } catch {
     return "";
+  }
+}
+
+/** ~5MB — the honest bail threshold for readFullSessionToolResults: a transcript
+ *  larger than this is not scanned at all (fail-open: no demotion), rather than
+ *  paying an unbounded full-file read/parse on every audit for a rare, very long
+ *  session. */
+const FULL_SCAN_CAP_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Every tool_result's text (Claude Code) / custom_tool_call_output's text
+ * (codex), across the WHOLE session transcript — no per-line cap (contrast
+ * readReceiptsTail's 64KB tail + clipResult's 2000-char-per-line clip). Backs
+ * auditor.ts's full-session figure rescue (THE FALSE-FLAG MECHANISM, 2026-07-27):
+ * a claimed figure whose producing tool_result scrolled out of the audited
+ * receipts tail can still be found here.
+ *
+ * ANTI-SELF-LAUNDERING GUARD: ONLY tool_result / custom_tool_call_output content
+ * is collected — never assistant/tool_use text. An agent's own prior prose can
+ * never launder a fabricated figure into "grounded" this way; only what a TOOL
+ * actually returned counts as a receipt.
+ *
+ * Fail-open (R8): a missing file → { text: "", bailed: false } (nothing to scan,
+ * no demotion). A transcript over `capBytes` (~5MB default) → { text: "",
+ * bailed: true } — an honest bail, never a partial/silent scan, so the caller
+ * can tell "scanned and found nothing" apart from "didn't scan" and must never
+ * demote on the latter. Any parse error on a line is skipped; never throws.
+ */
+export function readFullSessionToolResults(
+  path: string,
+  capBytes: number = FULL_SCAN_CAP_BYTES,
+): { text: string; bailed: boolean } {
+  try {
+    if (!existsSync(path)) return { text: "", bailed: false };
+    if (statSync(path).size > capBytes) return { text: "", bailed: true };
+    const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
+    const out: string[] = [];
+    for (const line of lines) {
+      let obj: unknown;
+      try {
+        obj = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (!obj || typeof obj !== "object") continue;
+      const o = obj as Record<string, unknown>;
+      const payload = o.payload as Record<string, unknown> | undefined;
+      if (o.type === "response_item" && payload?.type === "custom_tool_call_output") {
+        const text = textFromCodexContent(payload.output);
+        if (text) out.push(text);
+        continue;
+      }
+      const content = (o.message as Record<string, unknown> | undefined)?.content ?? o.content;
+      if (!Array.isArray(content)) continue;
+      for (const part of content as TranscriptPart[]) {
+        if (!part || typeof part !== "object" || part.type !== "tool_result") continue;
+        const text = typeof part.content === "string" ? part.content : textFromContent(part.content) || "";
+        if (text) out.push(text);
+      }
+    }
+    return { text: out.join("\n"), bailed: false };
+  } catch {
+    return { text: "", bailed: false };
   }
 }
