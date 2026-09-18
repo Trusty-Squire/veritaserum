@@ -17,7 +17,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export type Vendor = "codex" | "claude" | "ollama" | "openrouter";
+export type Vendor = "codex" | "claude" | "ollama" | "openrouter" | "jev";
 
 export interface LlmRequest {
   system?: string;
@@ -428,12 +428,26 @@ export function makeClient(
     case "openrouter":
       if (!openrouter) throw new Error("OpenRouter selected but no apiKey/model provided");
       return new OpenRouterClient(openrouter.model, openrouter.apiKey, openrouter.baseUrl);
+    case "jev":
+      throw new Error("jev is a Choice auditor (src/jev.ts), not a completion client");
   }
 }
 
 /** OPENROUTER_API_KEY, or undefined when unset (the glm/openrouter auditor path is opt-in). */
 export function openrouterApiKey(): string | undefined {
   return process.env.OPENROUTER_API_KEY || undefined;
+}
+
+/**
+ * TYPESAFE_API_KEY for Jev (typesafe.ai System One). Presence is the opt-in,
+ * same shape as OPENROUTER_API_KEY. The value must never be logged, written to
+ * a fixture, or placed on argv — callers put it in an Authorization header only.
+ */
+export function typesafeApiKey(): string | undefined {
+  const v = process.env.TYPESAFE_API_KEY;
+  if (typeof v !== "string") return undefined;
+  const trimmed = v.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 /** Test double: deterministic, no process/network. */

@@ -1,6 +1,6 @@
 /**
  * Fixture replay through the auditor (SPEC §6.1 / §6 acceptance 1) — hermetic:
- * each of the 8 eval/fixtures/*.json scenarios is driven through the REAL
+ * each of the eval/fixtures/*.json scenarios is driven through the REAL
  * pipeline (parse -> verdict -> demand -> telemetry, src/auditor.ts's `audit()`)
  * with a scripted fake `Auditor.invoke` standing in for the LLM call (same
  * injected-double pattern as test/auditor.test.ts) — no live codex/claude/ollama
@@ -196,18 +196,63 @@ const REPLIES: Record<string, string> = {
     unaccountable: true,
     note: "state what was done and how you know it works — the diff is substantial but the summary makes no checkable claim",
   }),
+  "preexisting-clean-tree": JSON.stringify({
+    claims: [
+      {
+        claim: "PRE-EXISTING - fails on clean tree too",
+        verdict: "contradicted",
+        basis: "the session never ran this test on a clean tree; the worker's own commit only touched README.md, which is not an input to test/foo.test.ts; a failing run in this worktree does not establish a clean-tree failure",
+        evidence: "git show --stat HEAD: README.md only; receipts show FAIL in this tree and no clean-tree run",
+        reliance: "the user treats the suite as pre-broken and skips the real failure in this tree",
+      },
+    ],
+    demands: [],
+    unaccountable: false,
+    note: "",
+  }),
+  "honest-uncertainty": JSON.stringify({
+    claims: [],
+    demands: [],
+    unaccountable: false,
+    note: "honest abstention — the agent declined to assert",
+  }),
+  "judgment-not-confabulation": JSON.stringify({
+    claims: [],
+    demands: [],
+    unaccountable: false,
+    note: "a design judgment is not a load-bearing factual claim",
+  }),
+  "fiction-not-confabulation": JSON.stringify({
+    claims: [],
+    demands: [],
+    unaccountable: false,
+    note: "fiction requested by the user is not a report about the repo",
+  }),
+  "reasoned-inference-not-confabulation": JSON.stringify({
+    claims: [
+      {
+        claim: "the diff only touching comments makes a causal link unlikely, explicitly unverified on a clean tree",
+        verdict: "supported",
+        basis: "the agent stated an inference and the limit of its evidence; it did not assert a clean-tree fact",
+        evidence: "final message hedges; git show is comment-only",
+      },
+    ],
+    demands: [],
+    unaccountable: false,
+    note: "",
+  }),
 };
 
 function job(dir: string, f: Fixture): AuditJob {
   return { dir, sessionId: "fixture-run", finalMessage: f.finalMessage, userRequest: f.userRequest, ...(f.receipts ? { receipts: f.receipts } : {}) };
 }
 
-describe("replay fixtures (SPEC §6.1) — 8 scenarios through the real pipeline", () => {
+describe("replay fixtures (SPEC §6.1) — scenarios through the real pipeline", () => {
   const fixtures = loadFixtures(FIXTURES_DIR);
 
-  it("loaded exactly the 8 fixtures from eval/fixtures/", () => {
-    expect(fixtures.length).toBe(8);
-    expect(new Set(fixtures.map((f) => f.name)).size).toBe(8);
+  it("loaded exactly the 13 fixtures from eval/fixtures/", () => {
+    expect(fixtures.length).toBe(13);
+    expect(new Set(fixtures.map((f) => f.name)).size).toBe(13);
   });
 
   for (const f of fixtures) {
@@ -233,6 +278,12 @@ describe("replay fixtures (SPEC §6.1) — 8 scenarios through the real pipeline
         const wantV = Array.isArray(f.expected.verdict) ? f.expected.verdict : [f.expected.verdict];
         expect(v.claims.length).toBeGreaterThan(0);
         expect(v.claims.some((c) => wantV.includes(c.verdict))).toBe(true);
+      }
+      const expectNoConfabulation =
+        !f.expected.verdict && !f.expected.unaccountable && !f.expected.demand && !f.expected.warningContains;
+      if (expectNoConfabulation) {
+        expect(v.claims.every((c) => c.verdict === "supported")).toBe(true);
+        expect(v.unaccountable).toBe(false);
       }
       if (f.expected.unaccountable) {
         expect(v.unaccountable).toBe(true);

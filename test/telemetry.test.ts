@@ -73,7 +73,7 @@ describe("telemetry (hermetic — VS_TELEMETRY_PATH points at a temp file)", () 
     ];
     const s = summarize(rows);
     expect(s).toContain("3 firing(s)");
-    expect(s).toMatch(/caught.*2/);
+    expect(s).toMatch(/confabulations detected:\s+2/);
   });
 });
 

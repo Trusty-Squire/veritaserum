@@ -52,7 +52,7 @@ final target**.
 | R2 | **No lexical claim detection.** Claims cannot be regexed (goose #9708: 0/16; phrasing space is infinite) and cannot be pre-staked (load-bearing claims are emergent). Claim identification is LLM judgment — run off the critical path on every turn that has something to audit, and *measured* (miss classes surface as telemetry, not assumptions). **A no-LLM embedding-classifier tier runs alongside** (the grounding detector, `src/grounding.ts`): it does *not* detect claims-by-regex — it detects **referential gaps** (a blamed/relied-on referent absent from what the agent observed) via local-embedding similarity, and its misses are *measured* by the eval cell (`eval/confab/grounding`), consistent with this rule. | goose #9708 + the forecasting objection. |
 | R3 | **Sync path is deterministic and near-free; all LLM work is async.** ~0ms when nothing to audit, <50ms otherwise. The auditor runs detached; verdicts land at the next turn boundary. Known, accepted tradeoff: a false "done" can be acted on before the warning lands — the terse state-line is the only same-turn signal. | v1 hook tax; owner directive; codex #6 noted-and-accepted. |
 | R4 | **Lazy evidence.** No claims → zero probes. Each claim pulls only the slices it needs. Under an agentic auditor this is an instruction, not a pipeline. | Owner directive. |
-| R5 | **Warn-primary.** supported / unsupported (warn + demand the downgrade or the missing test) / contradicted (strongest flag). Nothing blocks by default; blocking per law entry is earned (≥50 judged events, Wilson 95% LB ≥ 0.9) and human-promoted. Warnings never repeat verbatim for the same claim in a session. | 15-block deadlock → coerced false confession; sycophancy literature. |
+| R5 | **Warn-primary.** supported / unsupported (warn + demand the downgrade or the missing test) / contradicted (strongest flag). Nothing blocks by default; blocking per law entry is earned (≥50 judged events, Wilson 95% LB ≥ 0.9) and human-promoted. Warnings never repeat verbatim for the same claim in a session. **Captain override (2026-09-18), not a missing feature:** `VS_BLOCK=1` runs a same-turn Jev Choice audit and may block a confident confabulation at most twice per session so the agent can revise. Fail-open is unchanged. See docs/BLOCKING.md. | 15-block deadlock → coerced false confession; sycophancy literature. Jev ~350ms made a same-turn block affordable; the captain flipped the invariant on purpose. |
 | R6 | ~~The auditor authors demands; the executor never does; the human vetoes.~~ **Demand authorship and the `veritaserum retire` command are removed (2026-07-20).** What survives: **cross-FAMILY is mandatory** (auditor model family ≠ executor model family — different checkpoints of one lineage share blindspots), because the LLM verdict is still one model judging another. | Self-preference is measured; correlated slop; codex #12/#20. |
 | R7 | **Injections are terse, state-gated, specific — and rare.** Sharp specific facts: 10%→0/45 (p<0.05); ambient truth: null; chatty layers accelerate the compaction decay they treat. | goose #9708 injection arms. |
 | R8 | **Fail open on own failure.** Any internal error in any surface → the agent proceeds + telemetry error event. Includes: no auditor available → `auditor_absent` recorded, the audit is skipped, the executor is never stalled; the grounding tier fails open to zero flags when ollama is absent. | v1 invariant, re-earned. |
@@ -105,7 +105,9 @@ audit job (ASYNC — one auditor invocation)
   The auditor NEVER runs git write operations. Law commits are human moments.
 ```
 
-**Auditor resolution (five rules + override; auth-probed, not just present):**
+**Auditor resolution (five rules + Jev + override; auth-probed, not just present):**
+`TYPESAFE_API_KEY` present → **jev** (typesafe System One, pre-gathered Choice
+auditor, cross-family for Claude and Codex, ~350ms). Then the original ladder:
 1. `codex exec` available, non-Codex executor → **codex** (agentic, read-only sandbox).
 2. `claude -p` available, non-Claude executor → **claude** (agentic, read-only).
 3. Only codex available (Codex-family executor) → **codex with a same-family warning**.
@@ -113,7 +115,7 @@ audit job (ASYNC — one auditor invocation)
 5. Only metered options (goose/opencode/cursor-style setups where the executor is
    API-metered anyway) → **user chooses at doctor time**; recommend a strong model;
    default **glm-4.2** (completion-only → pre-gathered evidence mode).
-`VS_AUDITOR` **overrides everything** (any CLI, any API model, any local ollama model).
+`VS_AUDITOR` **overrides everything** (any CLI, any API model, any local ollama model, `jev`).
 Floor beneath the ladder: nothing available → no LLM audit; runnable standing-law checks
 still execute mechanically; sync path unaffected; `auditor_absent` telemetry + one
 visible notice.

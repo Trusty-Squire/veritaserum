@@ -9,7 +9,7 @@ import { isExhausted, resolveAuditor, doctorReport, executorFamily } from "../sr
 // system dirs `sh`/`command` need, and points the 24h doctor cache at a fresh temp
 // file — never the real ~/.veritaserum/doctor.json, never the real CLIs.
 
-const ENV_KEYS = ["PATH", "VS_DOCTOR_CACHE_PATH", "VS_AUDITOR", "VS_AUDITOR_METERED", "OPENROUTER_API_KEY", "VS_AUDITOR_EFFORT"] as const;
+const ENV_KEYS = ["PATH", "VS_DOCTOR_CACHE_PATH", "VS_AUDITOR", "VS_AUDITOR_METERED", "OPENROUTER_API_KEY", "VS_AUDITOR_EFFORT", "TYPESAFE_API_KEY"] as const;
 let saved: Partial<Record<(typeof ENV_KEYS)[number], string>> = {};
 let shimDir: string;
 let cacheDir: string;
@@ -28,6 +28,7 @@ beforeEach(async () => {
   delete process.env.VS_AUDITOR_METERED;
   delete process.env.OPENROUTER_API_KEY;
   delete process.env.VS_AUDITOR_EFFORT;
+  delete process.env.TYPESAFE_API_KEY;
 });
 
 afterEach(async () => {
@@ -161,6 +162,34 @@ describe("VS_AUDITOR override — wins over every rule", () => {
     const a = await resolveAuditor("claude");
     expect(a.tier).toBe("agentic");
     expect(a.vendor).toBe("codex"); // rule1 still fires
+  });
+});
+
+describe("Jev — on the existing resolution ladder when TYPESAFE_API_KEY is set", () => {
+  it("prefers Jev over agentic CLIs and is never same-family", async () => {
+    await shim("codex");
+    await shim("claude");
+    process.env.TYPESAFE_API_KEY = "sk-test-not-a-real-key";
+    const a = await resolveAuditor("claude");
+    expect(a.vendor).toBe("jev");
+    expect(a.tier).toBe("pre-gathered");
+    expect(a.sameFamily).toBe(false);
+    expect(a.model).toBe("jev-latest");
+  });
+
+  it("VS_AUDITOR still overrides Jev", async () => {
+    process.env.TYPESAFE_API_KEY = "sk-test-not-a-real-key";
+    process.env.VS_AUDITOR = "ollama:qwen2.5:3b";
+    const a = await resolveAuditor("claude");
+    expect(a.vendor).toBe("ollama");
+  });
+
+  it("doctor names Jev as the fired rule", async () => {
+    process.env.TYPESAFE_API_KEY = "sk-test-not-a-real-key";
+    const r = await doctorReport("codex");
+    expect(r.chosen.vendor).toBe("jev");
+    expect(r.chosen.rule).toContain("jev");
+    expect(r.chosen.sameFamily).toBe(false);
   });
 });
 

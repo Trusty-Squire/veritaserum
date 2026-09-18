@@ -50,7 +50,12 @@ async function repo(): Promise<string> {
 }
 
 async function hookStop(dir: string, payload: object, env: Record<string, string> = {}) {
-  const r = await execa(RUNNER, [CLI, "hook-stop"], { cwd: dir, input: JSON.stringify(payload), reject: false, env });
+  const r = await execa(RUNNER, [CLI, "hook-stop"], {
+    cwd: dir,
+    input: JSON.stringify(payload),
+    reject: false,
+    env: { VS_BLOCK: "0", ...env },
+  });
   return { code: r.exitCode ?? 1, out: r.stdout, err: r.stderr };
 }
 

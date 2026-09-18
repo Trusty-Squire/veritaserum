@@ -13,10 +13,12 @@ import {
   selectJudgeVendor,
   onPath,
   openrouterApiKey,
+  typesafeApiKey,
   OllamaClient,
   OpenRouterClient,
   type Vendor,
 } from "./llm.js";
+import { invokeJev, JEV_MODEL, JEV_TIMEOUT_MS } from "./jev.js";
 // The knight (authored gates up front), the transcriber (turned a complaint into a gate),
 // and the semantic judge (ruled on a gate's claim over captured evidence) are GONE. All
 // three were special cases of what the auditor already does — author a check, or rule on a
@@ -71,7 +73,7 @@ export function executorFamily(executor: string): "openai" | "claude" | "other" 
   return "other";
 }
 
-const AUDITOR_VENDORS = new Set<Vendor>(["codex", "claude", "ollama", "openrouter"]);
+const AUDITOR_VENDORS = new Set<Vendor>(["codex", "claude", "ollama", "openrouter", "jev"]);
 
 function parseAuditorSpec(v: string): { vendor: Vendor; model?: string } | null {
   const i = v.indexOf(":");
@@ -149,7 +151,13 @@ const CLAUDE_READONLY_TOOLS = "Read,Bash(git log:*),Bash(git status:*),Bash(git 
  *  own turn-end would enqueue an audit — which spawns another auditor, forever. This stamp
  *  tells veritaserum's hooks (cli.ts's isAuditorChild) that this process is the auditor.
  *  execa extends process.env at spawn time, so this must NOT snapshot it here. */
-const AUDITOR_CHILD_ENV = { VS_AUDIT_CHILD: "1" };
+function auditorChildEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env } as NodeJS.ProcessEnv;
+  env.VS_AUDIT_CHILD = "1";
+  delete env.TYPESAFE_API_KEY;
+  delete env.OPENROUTER_API_KEY;
+  return env;
+}
 
 /** Why a CLI auditor failed. These tools print the cause on stdout and exit non-zero. */
 function reasonFrom(r: { stdout?: string; stderr?: string }): string {
@@ -218,7 +226,7 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
           const r = await execa("codex", ["exec", "-s", "read-only", ...(model ? ["-m", model] : []), ...effortArgs, "-"], {
             cwd: dir,
             input: prompt,
-            env: AUDITOR_CHILD_ENV,
+            env: auditorChildEnv(),
             reject: false,
             timeout: timeoutMs ?? DEFAULT_AUDITOR_TIMEOUT_MS,
           });
@@ -247,7 +255,7 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
           const r = await execa("claude", ["-p", "--allowedTools", CLAUDE_READONLY_TOOLS, "--model", claudeModel], {
             cwd: dir,
             input: prompt,
-            env: AUDITOR_CHILD_ENV,
+            env: auditorChildEnv(),
             reject: false,
             timeout: timeoutMs ?? DEFAULT_AUDITOR_TIMEOUT_MS,
           });
@@ -282,6 +290,18 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
           const key = openrouterApiKey();
           if (!key) throw new Error("OPENROUTER_API_KEY not set");
           return new OpenRouterClient(m, key).complete({ prompt, timeoutMs: timeoutMs ?? DEFAULT_AUDITOR_TIMEOUT_MS });
+        },
+      };
+    }
+    case "jev": {
+      const m = model || JEV_MODEL;
+      return {
+        tier: "pre-gathered",
+        vendor,
+        model: m,
+        sameFamily: false,
+        async invoke(prompt, _dir, timeoutMs) {
+          return invokeJev(prompt, timeoutMs ?? JEV_TIMEOUT_MS);
         },
       };
     }
@@ -333,6 +353,19 @@ async function resolveInternal(executor: string, explicitOverride?: string): Pro
     }
     // Malformed override (unrecognized vendor): fail open, fall through to
     // auto-resolution rather than wedging the auditor entirely (R8).
+  }
+
+  // Jev (typesafe System One) sits on the existing ladder, not beside it.
+  // Cross-family for both Claude and Codex executors; pre-gathered; ~350ms.
+  // Skip the 20s CLI smoke probes when the key is present — the blocking path
+  // cannot afford them. VS_AUDITOR still overrides everything above.
+  if (typesafeApiKey()) {
+    const rule = "jev: TYPESAFE_API_KEY present → jev-latest (pre-gathered Choice auditor, cross-family)";
+    return {
+      auditor: buildAuditor("jev", JEV_MODEL, "pre-gathered", false),
+      rule,
+      candidates: [{ vendor: "jev", ok: true, detail: "TYPESAFE_API_KEY present", firedRule: rule }],
+    };
   }
 
   const family = executorFamily(executor);

@@ -97,6 +97,7 @@ async function hookStopBlock(dir: string, payload: object, env: Record<string, s
     VS_QUEUE_ROOT: queueDir,
     VS_GOOSE_SESSIONS_DB: dbPath,
     VS_EXECUTOR: "unknown",
+    TYPESAFE_API_KEY: "",
   };
   const r = await execa(RUNNER, [CLI, "hook-stop-goose-block"], {
     cwd: dir,
@@ -124,10 +125,10 @@ describe("hook-stop-goose-block — a contradicted verdict blocks the turn (exit
     const r = await hookStopBlock(dir, { event: "Stop", session_id: "s-overclaim", working_dir: dir });
     expect(r.code).toBe(2);
     expect(r.err).toContain("veritaserum:");
-    expect(r.err).toContain("claim(s) not backed by a verification receipt");
+    expect(r.err).toContain("claim(s) not backed by the session's own evidence");
     expect(r.err).toContain("all tests pass");
     expect(r.err).toContain("no test run recorded in the receipts");
-    expect(r.err).toContain("Run the actual check and correct or retract before finishing.");
+    expect(r.err).toContain("Revise or retract before finishing.");
   });
 });
 

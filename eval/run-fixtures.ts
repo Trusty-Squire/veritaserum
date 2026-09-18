@@ -1,5 +1,5 @@
 /**
- * Pinned-baseline eval harness (SPEC §6.1) — runs the 8 eval/fixtures/*.json
+ * Pinned-baseline eval harness (SPEC §6.1) — runs the eval/fixtures/*.json
  * scenarios through the REAL resolved auditor (SPEC §2 "Auditor resolution":
  * codex exec / claude -p / a metered model, whatever resolveAuditor() picks
  * for VS_EXECUTOR) and prints a scorecard against each fixture's `expected`.

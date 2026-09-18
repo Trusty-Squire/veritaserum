@@ -28,6 +28,7 @@ const ENV_KEYS = [
   "OPENROUTER_API_KEY",
   "OLLAMA_BASE_URL",
   "OLLAMA_HOST",
+  "TYPESAFE_API_KEY",
 ] as const;
 let saved: Partial<Record<(typeof ENV_KEYS)[number], string>> = {};
 let shimDir: string;
@@ -62,6 +63,7 @@ beforeEach(async () => {
   delete process.env.VS_AUDITOR;
   delete process.env.VS_AUDITOR_METERED;
   delete process.env.OPENROUTER_API_KEY;
+  delete process.env.TYPESAFE_API_KEY;
   // Closed port, NOT delete: deleting would drop test/setup.ts's hermetic guard
   // and send the grounding embedder to the real local ollama — these tests then
   // pass or time out with the box's load. Same pattern as the pinned-ollama test.

@@ -17,6 +17,10 @@
  * 2026-07-20: the case-law / demand / statute machinery was removed. The auditor
  * no longer authors demands, reads veritaserum.law.yaml, or runs mechanical
  * standing-law checks. See SPEC.md "2026-07-20: case law removed".
+ *
+ * Blocking is a captain override of R5, decided at the Stop hook (src/block.ts),
+ * not inside audit(). This function still never throws (R8) and never itself
+ * blocks a turn.
  */
 import { execa } from "execa";
 import { logFiring } from "./telemetry.js";
@@ -1303,9 +1307,15 @@ export async function audit(
     }
     try {
       const prompt =
-        auditor.tier === "agentic"
-          ? buildAgenticPrompt(job, selectedReceipts, evidenceElided)
-          : buildPreGatheredPrompt(job, await gatherEvidence(job.dir, selectedReceipts), evidenceElided);
+        auditor.vendor === "jev"
+          ? JSON.stringify({
+              userRequest: job.userRequest,
+              finalMessage: job.finalMessage,
+              evidence: await gatherEvidence(job.dir, selectedReceipts),
+            })
+          : auditor.tier === "agentic"
+            ? buildAgenticPrompt(job, selectedReceipts, evidenceElided)
+            : buildPreGatheredPrompt(job, await gatherEvidence(job.dir, selectedReceipts), evidenceElided);
       promptChars = prompt.length;
       const raw = await auditor.invoke(prompt, job.dir);
       reply = parseReply(raw);

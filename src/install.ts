@@ -230,9 +230,10 @@ function launcher(sub: "hook-stop" | "hook-prompt" | "hook-session-start"): stri
 }
 
 function hookCommand(target: Target, sub: "hook-stop" | "hook-prompt" | "hook-session-start" = "hook-stop"): string {
-  // No VS_ADVISORY prefix: nothing in the audit path blocks (R5 warn-primary), so an
-  // "advisory mode" env var gated nothing and the install ceremony's "unset it to enable
-  // blocking" was simply false. Blocking is per-law-entry and human-promoted, never a flag.
+  // Captain override of R5: VS_BLOCK=1 on the process (not baked into this
+  // command) is the on switch; VS_BLOCK=0 or unset is off. The launcher path
+  // stays stable so Codex trust survives upgrades. Blocking is not a missing
+  // feature — warn-primary remains the default.
   return `VS_EXECUTOR=${VENDOR[target]} VS_HARNESS=${target} ${launcher(sub)}`;
 }
 

@@ -29,8 +29,6 @@ interface AuditJob {
   finalMessage?: string;
   harness?: string;
   executor?: string;
-  auditor?: string;
-  demandMode?: "script" | "urge";
 }
 
 function repoKey(dir: string): string {
@@ -148,7 +146,18 @@ async function readStdin(): Promise<string> {
 async function main(): Promise<void> {
   if (process.env.VS_AUDIT_CHILD === "1") return;
   try {
-    const parsed = JSON.parse(await readStdin()) as unknown;
+    const raw = await readStdin();
+    if (process.env.VS_BLOCK === "1" || process.env.VS_BLOCK === "true" || process.env.VS_BLOCK === "yes" || process.env.VS_BLOCK === "on") {
+      const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
+      const cli = join(__dirname, "cli.js");
+      const result = spawnSync(process.execPath, [cli, "hook-stop"], {
+        input: raw,
+        stdio: ["pipe", "inherit", "inherit"],
+        env: process.env,
+      });
+      process.exit(result.status ?? 0);
+    }
+    const parsed = JSON.parse(raw) as unknown;
     const p: HookPayload = parsed && typeof parsed === "object" ? (parsed as HookPayload) : {};
     const dir = p.working_dir || p.cwd || process.cwd();
     const marker = readLastAudit(dir);
@@ -170,7 +179,6 @@ async function main(): Promise<void> {
       harness,
       executor: process.env.VS_EXECUTOR || "unknown",
       ...(process.env.VS_AUDITOR ? { auditor: process.env.VS_AUDITOR } : {}),
-      demandMode: process.env.VS_DEMAND_MODE === "urge" ? "urge" : "script",
     });
     const next: LastAudit = { ts: now, ccTranscriptSize: marker.ccTranscriptSize };
     if (p.transcript_path) {

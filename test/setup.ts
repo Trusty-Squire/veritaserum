@@ -17,3 +17,7 @@ process.env.OLLAMA_HOST = "http://127.0.0.1:1";
 // keep the retries but strip the sleeps — otherwise every audit's grounding embed
 // would stall ~10s and the multi-fixture confab runners blow their test timeout.
 process.env.VS_OLLAMA_RETRY_BACKOFF_MS = "0,0";
+
+// Jev is opt-in via TYPESAFE_API_KEY. A live key in the agent's environment
+// must not turn the hermetic suite into a real typesafe.ai call.
+delete process.env.TYPESAFE_API_KEY;

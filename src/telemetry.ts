@@ -231,7 +231,7 @@ export function summarize(firings: Firing[]): string {
   const label = (f: Firing): string => (f.blocked ? (f.advisory ? "would-block" : "BLOCKED") : "flagged");
   const lines = [
     `ser telemetry — ${n} firing(s)`,
-    `  caught (flagged an unsupported claim):  ${caught.length}`,
+    `  confabulations detected:                 ${caught.length}`,
     `  blocked (actually stopped the turn):    ${actuallyBlocked.length}`,
     `  would-block (advisory, logged only):    ${wouldBlock.length}`,
     `  by harness: ${JSON.stringify(byHarness)}`,

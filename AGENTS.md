@@ -5,6 +5,10 @@ Ground-truth layer for coding agents. Spec: SPEC.md (case law removed 2026-07-20
 Production-seam validation is `pnpm stress:production`; its contract and current
 findings live in `docs/STRESS-TEST-PROMPT.md` and `docs/STRESS-TEST-FINDINGS.md`.
 
+Jev blocking (captain override of R5, not a missing feature): `VS_BLOCK=1` on,
+unset/`VS_BLOCK=0` off. Auditor is Jev when `TYPESAFE_API_KEY` is set. Metric:
+`veritaserum telemetry` (confabulations detected). See docs/BLOCKING.md.
+
 ## Skill routing
 
 When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.

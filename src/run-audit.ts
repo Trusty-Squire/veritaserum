@@ -35,7 +35,7 @@ import {
 
 /** Step 1: the turn's final message, the user's request, and a receipt tail —
  *  from goose's sessions.db (session id) or a Claude Code transcript (path). */
-function loadTurnMaterial(job: AuditJob): { finalMessage: string; userRequest: string; receipts?: string; conversationTail?: string } {
+export function loadTurnMaterial(job: AuditJob): { finalMessage: string; userRequest: string; receipts?: string; conversationTail?: string } {
   if (job.transcriptPath) {
     const finalMessage = job.finalMessage ?? readLastAssistantMessage(job.transcriptPath);
     const userRequest = job.userRequest ?? readLastUserMessage(job.transcriptPath);
@@ -68,10 +68,11 @@ function loadTurnMaterial(job: AuditJob): { finalMessage: string; userRequest: s
  * the full `warnings` set — under VS_DELIVERY=quiet a suppressed warning is deduped
  * and telemetered but must never interrupt the next turn.
  */
-function buildFeedbackLine(verdict: AuditVerdict): string | null {
+export function buildFeedbackLine(verdict: AuditVerdict): string | null {
   const lead = verdict.deliverableWarnings[0];
   if (!lead) return null;
   return `veritaserum: ${lead}`.slice(0, 600);
+}
 }
 
 export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {

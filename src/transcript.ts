@@ -245,6 +245,10 @@ export function readReceiptsTail(path: string, capBytes: number = RECEIPTS_TAIL_
       const content = (o.message as Record<string, unknown> | undefined)?.content ?? o.content;
       if (!Array.isArray(content)) continue;
       for (const part of content as TranscriptPart[]) {
+        if (part && typeof part === "object" && part.type === "thinking") {
+          const thinking = typeof part.thinking === "string" ? part.thinking : typeof part.text === "string" ? part.text : "";
+          if (thinking) out.push(`thinking: ${clipResult(thinking, 1500)}`);
+        }
         const line2 = part && typeof part === "object" ? toolLine(part) : null;
         if (line2) out.push(line2);
       }

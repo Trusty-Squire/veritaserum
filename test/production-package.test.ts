@@ -144,7 +144,7 @@ describe.sequential("packed production surfaces", () => {
       cwd: repo,
       env: { HOME: home, npm_config_cache: cache },
     });
-    expect(install.stdout).toContain("Goose exposes no prompt injection channel; verdicts land in telemetry.");
+    expect(install.stdout).toContain("Goose has no prompt-injection channel; verdicts land in telemetry unless blocking is on.");
     expect(install.stdout).not.toContain("A verdict lands as one line at your next prompt.");
     const plugin = join(repo, ".agents", "plugins", "veritaserum");
     const hook = join(plugin, "scripts", "vs-stop.sh");
