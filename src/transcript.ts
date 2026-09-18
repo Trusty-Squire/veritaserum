@@ -4,7 +4,7 @@
  * — a transcript-shape change can't take down the sync path or the async audit
  * job (R8).
  */
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 
 function textFromContent(content: unknown): string {
   if (typeof content === "string") return content;
@@ -96,6 +96,65 @@ export function readLastUserMessage(path: string): string {
   }
 }
 
+/** Per-message clip for the conversation tail: keep the head (the ask / the
+ *  point) so a long turn doesn't eat the whole 2KB budget. */
+function clipExchange(text: string, cap = 320): string {
+  const t = text.trim().replace(/\s+/g, " ");
+  return t.length > cap ? `${t.slice(0, cap).trimEnd()}…` : t;
+}
+
+/**
+ * The last few user/assistant TEXT exchanges (tool-noise-free), for judging
+ * RELIANCE — is the user about to act on this turn, or still exploring? Mirrors
+ * readLastUserMessage's tolerant style: unknown/renamed shapes degrade to "",
+ * never throws. tool_use / tool_result parts carry no top-level `.text`, so
+ * textFromContent drops them — the tail is prose only. Each message is clipped
+ * head-biased and the whole thing capped (~2KB) tail-biased, so the most recent
+ * exchange always survives.
+ */
+export function readConversationTail(path: string, maxMessages = 12, capBytes = 2 * 1024): string {
+  try {
+    if (!existsSync(path)) return "";
+    const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
+    const msgs: Array<{ role: "User" | "Agent"; text: string }> = [];
+    for (const line of lines) {
+      let obj: unknown;
+      try {
+        obj = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (!obj || typeof obj !== "object") continue;
+      const o = obj as Record<string, unknown>;
+      const payload = o.payload as Record<string, unknown> | undefined;
+      if (o.type === "event_msg" && payload?.type === "user_message" && typeof payload.message === "string") {
+        const t = clipExchange(payload.message);
+        if (t) msgs.push({ role: "User", text: t });
+        continue;
+      }
+      if (o.type === "event_msg" && payload?.type === "agent_message" && typeof payload.message === "string") {
+        const t = clipExchange(payload.message);
+        if (t) msgs.push({ role: "Agent", text: t });
+        continue;
+      }
+      const role = o.role ?? (o.message as Record<string, unknown> | undefined)?.role ?? o.type;
+      if (role !== "user" && role !== "assistant") continue;
+      const content = (o.message as Record<string, unknown> | undefined)?.content ?? o.content;
+      const t = clipExchange(textFromContent(content));
+      if (t) msgs.push({ role: role === "user" ? "User" : "Agent", text: t });
+    }
+    if (!msgs.length) return "";
+    let out = msgs
+      .slice(-maxMessages)
+      .map((m) => `${m.role}: ${m.text}`)
+      .join("\n");
+    if (out.length > capBytes) out = out.slice(out.length - capBytes);
+    return out;
+  } catch {
+    return "";
+  }
+}
+
 interface TranscriptPart {
   type?: string;
   text?: string;
@@ -125,7 +184,32 @@ function toolLine(part: TranscriptPart): string | null {
   return null;
 }
 
-const RECEIPTS_TAIL_CAP_BYTES = 256 * 1024;
+/**
+ * How much of the harness's record we hand the auditor, per audit.
+ *
+ * This was 256 KiB — about 65k tokens — sent on EVERY turn with tool activity. Across ~1000
+ * real audits in a day that is ~60M input tokens BEFORE the agentic multiplier (the auditor
+ * runs its own probes, and every internal tool call re-sends the whole context). It emptied
+ * a Fable quota, and nothing in the product made that cost visible.
+ *
+ * It also contradicted the design: R4 says evidence is LAZY — "under an agentic auditor this
+ * is an instruction, not a pipeline". We were pre-stuffing a quarter-megabyte AND telling the
+ * auditor to gather its own evidence. We paid twice for the same thing.
+ *
+ * 64 KiB, chosen by MEASUREMENT, not taste. Swept against real transcripts for the thing that
+ * actually matters — does the tail still contain the verification receipt (the test run and
+ * its exit code) that a "tests pass" claim must be judged against?
+ *
+ *     32 KiB → 2/4 receipts kept   ← drops them. Cheaper, and it INVENTS false flags:
+ *                                     the auditor would report "no test run in the receipts"
+ *                                     for a turn that ran tests. Cost paid in trust.
+ *     64 KiB → 4/4 receipts kept   ← ~4x cheaper than before, evidence intact.
+ *
+ * Truncating evidence to save tokens is not a trade you get to make quietly: the auditor
+ * cannot flag what it cannot see, and a confabulation detector that manufactures false
+ * accusations is worse than none. If this needs tuning, tune it with the sweep, not a guess.
+ */
+const RECEIPTS_TAIL_CAP_BYTES = Number(process.env.VS_RECEIPTS_CAP_KB ?? 64) * 1024;
 
 /**
  * Last ~256KB of tool_use/tool_result activity in a Claude Code transcript
@@ -161,6 +245,10 @@ export function readReceiptsTail(path: string, capBytes: number = RECEIPTS_TAIL_
       const content = (o.message as Record<string, unknown> | undefined)?.content ?? o.content;
       if (!Array.isArray(content)) continue;
       for (const part of content as TranscriptPart[]) {
+        if (part && typeof part === "object" && part.type === "thinking") {
+          const thinking = typeof part.thinking === "string" ? part.thinking : typeof part.text === "string" ? part.text : "";
+          if (thinking) out.push(`thinking: ${clipResult(thinking, 1500)}`);
+        }
         const line2 = part && typeof part === "object" ? toolLine(part) : null;
         if (line2) out.push(line2);
       }
@@ -171,5 +259,68 @@ export function readReceiptsTail(path: string, capBytes: number = RECEIPTS_TAIL_
     return tail;
   } catch {
     return "";
+  }
+}
+
+/** ~5MB — the honest bail threshold for readFullSessionToolResults: a transcript
+ *  larger than this is not scanned at all (fail-open: no demotion), rather than
+ *  paying an unbounded full-file read/parse on every audit for a rare, very long
+ *  session. */
+const FULL_SCAN_CAP_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Every tool_result's text (Claude Code) / custom_tool_call_output's text
+ * (codex), across the WHOLE session transcript — no per-line cap (contrast
+ * readReceiptsTail's 64KB tail + clipResult's 2000-char-per-line clip). Backs
+ * auditor.ts's full-session figure rescue (THE FALSE-FLAG MECHANISM, 2026-07-27):
+ * a claimed figure whose producing tool_result scrolled out of the audited
+ * receipts tail can still be found here.
+ *
+ * ANTI-SELF-LAUNDERING GUARD: ONLY tool_result / custom_tool_call_output content
+ * is collected — never assistant/tool_use text. An agent's own prior prose can
+ * never launder a fabricated figure into "grounded" this way; only what a TOOL
+ * actually returned counts as a receipt.
+ *
+ * Fail-open (R8): a missing file → { text: "", bailed: false } (nothing to scan,
+ * no demotion). A transcript over `capBytes` (~5MB default) → { text: "",
+ * bailed: true } — an honest bail, never a partial/silent scan, so the caller
+ * can tell "scanned and found nothing" apart from "didn't scan" and must never
+ * demote on the latter. Any parse error on a line is skipped; never throws.
+ */
+export function readFullSessionToolResults(
+  path: string,
+  capBytes: number = FULL_SCAN_CAP_BYTES,
+): { text: string; bailed: boolean } {
+  try {
+    if (!existsSync(path)) return { text: "", bailed: false };
+    if (statSync(path).size > capBytes) return { text: "", bailed: true };
+    const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
+    const out: string[] = [];
+    for (const line of lines) {
+      let obj: unknown;
+      try {
+        obj = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (!obj || typeof obj !== "object") continue;
+      const o = obj as Record<string, unknown>;
+      const payload = o.payload as Record<string, unknown> | undefined;
+      if (o.type === "response_item" && payload?.type === "custom_tool_call_output") {
+        const text = textFromCodexContent(payload.output);
+        if (text) out.push(text);
+        continue;
+      }
+      const content = (o.message as Record<string, unknown> | undefined)?.content ?? o.content;
+      if (!Array.isArray(content)) continue;
+      for (const part of content as TranscriptPart[]) {
+        if (!part || typeof part !== "object" || part.type !== "tool_result") continue;
+        const text = typeof part.content === "string" ? part.content : textFromContent(part.content) || "";
+        if (text) out.push(text);
+      }
+    }
+    return { text: out.join("\n"), bailed: false };
+  } catch {
+    return { text: "", bailed: false };
   }
 }

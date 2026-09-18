@@ -13,15 +13,17 @@ import {
   selectJudgeVendor,
   onPath,
   openrouterApiKey,
+  typesafeApiKey,
   OllamaClient,
   OpenRouterClient,
   type Vendor,
 } from "./llm.js";
+import { invokeJev, JEV_MODEL, JEV_TIMEOUT_MS } from "./jev.js";
 // The knight (authored gates up front), the transcriber (turned a complaint into a gate),
 // and the semantic judge (ruled on a gate's claim over captured evidence) are GONE. All
 // three were special cases of what the auditor already does — author a check, or rule on a
 // claim against evidence — each with its own vendor resolution, its own LLM client, and its
-// own spawn path. One role, two verbs; see src/auditor.ts and law.ts's appendDemand.
+// own spawn path. One role: the auditor (src/auditor.ts).
 
 // ---------------------------------------------------------------------------
 // Auditor resolution (SPEC.md §2 "Auditor resolution" — five rules + override).
@@ -71,7 +73,7 @@ export function executorFamily(executor: string): "openai" | "claude" | "other" 
   return "other";
 }
 
-const AUDITOR_VENDORS = new Set<Vendor>(["codex", "claude", "ollama", "openrouter"]);
+const AUDITOR_VENDORS = new Set<Vendor>(["codex", "claude", "ollama", "openrouter", "jev"]);
 
 function parseAuditorSpec(v: string): { vendor: Vendor; model?: string } | null {
   const i = v.indexOf(":");
@@ -149,13 +151,56 @@ const CLAUDE_READONLY_TOOLS = "Read,Bash(git log:*),Bash(git status:*),Bash(git 
  *  own turn-end would enqueue an audit — which spawns another auditor, forever. This stamp
  *  tells veritaserum's hooks (cli.ts's isAuditorChild) that this process is the auditor.
  *  execa extends process.env at spawn time, so this must NOT snapshot it here. */
-const AUDITOR_CHILD_ENV = { VS_AUDIT_CHILD: "1" };
+function auditorChildEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env } as NodeJS.ProcessEnv;
+  env.VS_AUDIT_CHILD = "1";
+  delete env.TYPESAFE_API_KEY;
+  delete env.OPENROUTER_API_KEY;
+  return env;
+}
+
+/** Why a CLI auditor failed. These tools print the cause on stdout and exit non-zero. */
+function reasonFrom(r: { stdout?: string; stderr?: string }): string {
+  const text = `${r.stderr ?? ""} ${r.stdout ?? ""}`.trim();
+  return text ? text.slice(0, 300) : "no output";
+}
+
+/** A quota/limit refusal is not a broken auditor — it is an EXHAUSTED one. Same shape as an
+ *  outage from our side (the audit does not happen), but the remedy is a different vendor,
+ *  not a retry. Recognising it is what lets the audit fall back instead of giving up. */
+export function isExhausted(message: string): boolean {
+  return /reached your .*limit|usage limit|rate limit|quota|429|insufficient credit|out of credit/i.test(message);
+}
 // Real agentic CLI audits can legitimately exceed three minutes while making
 // read-only probes. They are detached from the hook; a five-minute async bound
 // preserves liveness without turning normal tool use into a false infra error.
 const DEFAULT_AUDITOR_TIMEOUT_MS = 300_000;
+// A local ollama auditor is free and CPU-bound: on the production box (no GPU,
+// competing audits) qwen2.5:14b's p90 sits at ~350s, so the 5-minute bound was
+// converting ~30% of real audits into timeout errors (measured 2026-07-21, 14
+// of 46 production rows). Tokens cost nothing here — only wall clock — so the
+// bound is generous; the audit is detached and nothing blocks on it.
+const OLLAMA_AUDITOR_TIMEOUT_MS = 900_000;
 const DEFAULT_METERED_MODEL = "glm-4.2";
 const DEFAULT_OLLAMA_MODEL = "qwen2.5:3b";
+const AUDITOR_EFFORTS = new Set(["low", "medium", "high"]);
+
+/**
+ * The auditor's model, pinned — NOT the user's default.
+ *
+ * We passed no --model, so `claude -p` ran on whatever the user's default was. For a Fable
+ * subscriber that is the frontier model, on EVERY turn with tool activity: ~1000 audits in a
+ * day, each re-reading the receipts, each running its own tool loop. It drained the quota,
+ * and because nothing recorded the cost, the first symptom was the auditor dying with "you've
+ * reached your limit" — which then looked like a veritaserum bug.
+ *
+ * A tool that silently spends your most expensive quota is not free, whatever the README says.
+ * The auditor's job — does this claim follow from these receipts — is a judgment task, not a
+ * frontier-reasoning one, so default to the mid tier and let the user pay up if they want to:
+ *   VS_AUDITOR=claude:opus  ·  VS_AUDITOR=claude:haiku  ·  VS_AUDITOR=codex:gpt-5.6
+ * Choose with the seeded eval (catch rate vs false-flag rate per model), not with taste.
+ */
+const DEFAULT_CLAUDE_AUDITOR_MODEL = process.env.VS_AUDITOR_MODEL || "sonnet";
 
 function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTier, sameFamily: boolean): Auditor {
   switch (vendor) {
@@ -174,41 +219,54 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
           // argument at MAX_ARG_STRLEN (128 KiB), and a real session's receipts tail blows
           // past that, so an argv prompt made execve fail with E2BIG on exactly the long
           // sessions worth auditing — surfacing as a bogus "timeout" with no stderr.
-          const r = await execa("codex", ["exec", "-s", "read-only", ...(model ? ["-m", model] : []), "-"], {
+          // VS_AUDITOR_EFFORT (low|medium|high) opts into -c model_reasoning_effort=<value>;
+          // unset or anything else omits the flag and falls open to codex's own default.
+          const effort = process.env.VS_AUDITOR_EFFORT;
+          const effortArgs = effort && AUDITOR_EFFORTS.has(effort) ? ["-c", `model_reasoning_effort=${effort}`] : [];
+          const r = await execa("codex", ["exec", "-s", "read-only", ...(model ? ["-m", model] : []), ...effortArgs, "-"], {
             cwd: dir,
             input: prompt,
-            env: AUDITOR_CHILD_ENV,
+            env: auditorChildEnv(),
             reject: false,
             timeout: timeoutMs ?? DEFAULT_AUDITOR_TIMEOUT_MS,
           });
           if (r.exitCode !== 0) {
-            throw new Error(`codex exec failed (exit ${r.exitCode ?? "timeout"}): ${(r.stderr ?? "").slice(0, 300)}`);
+            // The reason is often on STDOUT, not stderr: `claude -p` and `codex exec` print
+            // "You've reached your … limit" to stdout and exit 1. Capturing stderr alone
+            // recorded an error with an EMPTY reason — an audit that failed for no stated
+            // cause, which is indistinguishable from one that never ran.
+            throw new Error(`codex exec failed (exit ${r.exitCode ?? "timeout"}): ${reasonFrom(r)}`);
           }
           return (r.stdout ?? "").trim();
         },
       };
-    case "claude":
+    case "claude": {
+      // Pin the model. With no --model, `claude -p` inherits the USER's default — for a Fable
+      // subscriber, the frontier model, on every turn. That is what drained the quota.
+      const claudeModel = model ?? DEFAULT_CLAUDE_AUDITOR_MODEL;
       return {
         tier,
         vendor,
-        model,
+        model: claudeModel,
         sameFamily,
         async invoke(prompt, dir, timeoutMs) {
           // Prompt over STDIN, not argv — same MAX_ARG_STRLEN (128 KiB) ceiling as the
           // codex path above; a long session's prompt exceeds it and execve fails E2BIG.
-          const r = await execa("claude", ["-p", "--allowedTools", CLAUDE_READONLY_TOOLS, ...(model ? ["--model", model] : [])], {
+          const r = await execa("claude", ["-p", "--allowedTools", CLAUDE_READONLY_TOOLS, "--model", claudeModel], {
             cwd: dir,
             input: prompt,
-            env: AUDITOR_CHILD_ENV,
+            env: auditorChildEnv(),
             reject: false,
             timeout: timeoutMs ?? DEFAULT_AUDITOR_TIMEOUT_MS,
           });
           if (r.exitCode !== 0) {
-            throw new Error(`claude -p failed (exit ${r.exitCode ?? "timeout"}): ${(r.stderr ?? "").slice(0, 300)}`);
+            throw new Error(`claude -p failed (exit ${r.exitCode ?? "timeout"}): ${reasonFrom(r)}`);
           }
           return (r.stdout ?? "").trim();
         },
       };
+    }
+
     case "ollama": {
       const m = model || DEFAULT_OLLAMA_MODEL;
       return {
@@ -217,7 +275,7 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
         model: m,
         sameFamily,
         async invoke(prompt, _dir, timeoutMs) {
-          return new OllamaClient(m).complete({ prompt, timeoutMs: timeoutMs ?? DEFAULT_AUDITOR_TIMEOUT_MS });
+          return new OllamaClient(m).complete({ prompt, timeoutMs: timeoutMs ?? OLLAMA_AUDITOR_TIMEOUT_MS });
         },
       };
     }
@@ -232,6 +290,18 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
           const key = openrouterApiKey();
           if (!key) throw new Error("OPENROUTER_API_KEY not set");
           return new OpenRouterClient(m, key).complete({ prompt, timeoutMs: timeoutMs ?? DEFAULT_AUDITOR_TIMEOUT_MS });
+        },
+      };
+    }
+    case "jev": {
+      const m = model || JEV_MODEL;
+      return {
+        tier: "pre-gathered",
+        vendor,
+        model: m,
+        sameFamily: false,
+        async invoke(prompt, _dir, timeoutMs) {
+          return invokeJev(prompt, timeoutMs ?? JEV_TIMEOUT_MS);
         },
       };
     }
@@ -283,6 +353,19 @@ async function resolveInternal(executor: string, explicitOverride?: string): Pro
     }
     // Malformed override (unrecognized vendor): fail open, fall through to
     // auto-resolution rather than wedging the auditor entirely (R8).
+  }
+
+  // Jev (typesafe System One) sits on the existing ladder, not beside it.
+  // Cross-family for both Claude and Codex executors; pre-gathered; ~350ms.
+  // Skip the 20s CLI smoke probes when the key is present — the blocking path
+  // cannot afford them. VS_AUDITOR still overrides everything above.
+  if (typesafeApiKey()) {
+    const rule = "jev: TYPESAFE_API_KEY present → jev-latest (pre-gathered Choice auditor, cross-family)";
+    return {
+      auditor: buildAuditor("jev", JEV_MODEL, "pre-gathered", false),
+      rule,
+      candidates: [{ vendor: "jev", ok: true, detail: "TYPESAFE_API_KEY present", firedRule: rule }],
+    };
   }
 
   const family = executorFamily(executor);

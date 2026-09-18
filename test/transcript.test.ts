@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { readLastAssistantMessage, readLastUserMessage, readReceiptsTail } from "../src/transcript.js";
+import { readLastAssistantMessage, readLastUserMessage, readReceiptsTail, readConversationTail, readFullSessionToolResults } from "../src/transcript.js";
 
 describe("Claude Code transcript reader", () => {
   it("extracts the last assistant text from a JSONL transcript", () => {
@@ -85,7 +85,151 @@ describe("Claude Code transcript reader", () => {
   });
 });
 
+describe("readConversationTail — recent prose exchange for reliance judgment", () => {
+  it("extracts recent user/assistant prose and drops tool_use / tool_result noise", () => {
+    const lines = [
+      JSON.stringify({ type: "user", message: { role: "user", content: "is it safe to merge?" } }),
+      JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", name: "Bash", input: { command: "pnpm test" } }] } }),
+      JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "tool_result", content: "Tests 4 passed" }] } }),
+      JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "all tests pass, safe to merge" }] } }),
+    ].join("\n");
+    const p = join(tmpdir(), `vs-cache-convtail-${process.pid}.jsonl`);
+    require("node:fs").writeFileSync(p, lines);
+    try {
+      const tail = readConversationTail(p);
+      expect(tail).toContain("User: is it safe to merge?");
+      expect(tail).toContain("Agent: all tests pass, safe to merge");
+      // tool noise never leaks into the reliance tail
+      expect(tail).not.toContain("pnpm test");
+      expect(tail).not.toContain("Tests 4 passed");
+    } finally {
+      require("node:fs").rmSync(p, { force: true });
+    }
+  });
+
+  it("reads the codex event_msg user/agent shapes", () => {
+    const lines = [
+      JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: "which two still fail?" } }),
+      JSON.stringify({ type: "event_msg", payload: { type: "agent_message", message: "the two stubborn ones" } }),
+    ].join("\n");
+    const p = join(tmpdir(), `vs-cache-convtail-codex-${process.pid}.jsonl`);
+    require("node:fs").writeFileSync(p, lines);
+    try {
+      const tail = readConversationTail(p);
+      expect(tail).toContain("User: which two still fail?");
+      expect(tail).toContain("Agent: the two stubborn ones");
+    } finally {
+      require("node:fs").rmSync(p, { force: true });
+    }
+  });
+
+  it("is tolerant of garbage and a missing file → '' (never throws)", () => {
+    expect(readConversationTail("/no/such/file.jsonl")).toBe("");
+    const p = join(tmpdir(), `vs-cache-convtail-garbage-${process.pid}.jsonl`);
+    require("node:fs").writeFileSync(p, "not json\n{bad json\n\n[[[\n");
+    try {
+      expect(readConversationTail(p)).toBe("");
+    } finally {
+      require("node:fs").rmSync(p, { force: true });
+    }
+  });
+});
+
 // v3 (SPEC §2): the CLI's `hook-stop` no longer reads a claim out of the
 // transcript at all — the sync path only stats the transcript for byte-size
 // growth (the "nothing to audit" probe) and never emits a synchronous
 // {"decision":"block"}. See test/sync-path.test.ts for the CC-payload coverage.
+
+// ---------------------------------------------------------------------------
+// readFullSessionToolResults — THE FALSE-FLAG MECHANISM fix (2026-07-27): the
+// uncapped, whole-transcript tool-result reader that backs auditor.ts's
+// demoteFullSessionFigures. Unlike readReceiptsTail (64KB tail, 2000-char/line
+// clip), this scans every line for the WHOLE session's tool_result content,
+// capped only by an honest file-size bail.
+// ---------------------------------------------------------------------------
+describe("readFullSessionToolResults — whole-session tool-result scan", () => {
+  it("collects tool_result text from anywhere in the transcript (not just the tail), ignoring tool_use calls", () => {
+    const lines = [
+      JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", name: "browser_observe", input: { url: "https://shop.example/cart" } }] } }),
+      JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "tool_result", content: "cart: $60.00 subtotal, free shipping, $60.00 total" }] } }),
+      // many turns of unrelated noise follow, simulating the figure scrolling out of a tail window
+      ...Array.from({ length: 20 }, (_, i) => JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: `unrelated turn ${i}` }] } })),
+    ].join("\n");
+    const p = join(tmpdir(), `vs-cache-fullscan-${process.pid}.jsonl`);
+    require("node:fs").writeFileSync(p, lines);
+    try {
+      const { text, bailed } = readFullSessionToolResults(p);
+      expect(bailed).toBe(false);
+      expect(text).toContain("$60.00 total");
+      // the tool_use call's own argv text never leaks in (calls are not results)
+      expect(text).not.toContain("browser_observe");
+    } finally {
+      require("node:fs").rmSync(p, { force: true });
+    }
+  });
+
+  it("collects the codex custom_tool_call_output shape", () => {
+    const lines = [
+      { type: "response_item", payload: { type: "custom_tool_call", name: "exec", input: "curl cart" } },
+      { type: "response_item", payload: { type: "custom_tool_call_output", output: [{ type: "input_text", text: "Total: $60.00" }] } },
+    ];
+    const p = join(tmpdir(), `vs-cache-fullscan-codex-${process.pid}.jsonl`);
+    require("node:fs").writeFileSync(p, lines.map((l) => JSON.stringify(l)).join("\n"));
+    try {
+      const { text, bailed } = readFullSessionToolResults(p);
+      expect(bailed).toBe(false);
+      expect(text).toContain("Total: $60.00");
+    } finally {
+      require("node:fs").rmSync(p, { force: true });
+    }
+  });
+
+  it("ANTI-SELF-LAUNDERING GUARD: a figure appearing only in the agent's OWN prior assistant text is never captured — only tool_result content grounds", () => {
+    const lines = [
+      // the agent asserts the figure in plain prose; no tool ever produced it
+      JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "I estimate the total will be $60.00." }] } }),
+      JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "tool_result", content: "unrelated: 200 OK" }] } }),
+    ].join("\n");
+    const p = join(tmpdir(), `vs-cache-fullscan-selflaunder-${process.pid}.jsonl`);
+    require("node:fs").writeFileSync(p, lines);
+    try {
+      const { text, bailed } = readFullSessionToolResults(p);
+      expect(bailed).toBe(false);
+      expect(text).not.toContain("$60.00");
+      expect(text).not.toContain("estimate");
+    } finally {
+      require("node:fs").rmSync(p, { force: true });
+    }
+  });
+
+  it("returns { text: '', bailed: false } for a missing file (fail-open, never throws)", () => {
+    expect(readFullSessionToolResults("/no/such/transcript.jsonl")).toEqual({ text: "", bailed: false });
+  });
+
+  it("bails honestly (never a partial scan) when the transcript exceeds the cap", () => {
+    const lines = [
+      JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "tool_result", content: "cart total $60.00" }] } }),
+    ].join("\n");
+    const p = join(tmpdir(), `vs-cache-fullscan-oversized-${process.pid}.jsonl`);
+    require("node:fs").writeFileSync(p, lines);
+    try {
+      // a tiny cap (smaller than the file) exercises the same bail branch the
+      // production ~5MB default guards, without writing an actual 5MB fixture.
+      const { text, bailed } = readFullSessionToolResults(p, 10);
+      expect(bailed).toBe(true);
+      expect(text).toBe("");
+    } finally {
+      require("node:fs").rmSync(p, { force: true });
+    }
+  });
+
+  it("is tolerant of garbage (never throws)", () => {
+    const p = join(tmpdir(), `vs-cache-fullscan-garbage-${process.pid}.jsonl`);
+    require("node:fs").writeFileSync(p, "not json\n{bad json\n\n[[[\n");
+    try {
+      expect(readFullSessionToolResults(p)).toEqual({ text: "", bailed: false });
+    } finally {
+      require("node:fs").rmSync(p, { force: true });
+    }
+  });
+});

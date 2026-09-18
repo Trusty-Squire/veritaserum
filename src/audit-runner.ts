@@ -18,6 +18,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logFiring } from "./telemetry.js";
+import type { VerifiedClaim } from "./auditor.js";
 
 export interface AuditJob {
   /** The repo this turn happened in — runAudit's own git probes and law reads run here. */
@@ -39,7 +40,6 @@ export interface AuditJob {
   harness?: string;
   executor?: string;
   auditor?: string;
-  demandMode?: "script" | "urge";
 }
 export type RunAudit = (job: AuditJob) => Promise<void>;
 
@@ -62,17 +62,6 @@ export function queueRoot(dir: string): string {
 }
 function lockPath(qdir: string): string {
   return join(qdir, ".lock");
-}
-/**
- * ~/.veritaserum/queue/<repo-key>/law-check-hash.txt — the tree hash at the
- * last GREEN mechanical standing-law run (src/run-audit.ts writes it once all
- * runnable checks pass). src/cli.ts's terse state line reads it to decide
- * whether standing law is still unverified against the current tree (SPEC
- * R7) — precise ("still not confirmed since the tree moved"), not a
- * once-per-hash print dedupe.
- */
-export function lawCheckMarkerPath(dir: string): string {
-  return join(queueRoot(dir), "law-check-hash.txt");
 }
 function deadDir(qdir: string): string {
   return join(qdir, "dead");
@@ -117,19 +106,76 @@ export function appendSessionWarnings(dir: string, sessionId: string, warnings: 
 }
 
 /**
+ * FIX 2 session verified-claims store: sibling of the R5 warning store —
+ * ~/.veritaserum/queue/<repo-key>/verified/<session>.json. Each entry is a claim
+ * this session concluded SUPPORTED with named evidence on an earlier turn. A later
+ * turn passes these as `verifiedClaims` so audit()'s demoteVerifiedClaims can ground
+ * a re-asserted claim whose verifying receipt has scrolled out of the window
+ * ("verified earlier this session"). Session-scoped, so no cross-session bleed;
+ * entries older than the 24h feedback bound are dropped on load (expire with the
+ * session — a stale verification should not silently ground a claim forever).
+ */
+export function verifiedClaimsPath(dir: string, sessionId: string): string {
+  return join(queueRoot(dir), "verified", `${sanitize(sessionId)}.json`);
+}
+
+const VERIFIED_CLAIMS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/** Best-effort read (R8): a missing/corrupt store is "nothing verified yet"; stale
+ *  (>= 24h) entries are filtered out. */
+export function loadVerifiedClaims(dir: string, sessionId: string): VerifiedClaim[] {
+  try {
+    const raw: unknown = JSON.parse(readFileSync(verifiedClaimsPath(dir, sessionId), "utf8"));
+    if (!Array.isArray(raw)) return [];
+    const now = Date.now();
+    return raw.filter(
+      (v): v is VerifiedClaim =>
+        !!v &&
+        typeof v === "object" &&
+        typeof (v as VerifiedClaim).claim === "string" &&
+        typeof (v as VerifiedClaim).evidence === "string" &&
+        typeof (v as VerifiedClaim).ts === "number" &&
+        now - (v as VerifiedClaim).ts < VERIFIED_CLAIMS_MAX_AGE_MS,
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Best-effort merge-append (R8): dedupe by claim text, keeping the freshest ts. */
+export function appendVerifiedClaims(dir: string, sessionId: string, verified: VerifiedClaim[]): void {
+  if (!verified.length) return;
+  try {
+    const p = verifiedClaimsPath(dir, sessionId);
+    mkdirSync(dirname(p), { recursive: true });
+    const byClaim = new Map<string, VerifiedClaim>();
+    for (const v of [...loadVerifiedClaims(dir, sessionId), ...verified]) {
+      const existing = byClaim.get(v.claim);
+      if (!existing || v.ts > existing.ts) byClaim.set(v.claim, v);
+    }
+    writeFileSync(p, JSON.stringify([...byClaim.values()]), "utf8");
+  } catch {
+    /* best-effort (R8) */
+  }
+}
+
+/**
  * Claude Code feedback channel (SPEC §2 "Feedback channels", R7): one pending
- * feedback line per REPO (not per session — the queue root is already keyed by
- * repoKey), latest-wins. run-audit.ts writes here when a verdict has
- * warnings/demands/unaccountable; cli.ts's `hook-prompt` case reads + clears it
- * at the next UserPromptSubmit so it injects exactly once.
+ * feedback line per (REPO, SESSION), latest-wins within that session.
+ * run-audit.ts writes here (keyed by the audit job's sessionId) when a verdict
+ * has warnings/unaccountable; cli.ts's `hook-prompt` case reads + clears the
+ * prompting session's line at the next UserPromptSubmit so it injects exactly
+ * once — and ONLY into the session that earned it. Per-repo (not per-session)
+ * delivery was the bug: a warning earned by session A landed in whatever session
+ * prompted next in that repo (fresh QA subagents, even an audit worker).
  *
  * Lives under a `feedback/` subdirectory, NOT directly in queueRoot — listPending()
  * (the drain loop, below) scans every top-level `*.json` in queueRoot as a
  * candidate job file; a stray sibling file there would be misread as a
  * malformed job (same reason session warnings live under `warnings/`).
  */
-export function pendingFeedbackPath(dir: string): string {
-  return join(queueRoot(dir), "feedback", "pending.json");
+export function pendingFeedbackPath(dir: string, sessionId: string): string {
+  return join(queueRoot(dir), "feedback", `${sanitize(sessionId)}.json`);
 }
 
 interface PendingFeedback {
@@ -141,11 +187,11 @@ interface PendingFeedback {
 
 const PENDING_FEEDBACK_MAX_AGE_MS = 24 * 60 * 60 * 1000; // R7: "non-stale (< 24h)"
 
-/** Best-effort write (R8): latest-wins — a fresh verdict always overwrites whatever
- *  was pending, since a newer turn's feedback supersedes an older unread one. */
-export function writePendingFeedback(dir: string, line: string): void {
+/** Best-effort write (R8): latest-wins WITHIN a session — a fresh verdict for the
+ *  same session overwrites its own pending line; a different session's is untouched. */
+export function writePendingFeedback(dir: string, sessionId: string, line: string): void {
   try {
-    const p = pendingFeedbackPath(dir);
+    const p = pendingFeedbackPath(dir, sessionId);
     mkdirSync(dirname(p), { recursive: true });
     const payload: PendingFeedback = { ts: Date.now(), line };
     writeFileSync(p, JSON.stringify(payload), "utf8");
@@ -154,18 +200,15 @@ export function writePendingFeedback(dir: string, line: string): void {
   }
 }
 
-/**
- * Read + unconditionally clear pending feedback (R8: corrupt/stale is consumed
- * too, never left to wedge future turns). Returns null when absent, corrupt, or
- * stale (>= 24h) — only a present, parseable, fresh line is injected.
- */
-export function takePendingFeedback(dir: string): string | null {
-  const p = pendingFeedbackPath(dir);
+/** Read + clear one feedback file, returning its line only when present,
+ *  parseable, and fresh (< 24h). Corrupt/stale is consumed too (R8), never left
+ *  to wedge a future turn. Shared by the session-scoped and repo-fallback paths. */
+function takeFeedbackFile(p: string): string | null {
   let raw: string;
   try {
     raw = readFileSync(p, "utf8");
   } catch {
-    return null; // nothing pending
+    return null; // nothing there
   }
   rmSafely(p);
   try {
@@ -176,6 +219,205 @@ export function takePendingFeedback(dir: string): string | null {
   } catch {
     return null; // corrupt (R8)
   }
+}
+
+/**
+ * Read + clear THIS session's pending feedback (the normal delivery path).
+ * Returns null when absent, corrupt, or stale (>= 24h).
+ */
+export function takePendingFeedback(dir: string, sessionId: string): string | null {
+  return takeFeedbackFile(pendingFeedbackPath(dir, sessionId));
+}
+
+/**
+ * Defensive fallback (R8, R8-spirit): a prompt payload that omits any session
+ * identity can't target a session's file, so drain EVERY session's pending file
+ * in this repo and return the freshest fresh line (latest-wins — the old
+ * repo-scoped semantics). This also sweeps any legacy repo-scoped `pending.json`
+ * left by a prior version harmlessly. Callers tag this delivery `repo-fallback`.
+ */
+export function drainAllPendingFeedback(dir: string): string | null {
+  const fdir = join(queueRoot(dir), "feedback");
+  let names: string[];
+  try {
+    names = readdirSync(fdir);
+  } catch {
+    return null;
+  }
+  let best: { ts: number; line: string } | null = null;
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    const p = join(fdir, name);
+    let raw: string;
+    try {
+      raw = readFileSync(p, "utf8");
+    } catch {
+      continue;
+    }
+    rmSafely(p);
+    try {
+      const parsed = JSON.parse(raw) as Partial<PendingFeedback>;
+      if (typeof parsed.line !== "string" || typeof parsed.ts !== "number") continue;
+      if (Date.now() - parsed.ts >= PENDING_FEEDBACK_MAX_AGE_MS) continue; // stale
+      if (!best || parsed.ts > best.ts) best = { ts: parsed.ts, line: parsed.line };
+    } catch {
+      continue;
+    }
+  }
+  return best ? best.line : null;
+}
+
+/**
+ * A "stray" (SPEC §2 "Feedback channels", autonomous-fleet delivery): another
+ * session's undelivered feedback in the SAME repo. Autonomous sessions — one-shot
+ * scheduled runs that never prompt twice, and long-running turns that end via task
+ * notifications with no new user prompt — never collect their own warnings, so those
+ * catches rot in the queue forever. Any session's prompt (Door 1) and any session
+ * start (Door 2) sweep strays so a human eventually sees them.
+ *
+ * STRAY_AFTER_MS is a grace window: for the first 10 minutes a warning is the owning
+ * session's alone (it may still prompt and collect it first). Only past the grace, and
+ * still within the existing 24h expiry, does another session sweep it.
+ */
+const STRAY_AFTER_MS = 10 * 60 * 1000; // grace: the owning session's first claim
+
+/** A stray's age in a friendly unit — minutes under 2h, hours under 2d — so the
+ *  attribution carries a temporal anchor ("~21h ago") the reader can act on. */
+function friendlyAge(ageMs: number): string {
+  const minutes = Math.max(1, Math.round(ageMs / 60000));
+  if (ageMs < 2 * 60 * 60 * 1000) return `~${minutes}m ago`;
+  const hours = Math.round(ageMs / (60 * 60 * 1000));
+  if (ageMs < 2 * 24 * 60 * 60 * 1000) return `~${hours}h ago`;
+  const days = Math.round(ageMs / (24 * 60 * 60 * 1000));
+  return `~${days}d ago`;
+}
+
+/** Does a stray line carry a claim a human can map to something? A double-quoted
+ *  claim segment, or one of the colloquial verdict phrasings. Grounding-tier lines
+ *  now quote the flagged sentence too (auditor.ts groundingWarning), so they match
+ *  the double-quote branch and are deliverable — consistent with this heuristic's
+ *  intent. The old pre-colloquial formats ("grounding: <rule> — ...") quote nothing
+ *  and name no claim — undeliverable noise the reader can't attach to anything. */
+function strayHasClaim(line: string): boolean {
+  if (/"[^"]+"/.test(line)) return true;
+  return /you have no basis|contradicts your claim|you did substantial work/.test(line);
+}
+
+/** Weave attribution into a stray's leading tag so the reader knows it was earned
+ *  by a DIFFERENT session in this repo (never presented as this session's own),
+ *  and WHEN — the age anchors an otherwise context-free cross-session verdict. */
+function attributeStray(line: string, ageMs: number): string {
+  const tag = "veritaserum: ";
+  const attributed = `veritaserum (from a session ${friendlyAge(ageMs)} in this repo): `;
+  return line.startsWith(tag) ? attributed + line.slice(tag.length) : attributed + line;
+}
+
+/**
+ * Sweep up to `cap` strays (oldest first), attributing each, and CONSUME them so
+ * they are never redelivered. Excludes `excludeSessionId`'s own file (the prompting
+ * session already took its own line via takePendingFeedback).
+ *
+ * Race-safety: takePendingFeedback consumes via read-then-unlink, which double-delivers
+ * under a race (two prompts both read before either unlinks). A stray crosses session
+ * boundaries — two concurrent prompts in the repo could both grab the same one — so this
+ * uses the STRONGER rename-then-read claim (the same atomic-claim pattern drain() uses
+ * for jobs): exactly one racer's renameSync succeeds, so exactly one delivers the line.
+ *
+ * NOTE: strays are consumed but deliberately NOT ledgered via recordDeliveredWarning —
+ * the next-audit advisory-outcome judgment must only ever be asked whether a session
+ * acted on ITS OWN warning, never another session's claim (SPEC §7). The caller records
+ * only its own line.
+ */
+export function takeStrayFeedback(dir: string, excludeSessionId: string, cap = 3): string[] {
+  const fdir = join(queueRoot(dir), "feedback");
+  const exclude = `${sanitize(excludeSessionId)}.json`;
+  let names: string[];
+  try {
+    names = readdirSync(fdir);
+  } catch {
+    return []; // no feedback dir yet — nothing to sweep
+  }
+  // The filename doesn't carry the verdict's landing time, so read each candidate's
+  // ts first, then order oldest-first, THEN claim — a stray's age gates both the grace
+  // window and the 24h expiry.
+  const now = Date.now();
+  const candidates: Array<{ p: string; ts: number; line: string }> = [];
+  for (const name of names) {
+    if (!name.endsWith(".json") || name === exclude) continue;
+    const p = join(fdir, name);
+    let parsed: Partial<PendingFeedback>;
+    try {
+      parsed = JSON.parse(readFileSync(p, "utf8")) as Partial<PendingFeedback>;
+    } catch {
+      continue; // unreadable/corrupt — leave it; the owning session's own take cleans it up
+    }
+    if (typeof parsed.line !== "string" || typeof parsed.ts !== "number") continue;
+    const age = now - parsed.ts;
+    if (age < STRAY_AFTER_MS) continue; // still in the owning session's grace window
+    if (age >= PENDING_FEEDBACK_MAX_AGE_MS) continue; // stale (>= 24h) — dropped, not delivered
+    // A verdict the reader cannot map to anything is noise: an old pre-colloquial
+    // format ("grounding: <rule> — ...") quotes no claim. SKIP it — do not deliver,
+    // do not consume; leave the file to age out via the 24h expiry.
+    if (!strayHasClaim(parsed.line)) continue;
+    candidates.push({ p, ts: parsed.ts, line: parsed.line });
+  }
+  candidates.sort((a, b) => a.ts - b.ts); // oldest first
+  const out: string[] = [];
+  for (const c of candidates) {
+    if (out.length >= cap) break;
+    // Atomic claim: exactly one concurrent sweeper wins the rename; the loser's rename
+    // throws and it skips — the same stray is never delivered twice.
+    const claimed = `${c.p}.stray-${process.pid}-${randomUUID().slice(0, 8)}`;
+    try {
+      renameSync(c.p, claimed);
+    } catch {
+      continue; // another sweeper claimed it first
+    }
+    rmSafely(claimed); // consumed — never redelivered, never ledgered
+    out.push(attributeStray(c.line, now - c.ts));
+  }
+  return out;
+}
+
+/**
+ * Advisory-outcome delivery ledger (SPEC §7 "advisory outcome"): the warning
+ * line(s) actually DELIVERED to a session at a UserPromptSubmit. cli.ts records
+ * here the moment it injects a line; run-audit.ts drains it before the NEXT
+ * audit of that session and asks the LLM auditor whether the turn acted on the
+ * warning. takePendingFeedback consumed a line without recording that it had
+ * been delivered — so "was the warn followed?" (SPEC §7) was unanswerable.
+ * Same best-effort, never-throws shape as the session-warnings store.
+ */
+export function deliveredWarningsPath(dir: string, sessionId: string): string {
+  return join(queueRoot(dir), "delivered", `${sanitize(sessionId)}.json`);
+}
+
+function loadDeliveredWarnings(dir: string, sessionId: string): string[] {
+  try {
+    const raw: unknown = JSON.parse(readFileSync(deliveredWarningsPath(dir, sessionId), "utf8"));
+    return Array.isArray(raw) ? raw.filter((w): w is string => typeof w === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Best-effort append (R8): a warning line was just injected into this session. */
+export function recordDeliveredWarning(dir: string, sessionId: string, line: string): void {
+  try {
+    const p = deliveredWarningsPath(dir, sessionId);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, JSON.stringify([...loadDeliveredWarnings(dir, sessionId), line]), "utf8");
+  } catch {
+    /* best-effort (R8) */
+  }
+}
+
+/** Read + clear this session's delivered ledger (run-audit consumes it once per
+ *  audit, so a delivered warning's outcome is judged exactly once). */
+export function takeDeliveredWarnings(dir: string, sessionId: string): string[] {
+  const out = loadDeliveredWarnings(dir, sessionId);
+  if (out.length) rmSafely(deliveredWarningsPath(dir, sessionId));
+  return out;
 }
 
 let seqCounter = 0;

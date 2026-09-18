@@ -22,21 +22,7 @@ async function git(cwd: string, args: string[]): Promise<{ stdout: string; exitC
   return { stdout: r.stdout, exitCode: r.exitCode ?? 1 };
 }
 
-export async function isRepo(cwd: string): Promise<boolean> {
-  const r = await git(cwd, ["rev-parse", "--is-inside-work-tree"]);
-  return r.exitCode === 0 && r.stdout.trim() === "true";
-}
 
-/** Make `cwd` a git repo if it isn't already — R2 grader integrity needs git, and a
- *  fresh task work dir often isn't a repo yet. Idempotent; a no-op inside an existing repo. */
-export async function ensureRepo(cwd: string): Promise<boolean> {
-  if (await isRepo(cwd)) return false;
-  if ((await git(cwd, ["init", "-q"])).exitCode !== 0) throw new GitError("git init failed", cwd);
-  await git(cwd, ["config", "user.email", "veritaserum@local"]);
-  await git(cwd, ["config", "user.name", "veritaserum"]);
-  await git(cwd, ["commit", "-q", "--allow-empty", "-m", "ser: init for contract integrity"]);
-  return true;
-}
 
 export async function currentCommit(cwd: string): Promise<string> {
   const r = await git(cwd, ["rev-parse", "HEAD"]);
@@ -55,12 +41,6 @@ export async function showFileAtCommit(cwd: string, commit: string, path: string
   return r.stdout;
 }
 
-/** True if the working-tree version of `path` differs from its committed blob. */
-export async function workingDiffersFromCommit(cwd: string, commit: string, path: string): Promise<boolean> {
-  // --quiet exits 1 when there is a diff, 0 when identical.
-  const r = await git(cwd, ["diff", "--quiet", commit, "--", path]);
-  return r.exitCode !== 0;
-}
 
 /**
  * Parse `git status --porcelain=v1 -z` output into entries. Rename/copy records

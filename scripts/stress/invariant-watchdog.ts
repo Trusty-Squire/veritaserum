@@ -457,11 +457,85 @@ function inspectDemands(): void {
   }
 }
 
+/**
+ * ARTIFACT IDENTITY — the invariant whose absence cost a full day.
+ *
+ * Every other invariant here watches the audit pipeline's BEHAVIOUR. None of them can tell
+ * you that the binary the hook actually executes is not the binary you shipped. On
+ * 2026-07-13 the fixes for the codex reader, E2BIG, the self-audit loop and the demand
+ * shebang were all merged to main — and production kept running a `dist/` compiled from a
+ * stale branch, because nothing rebuilt or reinstalled the hook. 830 codex audits went out
+ * vacuous that day while a merged fix for exactly that sat in main, untouched. Telemetry was
+ * green throughout: the pipeline was working perfectly, on the wrong code.
+ *
+ * So: read the command each harness's Stop hook is actually configured to run, resolve the
+ * file it executes, and hash it against the artifact built from HEAD. A watched system must
+ * also be the shipped system.
+ */
+function checkArtifactIdentity(): void {
+  const expected = join(repo, "dist", "hook-cli.cjs");
+  if (!existsSync(expected)) return; // not built here — nothing to compare against
+  const expectedHash = createHash("sha256").update(readFileSync(expected)).digest("hex");
+
+  const configs: Array<{ harness: string; file: string; read: (raw: string) => string[] }> = [
+    {
+      harness: "claude-code",
+      file: join(home, ".claude", "settings.json"),
+      read: (raw) => hookCommands(JSON.parse(raw)),
+    },
+    { harness: "codex", file: join(home, ".codex", "hooks.json"), read: (raw) => hookCommands(JSON.parse(raw)) },
+  ];
+
+  for (const { harness, file, read } of configs) {
+    if (!existsSync(file)) continue;
+    let commands: string[] = [];
+    try {
+      commands = read(readFileSync(file, "utf8"));
+    } catch {
+      continue; // unreadable config is not this invariant's business
+    }
+    for (const command of commands) {
+      const target = command.match(/(\/[^\s'"]+\.(?:cjs|js))/)?.[1];
+      if (!target) continue;
+      if (!existsSync(target)) {
+        violation("artifact-identity", `${harness}'s Stop hook points at a file that does not exist: ${target}`);
+        continue;
+      }
+      const actual = createHash("sha256").update(readFileSync(target)).digest("hex");
+      if (actual !== expectedHash) {
+        violation(
+          "artifact-identity",
+          `${harness}'s Stop hook executes ${target} (sha256 ${actual.slice(0, 12)}…) but HEAD builds ` +
+            `${expected} (sha256 ${expectedHash.slice(0, 12)}…) — the audited binary is not the shipped binary`,
+        );
+      }
+    }
+  }
+}
+
+/** Every `command` string under a harness config's Stop hooks. */
+function hookCommands(config: unknown): string[] {
+  const hooks = (config as { hooks?: Record<string, unknown> } | null)?.hooks;
+  const groups = (hooks as Record<string, unknown> | undefined)?.Stop;
+  if (!Array.isArray(groups)) return [];
+  const out: string[] = [];
+  for (const group of groups) {
+    const inner = (group as { hooks?: unknown })?.hooks;
+    if (!Array.isArray(inner)) continue;
+    for (const hook of inner) {
+      const command = (hook as { command?: unknown })?.command;
+      if (typeof command === "string" && command.includes("veritaserum")) out.push(command);
+    }
+  }
+  return out;
+}
+
 function sample(): void {
   const jobs = queueJobs();
   const dead = deadJobs();
   const telemetry = readJsonl<TelemetryRow>(telemetryPath);
   const processes = processTree();
+  checkArtifactIdentity();
   maxQueueDepth = Math.max(maxQueueDepth, jobs.length);
   maxRelevantProcesses = Math.max(maxRelevantProcesses, processes.length);
   if (processes.length > 32) {

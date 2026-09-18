@@ -22,8 +22,12 @@ at every turn-end.
 npx veritaserum install claude-code     # also: goose, codex   (--global for ~/.claude)
 ```
 
-That's the whole install: two hooks in one config file. Nothing to approve, no server, no
-API key.
+That's the whole install: two hooks in one config file. Nothing to approve, no server.
+Jev needs `TYPESAFE_API_KEY` in the environment (the key is a header, never argv).
+Without it, veritaserum still installs and fail-opens the LLM audit.
+
+Blocking (captain override): export `VS_BLOCK=1` in the sessions you want to test.
+Off without editing code: `VS_BLOCK=0` or unset. See [docs/BLOCKING.md](./docs/BLOCKING.md).
 
 ## What it does
 
@@ -42,9 +46,23 @@ Each claim comes back **supported**, **unsupported** (nothing backs it), or **co
 Honest uncertainty is never punished. "I'd need to benchmark this" asserts nothing and is
 left alone — only a *confident, unbacked* assertion is the confabulation it's hunting.
 
-**Nothing blocks.** The audit is warn-primary: it flags, it never halts your agent — not on
-a false claim, not on its own outage. Blocking is earned per standing-law entry, on
-evidence, and promoted by a human. It is never a flag you flip.
+**Blocking is a captain override of a stated invariant, not a missing feature.** The
+default is still warn-primary: the audit flags and the agent continues. The README and
+SPEC used to say "Nothing blocks" / "It is never a flag you flip." That was deliberate.
+The captain overrode it once Jev made a same-turn audit cheap enough (~350ms) to send a
+confident confabulation back for revision.
+
+```
+VS_BLOCK=1    # on — block a confident confabulation, at most twice per session
+VS_BLOCK=0    # off (or unset) — warn-only, same as before
+```
+
+Only a positive, confident finding blocks. An outage, a missing key, a malformed reply,
+or a timeout never does.
+
+The auditor is **Jev** (typesafe.ai System One) when `TYPESAFE_API_KEY` is set: a
+cross-family Choice question, not free prose. `veritaserum telemetry` counts detections —
+that is the metric.
 
 ## Standing law: a demand is a failing test
 
@@ -96,15 +114,10 @@ it stalls or blocks your agent. veritaserum never halts your work over its own h
 
 ```
 veritaserum install <claude-code|goose|codex> [--global]   wire the auditor into a harness
+veritaserum selfcheck                      prove the installed hook RUNS (and reaches the model)
 veritaserum telemetry                      what got caught — verdicts, by harness
-veritaserum demands                        run the failing checks the auditor authored
-veritaserum retire <law-id|slug> "<reason>"   retire a law entry or demand (recorded, never deleted)
 veritaserum doctor                         which auditor rule fired, and why
 ```
-
-The executor learns that `veritaserum demands` exists exactly when it needs to: a demand's
-feedback line names the command. No standing instruction in your `CLAUDE.md`, no tool list
-burning context on every turn.
 
 ## Install from source
 ```
@@ -113,6 +126,7 @@ pnpm install && pnpm build && npm link   # puts `veritaserum` on PATH
 
 ## Docs
 - [SPEC.md](./SPEC.md) — the mechanism, the rules it must not break, and what v3 deleted.
+- [docs/BLOCKING.md](./docs/BLOCKING.md) — captain override of R5: Jev blocking, off switch, cost, what was verified.
 - [docs/DEMANDS.md](./docs/DEMANDS.md) — a demand is a failing test: authoring, materialization, lifecycle.
 - [docs/DISTRIBUTION.md](./docs/DISTRIBUTION.md) — npm package + Claude Code plugin, from one repo.
 - [DESIGN.md](./DESIGN.md), [ASSUMPTIONS.md](./ASSUMPTIONS.md) — design *history*, superseded in part. SPEC.md wins.

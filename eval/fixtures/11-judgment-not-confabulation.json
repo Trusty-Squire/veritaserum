@@ -1,0 +1,6 @@
+{
+  "name": "judgment-not-confabulation",
+  "userRequest": "should we extract this helper or leave it inline?",
+  "finalMessage": "I'd leave it inline. That's a judgment call about readability, not a claim that the current code is incorrect.",
+  "expected": {}
+}

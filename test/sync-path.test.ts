@@ -15,11 +15,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
 import { execa } from "execa";
-import { tempRepo, write } from "./helpers.js";
-import { queueRoot, lawCheckMarkerPath, type AuditJob } from "../src/audit-runner.js";
-import { runAudit } from "../src/run-audit.js";
-import { appendDemand } from "../src/law.js";
-import { currentTreeHash } from "../src/git.js";
+import { tempRepo } from "./helpers.js";
+import { queueRoot, type AuditJob } from "../src/audit-runner.js";
 import { readFirings, type Firing } from "../src/telemetry.js";
 
 const CLI = resolve(import.meta.dirname, "../src/cli.ts");
@@ -53,7 +50,23 @@ async function repo(): Promise<string> {
 }
 
 async function hookStop(dir: string, payload: object, env: Record<string, string> = {}) {
-  const r = await execa(RUNNER, [CLI, "hook-stop"], { cwd: dir, input: JSON.stringify(payload), reject: false, env });
+  const r = await execa(RUNNER, [CLI, "hook-stop"], {
+    cwd: dir,
+    input: JSON.stringify(payload),
+    reject: false,
+    env: { VS_BLOCK: "0", ...env },
+  });
+  return { code: r.exitCode ?? 1, out: r.stdout, err: r.stderr };
+}
+
+/** The prompt hook: the ONLY door into the executor's context on either harness. */
+async function hookPrompt(dir: string, env: Record<string, string> = {}) {
+  const r = await execa(RUNNER, [CLI, "hook-prompt"], {
+    cwd: dir,
+    input: JSON.stringify({ cwd: dir }),
+    reject: false,
+    env,
+  });
   return { code: r.exitCode ?? 1, out: r.stdout, err: r.stderr };
 }
 
@@ -177,102 +190,14 @@ describe("hook-stop — enqueue (SPEC §2 sync step 3, payload parsing across ha
   });
 });
 
-describe("hook-stop — standing-law state line (SPEC R7: terse, state-gated; precise, not once-only)", () => {
-  const AUDITOR_ENV_KEYS = ["PATH", "VS_DOCTOR_CACHE_PATH", "VS_AUDITOR", "VS_AUDITOR_METERED", "OPENROUTER_API_KEY"] as const;
-
-  /**
-   * Run the REAL runAudit hermetically: PATH scrubbed to a fresh empty shim dir
-   * + the bare system dirs `sh`/`git` need, no OPENROUTER_API_KEY/VS_AUDITOR* —
-   * every auditor resolution rule fails, landing on the R8 floor
-   * (`tier: "absent"`). Mechanical standing-law checks run regardless of
-   * auditor availability (R8), which is exactly what's under test here: a
-   * GREEN mechanical run is what clears cli.ts's terse-line marker, with no
-   * real codex/claude/openrouter call involved.
-   */
-  async function runAuditHermetically(job: AuditJob): Promise<void> {
-    const saved: Partial<Record<(typeof AUDITOR_ENV_KEYS)[number], string>> = {};
-    for (const k of AUDITOR_ENV_KEYS) {
-      const v = process.env[k];
-      if (v !== undefined) saved[k] = v;
-    }
-    const shimDir = mkdtempSync(join(tmpdir(), "vs-sync-shim-"));
-    const cacheDir = mkdtempSync(join(tmpdir(), "vs-sync-cache-"));
-    process.env.PATH = `${shimDir}:/usr/bin:/bin`;
-    process.env.VS_DOCTOR_CACHE_PATH = join(cacheDir, "doctor.json");
-    delete process.env.VS_AUDITOR;
-    delete process.env.VS_AUDITOR_METERED;
-    delete process.env.OPENROUTER_API_KEY;
-    try {
-      await runAudit(job);
-    } finally {
-      for (const k of AUDITOR_ENV_KEYS) {
-        if (saved[k] === undefined) delete process.env[k];
-        else process.env[k] = saved[k];
-      }
-      await rm(shimDir, { recursive: true, force: true });
-      await rm(cacheDir, { recursive: true, force: true });
-    }
-  }
-
-  it("prints while unverified, falls silent once a GREEN mechanical run clears it, and resumes when the tree next moves", async () => {
+describe("hook-prompt — no pending feedback → stays silent (the law state line is gone)", () => {
+  it("with nothing queued, the prompt hook prints nothing and exits 0", async () => {
     const dir = await repo();
     blockRunner(dir);
-    await write(dir, "tracked.txt", "a");
-    await execa("git", ["add", "-A"], { cwd: dir });
-    await execa("git", ["commit", "-q", "-m", "tracked file"], { cwd: dir });
-
-    await appendDemand(dir, { run: "true", rung: "oracle", originClaim: "claims it works" });
-    await execa("git", ["add", "-A"], { cwd: dir });
-    await execa("git", ["commit", "-q", "-m", "law"], { cwd: dir });
-
-    // Harness-owned transcripts are not part of the audited working tree.
-    const transcriptDir = mkdtempSync(join(tmpdir(), "vs-sync-law-transcript-"));
-    cleanups.push(() => rm(transcriptDir, { recursive: true, force: true }));
-    const tpath = join(transcriptDir, "transcript.jsonl");
-    writeFileSync(tpath, "turn 1\n");
-    const EXPECTED = "veritaserum: 1 standing check(s) unverified against current tree";
-
-    // Due: nothing has ever confirmed this tree state green.
-    let r = await hookStop(dir, { transcript_path: tpath, cwd: dir });
-    expect(r.code).toBe(0);
-    expect(r.out.trim()).toBe(EXPECTED);
-
-    // STILL due on a later turn at the SAME tree state — unlike the old
-    // once-per-hash print dedupe, nothing has actually verified this state
-    // yet, so the line keeps firing (this is "precise instead of once-only").
-    writeFileSync(tpath, "turn 1\nturn 2\n");
-    r = await hookStop(dir, { transcript_path: tpath, cwd: dir });
-    expect(r.out.trim()).toBe(EXPECTED);
-
-    // A real GREEN mechanical run (the async audit job) clears the marker for
-    // this exact tree state.
-    await runAuditHermetically({ dir, sessionId: "s1", turnRef: "t-green", mode: "live", transcriptPath: tpath });
-    expect(readFileSync(lawCheckMarkerPath(dir), "utf8").trim()).toBe(await currentTreeHash(dir));
-
-    // Now silent at the same tree state — confirmed green.
-    writeFileSync(tpath, "turn 1\nturn 2\nturn 3\n");
-    r = await hookStop(dir, { transcript_path: tpath, cwd: dir });
-    expect(r.out).toBe("");
-
-    // Tree moves — due again; the green marker is stale for the new state.
-    await write(dir, "tracked.txt", "b");
-    writeFileSync(tpath, "turn 1\nturn 2\nturn 3\nturn 4\n");
-    r = await hookStop(dir, { transcript_path: tpath, cwd: dir });
-    expect(r.out.trim()).toBe(EXPECTED);
-  });
-
-  it("no runnable law entries → never prints, even with a dirty tree", async () => {
-    const dir = await repo();
-    blockRunner(dir);
-    await write(dir, "tracked.txt", "a");
-    await execa("git", ["add", "-A"], { cwd: dir });
-    await execa("git", ["commit", "-q", "-m", "tracked file"], { cwd: dir });
-    await write(dir, "tracked.txt", "b"); // dirty, but no law.yaml at all
-
-    const tpath = join(dir, "transcript.jsonl");
-    writeFileSync(tpath, "turn 1\n");
-    const r = await hookStop(dir, { transcript_path: tpath, cwd: dir });
-    expect(r.out).toBe("");
+    await execa("git", ["add", "-A"], { cwd: dir }).catch(() => {});
+    const prompt = await hookPrompt(dir);
+    expect(prompt.code).toBe(0);
+    expect(prompt.out).toBe("");
   });
 });
 

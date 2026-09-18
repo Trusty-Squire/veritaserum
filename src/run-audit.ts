@@ -10,42 +10,38 @@
  *     goose session id, or a Claude Code transcript when it carries one (the
  *     dispatch job's `transcriptPath` distinguishes the two harness shapes).
  *  2. resolve the cross-family auditor for VS_EXECUTOR and hand it + the
- *     material to `audit()` (src/auditor.ts) — one auditor invocation.
- *  3. after a run whose mechanical standing-law checks ALL pass, clear/update
- *     the "last green" tree-hash marker cli.ts's terse state line reads (SPEC
- *     R7) — this is what makes that line track real verification status
- *     instead of a once-per-hash print dedupe.
+ *     material to `audit()` (src/auditor.ts) — one auditor invocation plus the
+ *     no-LLM grounding tier.
  *
  * Never throws (R8): audit-runner.ts's drain loop already treats a thrown
  * runAudit as a dead job + telemetry, but every step here is itself
  * defensive/best-effort so that path is a last resort, not the normal one.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
 import { readGooseSession } from "./goose.js";
-import { readLastAssistantMessage, readLastUserMessage, readReceiptsTail } from "./transcript.js";
-import { resolveAuditor } from "./resolve.js";
-import { demandsCommand } from "./install.js";
+import { readLastAssistantMessage, readLastUserMessage, readReceiptsTail, readConversationTail } from "./transcript.js";
+import { resolveAuditor, isExhausted } from "./resolve.js";
 import { audit, type AuditJob as AuditContentJob, type AuditVerdict } from "./auditor.js";
+import { logFiring } from "./telemetry.js";
 import {
   appendSessionWarnings,
-  lawCheckMarkerPath,
+  appendVerifiedClaims,
   loadSessionWarnings,
+  loadVerifiedClaims,
+  takeDeliveredWarnings,
   writePendingFeedback,
   type AuditJob,
   type RunAudit,
 } from "./audit-runner.js";
-import { currentTreeHash } from "./git.js";
-import { writeHookLawState } from "./hook-state.js";
 
 /** Step 1: the turn's final message, the user's request, and a receipt tail —
  *  from goose's sessions.db (session id) or a Claude Code transcript (path). */
-function loadTurnMaterial(job: AuditJob): { finalMessage: string; userRequest: string; receipts?: string } {
+export function loadTurnMaterial(job: AuditJob): { finalMessage: string; userRequest: string; receipts?: string; conversationTail?: string } {
   if (job.transcriptPath) {
     const finalMessage = job.finalMessage ?? readLastAssistantMessage(job.transcriptPath);
     const userRequest = job.userRequest ?? readLastUserMessage(job.transcriptPath);
     const receipts = readReceiptsTail(job.transcriptPath);
-    return { finalMessage, userRequest, ...(receipts ? { receipts } : {}) };
+    const conversationTail = readConversationTail(job.transcriptPath);
+    return { finalMessage, userRequest, ...(receipts ? { receipts } : {}), ...(conversationTail ? { conversationTail } : {}) };
   }
   // A payload-supplied final message (codex's documented content field — "never
   // discard") is authoritative even without a transcript path; only a job with
@@ -64,57 +60,22 @@ function loadTurnMaterial(job: AuditJob): { finalMessage: string; userRequest: s
 /**
  * Claude Code feedback channel (SPEC §2 "Feedback channels", R7): one terse,
  * sharp, specific line for the next UserPromptSubmit — never chatty, never
- * ambient. Built only when there's something to say (warnings, a fresh demand,
- * or R9 unaccountable work); returns null otherwise (nothing gets queued).
+ * ambient. The humane line is built ONCE in auditor.ts (claimWarning et al.,
+ * addressed to the executor and ordered worst-first), so this just prefixes the
+ * source tag to the lead warning. Returns null when there's nothing to say.
+ *
+ * DELIVERY POLICY: the pending-feedback file draws from `deliverableWarnings`, NOT
+ * the full `warnings` set — under VS_DELIVERY=quiet a suppressed warning is deduped
+ * and telemetered but must never interrupt the next turn.
  */
-function buildFeedbackLine(verdict: AuditVerdict): string | null {
-  if (!verdict.warnings.length && !verdict.demands.length && !verdict.unaccountable) return null;
-
-  const worst = verdict.claims.find((c) => c.verdict === "contradicted") ?? verdict.claims.find((c) => c.verdict === "unsupported");
-  let head: string;
-  if (worst) {
-    head = `last turn claimed "${worst.claim}" — ${worst.verdict}${worst.basis ? `: ${worst.basis}` : ""}`;
-  } else if (verdict.unaccountable) {
-    head = `last turn: unaccountable work${verdict.note ? ` — ${verdict.note}` : ""}`;
-  } else {
-    head = verdict.warnings[0] ?? "new standing check appended";
-  }
-  // The demand line is the instruction, not a nudge (docs/DEMANDS.md §2.2):
-  // remedy + accept verbatim, so the executor knows what to produce and what
-  // will be accepted.
-  //
-  // It also names the command that runs the check. This is the ONLY discoverability
-  // channel the executor gets, and it is deliberately just-in-time: no standing
-  // CLAUDE.md rule, no MCP tool list, no ambient prompt tax — the instruction arrives
-  // in the turn where it is actionable, and says nothing on every other turn. The
-  // auditor already WROTE the failing check (in veritaserum's state dir, not the repo),
-  // so the executor's job is to run it, not to author its own oracle.
-  const demand = verdict.demands[0];
-  const tail = demand
-    ? `; DEMAND: ${demand.remedy || demand.gap} — accept: ${demand.accept}` +
-      `; the check is already written — run \`${demandsCommand()}\` (do not write your own)`
-    : "";
-  return `veritaserum: ${head}${tail}`.slice(0, 600);
-}
-
-/** Step 3: a GREEN mechanical recheck of every runnable standing-law entry
- *  clears the terse-line marker for the tree state that just verified.
- *  Best-effort (R8) — a write failure just means the line stays due next turn. */
-async function markGreenIfAllPassed(job: AuditJob, verdict: Awaited<ReturnType<typeof audit>>): Promise<void> {
-  if (!verdict.mechanicalChecks.length) return; // nothing runnable — no green state to record
-  if (!verdict.mechanicalChecks.every((c) => c.passed)) return; // still red — leave the marker as-is
-  try {
-    const hash = await currentTreeHash(job.dir);
-    const markerPath = lawCheckMarkerPath(job.dir);
-    mkdirSync(dirname(markerPath), { recursive: true });
-    writeFileSync(markerPath, hash, "utf8");
-  } catch {
-    /* best-effort marker (R8) */
-  }
+export function buildFeedbackLine(verdict: AuditVerdict): string | null {
+  const lead = verdict.deliverableWarnings[0];
+  if (!lead) return null;
+  return `veritaserum: ${lead}`.slice(0, 600);
 }
 
 export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
-  const { finalMessage, userRequest, receipts } = loadTurnMaterial(job);
+  const { finalMessage, userRequest, receipts, conversationTail } = loadTurnMaterial(job);
 
   const executor = job.executor || "unknown";
   const auditor = await resolveAuditor(executor, job.auditor);
@@ -123,6 +84,15 @@ export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
   // never repeats a verbatim duplicate; append whatever's new once it's done.
   const priorWarnings = loadSessionWarnings(job.dir, job.sessionId);
 
+  // SPEC §7 advisory outcome: warning line(s) DELIVERED to this session before
+  // this turn (cli.ts records them at injection). Drained once, so the LLM
+  // auditor judges each delivered warning's outcome exactly once.
+  const deliveredWarnings = takeDeliveredWarnings(job.dir, job.sessionId);
+
+  // FIX 2: claims this session verified (supported + named evidence) on an earlier
+  // turn, so audit() can ground a re-asserted claim whose receipt scrolled out.
+  const verifiedClaims = loadVerifiedClaims(job.dir, job.sessionId);
+
   const contentJob: AuditContentJob = {
     dir: job.dir,
     sessionId: job.sessionId,
@@ -130,25 +100,73 @@ export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
     finalMessage,
     userRequest,
     ...(receipts ? { receipts } : {}),
+    ...(conversationTail ? { conversationTail } : {}),
     ...(priorWarnings.length ? { priorWarnings } : {}),
+    ...(deliveredWarnings.length ? { deliveredWarnings } : {}),
+    ...(verifiedClaims.length ? { verifiedClaims } : {}),
+    // THE FALSE-FLAG MECHANISM fix: the full transcript path, so audit() can scan
+    // the WHOLE session's tool results (not just the 64KB receipts tail) for a
+    // claimed figure that scrolled out of the audited window.
+    ...(job.transcriptPath ? { transcriptPath: job.transcriptPath } : {}),
     harness: job.harness || "unknown",
     schedulingMode: job.mode,
-    demandMode: job.demandMode || "script",
+    // The addressee of every warning line — claude→"Claude", codex→"Codex", else "Agent".
+    executor,
   };
-  const verdict = await audit(contentJob, auditor);
-  // Count law-registered checks (demand law copies carry lawId) — the same set
-  // install-time writeHookLawState counts via runnableChecks(law), so the two
-  // writers of the cached R7 state always agree.
-  writeHookLawState(job.dir, {
-    runnableCount: verdict.mechanicalChecks.filter((check) => !check.gateId.startsWith("demand:") || check.lawId).length,
-  });
+  let verdict = await audit(contentJob, auditor);
+
+  // FALL BACK, do not give up. The chosen auditor can be exhausted (a usage limit) or simply
+  // broken, and today that produced verdict=error with an empty reason — an audit that
+  // silently did not happen while telemetry looked busy. If the cross-family auditor cannot
+  // answer, ask the other vendor rather than dropping the turn on the floor. A same-family
+  // auditor is a weaker tier, not no tier, and it is TAGGED as such (SPEC rules 3/4) so its
+  // verdicts never inherit cross-family trust.
+  //
+  // TWO exclusions, both cost/consent invariants:
+  //  - ollama: a local, unmetered pin. The `other` vendor is only ever claude/codex — both
+  //    metered. Falling back from a dead ollama silently spends frontier quota the owner
+  //    explicitly refused. Fail open to the error path instead; grounding + telemetry still run.
+  //  - any explicit VS_AUDITOR / job.auditor pin: a pin means "this auditor and no other".
+  //    Reaching a different vendor from a pin violates that regardless of family.
+  // Non-pinned codex↔claude fallback (the auto-resolution ladder) is unchanged.
+  const pinned = Boolean(job.auditor || process.env.VS_AUDITOR);
+  if (verdict.error?.startsWith("auditor invocation failed") && auditor.vendor !== "ollama" && !pinned) {
+    const other = auditor.vendor === "claude" ? "codex" : "claude";
+    try {
+      const fallback = await resolveAuditor(executor, other);
+      const second = await audit({ ...contentJob }, fallback);
+      if (!second.error) {
+        logFiring({
+          harness: "audit-runner",
+          event: "audit",
+          claim: "",
+          verdict: "error",
+          caught: `${auditor.vendor} unavailable (${isExhausted(verdict.error) ? "exhausted" : "failed"}) → fell back to ${other}`,
+          blocked: false,
+          dir: job.dir,
+        });
+        verdict = second;
+      }
+    } catch {
+      // No second vendor either — keep the first verdict (R8: the audit is best-effort).
+    }
+  }
+  // R5 (SPEC §6.5): remember this session's warnings so a later turn never
+  // repeats one verbatim.
   appendSessionWarnings(job.dir, job.sessionId, verdict.warnings);
 
-  // Feedback channel (SPEC §2, R7): a fresh warn/demand/unaccountable verdict
-  // queues one terse line for the next UserPromptSubmit (cli.ts's hook-prompt
-  // case). Best-effort (R8) — writePendingFeedback never throws.
-  const line = buildFeedbackLine(verdict);
-  if (line) writePendingFeedback(job.dir, line);
+  // FIX 2: remember this turn's SUPPORTED-with-named-evidence claims so a later
+  // turn re-asserting one is grounded even after its receipt scrolls out of the
+  // window. Only claims the auditor independently verified (non-empty evidence) —
+  // not the code-demoted ones (their attribution lives in `basis`, not evidence).
+  const newlyVerified = verdict.claims
+    .filter((c) => c.verdict === "supported" && c.evidence.trim())
+    .map((c) => ({ claim: c.claim, evidence: c.evidence.trim(), ts: Date.now() }));
+  appendVerifiedClaims(job.dir, job.sessionId, newlyVerified);
 
-  await markGreenIfAllPassed(job, verdict);
+  // Feedback channel (SPEC §2, R7): a fresh warn/unaccountable verdict queues one
+  // terse line for the next UserPromptSubmit (cli.ts's hook-prompt case).
+  // Best-effort (R8) — writePendingFeedback never throws.
+  const line = buildFeedbackLine(verdict);
+  if (line) writePendingFeedback(job.dir, job.sessionId, line);
 };

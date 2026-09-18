@@ -3,29 +3,105 @@
  * `veritaserum` CLI (DESIGN §4) — the enforcement door a hook shells out to.
  *   veritaserum install <harness>              wire veritaserum's sync path into a harness
  *   veritaserum doctor                        which auditor rule fired and why (SPEC §2)
- *   veritaserum retire <law-id> "<reason>"      retire a standing case-law entry
- *   veritaserum demands                        run the demands the auditor materialized
  *   veritaserum telemetry                      what the auditor caught
  *
  * Exit codes: errors -> 2.
  */
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { commitPaths, currentTreeHash } from "./git.js";
-import { loadLaw, readLawTreeSync, retireDemandLaw, retireLaw, runnableChecks, LAW_FILENAME } from "./law.js";
 import { resolveAuditor, doctorReport } from "./resolve.js";
-import { enqueue, queueRoot, lawCheckMarkerPath, takePendingFeedback, type AuditJob } from "./audit-runner.js";
-import { runDemands, retireDemand } from "./demands.js";
-import { hasToolActivitySince, readGooseSession, defaultGooseSessionsDb } from "./goose.js";
+import { enqueue, queueRoot, takePendingFeedback, drainAllPendingFeedback, takeStrayFeedback, recordDeliveredWarning, writePendingFeedback, type AuditJob } from "./audit-runner.js";
+import { hasToolActivitySince, defaultGooseSessionsDb } from "./goose.js";
 import { audit, type AuditJob as AuditContentJob } from "./auditor.js";
 import { logFiring, readFirings, summarize } from "./telemetry.js";
-import { installTarget, detectHarnesses, isTarget, TARGETS } from "./install.js";
+import { installTarget, detectHarnesses, isTarget, TARGETS, type Target } from "./install.js";
+import { selfcheck } from "./selfcheck.js";
 import * as style from "./style.js";
-import { writeHookLawState } from "./hook-state.js";
+import { typesafeApiKey } from "./llm.js";
+import { loadTurnMaterial, buildFeedbackLine } from "./run-audit.js";
+import {
+  isBlockEnabled,
+  isBlockExplicitlyOff,
+  blockCap,
+  readBlockCount,
+  writeBlockCount,
+  shouldBlock,
+  formatBlockReason,
+  emitBlock,
+} from "./block.js";
 
 /** Which harness fired us (installer sets VS_HARNESS). */
 function harnessName(): string {
   return process.env.VS_HARNESS || "unknown";
+}
+
+/**
+ * The verdict has to reach the MODEL, not just the human — and the two harnesses disagree
+ * about how.
+ *
+ * codex prints a Stop hook's output as a warning in its TUI and drops it on the floor: there
+ * is no StopHookSpecificOutput in its wire schema, so nothing a Stop hook says can ever enter
+ * the model's context. Its ONLY injection doors are SessionStart and UserPromptSubmit, and
+ * both require a structured envelope on stdout:
+ *   {"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"…"}}
+ * Plain stdout — which is what this hook emitted — is not context to codex. So a codex agent
+ * saw the warning banner on the user's screen and nothing in its own transcript, and said so:
+ * "I did not see that stop-hook output. It wasn't included in any terminal/tool output
+ * visible to me." Every verdict, every demand, silently addressed to no one.
+ *
+ * The AGENT'S REPLY is the only channel proven to reach the human on every surface. A
+ * controlled canary (twice) showed additionalContext reliably reaches the MODEL, but
+ * Claude Code's systemMessage does NOT render on the human's main chat surface — per the
+ * docs it lands in the ctrl+r transcript view, which nobody watches (the owner saw nothing
+ * across two deliveries and 18h of production). So we make the agent the display: the model
+ * channel carries the verdict PLUS a directive telling the agent to surface the verdict line
+ * verbatim at the top of its reply. systemMessage is KEPT (it still renders in the transcript
+ * view, and future clients may surface it) but PLAIN — rendering there is transcript-raw at
+ * best, so ANSI escapes are garbage. The directive lives in the model CONTEXT only: never in
+ * systemMessage, telemetry, the dedupe store, or the delivered-warning ledger (that ledger
+ * keeps the bare verdict line so the advisory-outcome audit quotes the right thing).
+ */
+const SHOW_DIRECTIVE =
+  "\nShow the italicized line above to the user verbatim at the top of your reply, then leave a blank line before the rest of your reply.";
+
+/** Wrap in markdown italics for the model channel only — deterministic
+ *  formatting, not left to agent discretion. Guard against double-wrapping
+ *  a line that already arrives asterisk-delimited. */
+function italicize(line: string): string {
+  return line.startsWith("*") && line.endsWith("*") ? line : `*${line}*`;
+}
+
+/**
+ * `event` selects the hook slot the envelope names. UserPromptSubmit is the normal
+ * feedback door; SessionStart is Door 2 (stray delivery on a fresh session). For
+ * SessionStart, additionalContext IS a documented injection channel in Claude Code
+ * (SessionStart stdout becomes the session's initial context), and codex's own
+ * injection doors are SessionStart + UserPromptSubmit — so the same envelope shape
+ * applies, only the hookEventName differs. HONESTY NOTE: SessionStart-via-envelope is
+ * verified against the Claude Code docs but not a controlled canary here (as
+ * UserPromptSubmit was), so if a harness ignores it the failure mode is silence, not
+ * error — R8-safe.
+ */
+function injectionFor(harness: string, line: string, event: "UserPromptSubmit" | "SessionStart" = "UserPromptSubmit"): string {
+  const italic = italicize(line);
+  if (harness === "codex") {
+    return JSON.stringify({
+      hookSpecificOutput: { hookEventName: event, additionalContext: italic + SHOW_DIRECTIVE },
+    });
+  }
+  if (harness === "claude-code") {
+    // Model channel (additionalContext): the italicized verdict + a directive to
+    // surface it in the reply — the reply is the only surface the human reliably
+    // sees. Human channel (systemMessage): PLAIN "⚠️ <verdict>" — no asterisks, no
+    // ANSI (transcript-raw rendering makes escapes garbage), no directive (that's
+    // model-only guidance). "⚠️ " marks the line in every renderer.
+    return JSON.stringify({
+      hookSpecificOutput: { hookEventName: event, additionalContext: italic + SHOW_DIRECTIVE },
+      systemMessage: `⚠️ ${line}`,
+    });
+  }
+  // goose/unknown: bare stdout reaches the model too — append the directive there.
+  return italic + SHOW_DIRECTIVE;
 }
 
 /** Read the harness hook payload (JSON HookContext) from stdin. */
@@ -161,63 +237,94 @@ function hasNewToolActivity(p: HookPayload, marker: LastAudit): boolean {
 }
 
 /**
- * hook-stop-goose-block's per-session block cap (R3: never deadlock a
- * synchronous blocking loop) — ~/.veritaserum/queue/<repo-key>/block-count/
- * <session>.json, a counter of how many times THIS session has already been
- * blocked (exit 2), not how many times it's been audited. Same best-effort,
- * never-throws shape as audit-runner.ts's session-warnings store.
+ * Captain override of R5: a synchronous Jev (or test-double) audit that can
+ * block the turn. Fail-open: any error, absent auditor, or missing key returns
+ * {blocked:false} and never throws.
  */
-function sanitizeForFile(s: string): string {
-  return s.replace(/[^a-zA-Z0-9._-]/g, "_");
-}
-function blockCountPath(qdir: string, sessionId: string): string {
-  return join(qdir, "block-count", `${sanitizeForFile(sessionId)}.json`);
-}
-function readBlockCount(qdir: string, sessionId: string): number {
-  try {
-    const v = JSON.parse(readFileSync(blockCountPath(qdir, sessionId), "utf8")) as { count?: number };
-    return typeof v.count === "number" ? v.count : 0;
-  } catch {
+async function runSynchronousBlock(args: {
+  wd: string;
+  sessionId: string;
+  payload: HookPayload;
+  force: boolean;
+}): Promise<number> {
+  const qdir = queueRoot(args.wd);
+  const cap = blockCap();
+  const priorBlocks = readBlockCount(qdir, args.sessionId);
+  if (priorBlocks >= cap) return 0;
+
+  const executor = process.env.VS_EXECUTOR || "unknown";
+  const auditor =
+    typesafeApiKey() && !process.env.VS_AUDITOR
+      ? await resolveAuditor(executor, "jev")
+      : args.force || process.env.VS_AUDITOR
+        ? await resolveAuditor(executor)
+        : null;
+  if (!auditor || auditor.tier === "absent") return -1; // caller fail-opens (enqueue)
+
+  const job: AuditJob = {
+    dir: args.wd,
+    sessionId: args.sessionId,
+    turnRef: String(Date.now()),
+    mode: process.env.VS_AUDIT_MODE === "testbed" ? "testbed" : "live",
+    ...(args.payload.transcript_path ? { transcriptPath: args.payload.transcript_path } : {}),
+    ...(typeof args.payload.last_assistant_message === "string" ? { finalMessage: args.payload.last_assistant_message } : {}),
+    harness: harnessName(),
+    executor,
+    ...(process.env.VS_AUDITOR ? { auditor: process.env.VS_AUDITOR } : {}),
+  };
+  const material = loadTurnMaterial(job);
+  if (!material.finalMessage) return 0;
+
+  const contentJob: AuditContentJob = {
+    dir: args.wd,
+    sessionId: args.sessionId,
+    turnRef: job.turnRef,
+    finalMessage: material.finalMessage,
+    userRequest: material.userRequest,
+    ...(material.receipts ? { receipts: material.receipts } : {}),
+    ...(material.conversationTail ? { conversationTail: material.conversationTail } : {}),
+    harness: job.harness,
+    schedulingMode: job.mode,
+    executor,
+  };
+  const verdict = await audit(contentJob, auditor);
+  const flagged = verdict.claims.filter((c) => c.verdict === "unsupported" || c.verdict === "contradicted");
+  const block = shouldBlock(verdict, priorBlocks, cap);
+  const overall = verdict.error
+    ? "error"
+    : verdict.claims.some((c) => c.verdict === "contradicted")
+      ? "contradicted"
+      : flagged.length
+        ? "unsupported"
+        : verdict.claims.length
+          ? "supported"
+          : "no-claim";
+
+  logFiring({
+    harness: harnessName(),
+    event: "stop",
+    claim: material.finalMessage.slice(0, 400),
+    verdict: overall,
+    caught: flagged.map((c) => `${c.claim} — ${c.verdict}: ${c.basis}`).join("; "),
+    blocked: block,
+    dir: args.wd,
+    auditor_tier: verdict.sameFamily ? "same_family" : verdict.auditorTier === "absent" ? "absent" : verdict.auditorTier,
+    scheduling_mode: job.mode,
+    turn_ref: job.turnRef,
+    audit_duration_ms: verdict.auditDurationMs,
+  });
+
+  if (!block) {
+    const line = buildFeedbackLine(verdict);
+    if (line) writePendingFeedback(args.wd, args.sessionId, line);
     return 0;
   }
-}
-function writeBlockCount(qdir: string, sessionId: string, count: number): void {
-  try {
-    const p = blockCountPath(qdir, sessionId);
-    mkdirSync(dirname(p), { recursive: true });
-    writeFileSync(p, JSON.stringify({ count }), "utf8");
-  } catch {
-    /* best-effort (R8) */
-  }
-}
 
-/**
- * Sync step 2 (SPEC R7): standing law exists and the tree hasn't been
- * confirmed green at its current state — print ONE terse line, never a
- * block. The marker (src/audit-runner.ts's lawCheckMarkerPath) is the tree
- * hash at the last GREEN mechanical run of every runnable check
- * (src/run-audit.ts writes it after a passing async audit) — this is
- * precise, not a once-per-hash print dedupe: the line fires on every due
- * turn until an actual green run clears it, and again the moment the tree
- * next moves.
- */
-async function printLawStateLineIfDue(dir: string): Promise<void> {
-  const { law } = await loadLaw(dir);
-  const runnable = runnableChecks(law);
-  if (runnable.length === 0) return;
-  const hash = await currentTreeHash(dir);
-  let lastGreen = "";
-  try {
-    lastGreen = readFileSync(lawCheckMarkerPath(dir), "utf8").trim();
-  } catch {
-    /* no green run recorded yet for this repo */
-  }
-  if (lastGreen === hash) return;
-  const line = `veritaserum: ${runnable.length} standing check(s) unverified against current tree`;
-  // Codex Stop rejects plain stdout even on exit 0. `systemMessage` is the
-  // documented non-blocking common output field; Claude Code accepts the terse
-  // text directly.
-  console.log(harnessName() === "codex" ? JSON.stringify({ systemMessage: line }) : line);
+  writeBlockCount(qdir, args.sessionId, priorBlocks + 1);
+  const emission = emitBlock(harnessName(), formatBlockReason(verdict), args.force);
+  if (emission.stdout) process.stdout.write(emission.stdout);
+  if (emission.stderr) process.stderr.write(emission.stderr + (emission.stderr.endsWith("\n") ? "" : "\n"));
+  return emission.exitCode;
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -225,63 +332,6 @@ async function main(argv: string[]): Promise<number> {
   const dir = process.cwd();
 
   switch (cmd) {
-    case "retire": {
-      const lawId = rest[0];
-      const reason = rest.slice(1).join(" ").trim();
-      if (!lawId || !reason) return usage('retire <law-id|demand-slug> "<reason>"');
-      // A demand is two records — the state-dir script (this machine only) and the
-      // git-tracked law entry (every machine). Retire whichever exist, in either
-      // direction, so a slug retires the law gate even where the script is absent
-      // and a law-id retires the local script too.
-      const scriptRetired = retireDemand(dir, lawId);
-      const demandLawRetired = await retireDemandLaw(dir, lawId, reason);
-      if (scriptRetired || demandLawRetired) {
-        if (demandLawRetired) {
-          await commitPaths(dir, [LAW_FILENAME], `ser: retire demand ${lawId} (${reason})`);
-        }
-        console.log(`retired demand ${lawId}: ${reason} (moved to retired/, never resurrected)`);
-        return 0;
-      }
-      const slugForLawId = readLawTreeSync(dir)?.gates.find((g) => g.id === lawId)?.lineage.params?.demandSlug;
-      const ok = await retireLaw(dir, lawId, reason);
-      if (!ok) {
-        console.log(`no active law entry or demand "${lawId}" to retire`);
-        return 0;
-      }
-      if (typeof slugForLawId === "string" && slugForLawId) retireDemand(dir, slugForLawId);
-      await commitPaths(dir, [LAW_FILENAME], `ser: retire law ${lawId} (${reason})`);
-      console.log(`retired ${lawId}: ${reason} (recorded, not deleted)`);
-      return 0;
-    }
-
-    case "demands": {
-      // A demand that invokes `veritaserum demands` would otherwise execute
-      // itself recursively. Signal the outer evaluator and stop before reading
-      // any oracle. runScript also rejects known source shapes pre-execution.
-      const recursionSentinel = process.env.VS_DEMAND_EVALUATION_SENTINEL;
-      if (recursionSentinel) {
-        try {
-          writeFileSync(recursionSentinel, String(process.pid), "utf8");
-        } catch {
-          /* the refusal itself does not depend on recording the sentinel */
-        }
-        console.error("refusing recursive demand evaluation");
-        return 1;
-      }
-      // The demand store is invisible by design — this is the human window into it.
-      const results = await runDemands(dir);
-      if (!results.length) {
-        console.log("no standing demands for this repo");
-        return 0;
-      }
-      for (const d of results) {
-        console.log(`${d.passed ? "✓ met  " : "✗ unmet"}  ${d.slug}`);
-        if (d.remedy) console.log(`         ${d.remedy}${d.accept ? ` — accept: ${d.accept}` : ""}`);
-      }
-      console.log(`\nretire one: veritaserum retire <slug> "<reason>"`);
-      return 0;
-    }
-
     case "install": {
       const target = positional(rest)[0];
       const global = flag(rest, "global");
@@ -305,30 +355,74 @@ async function main(argv: string[]): Promise<number> {
         return 2;
       }
       const res = await installTarget(target, { global, project });
-      try {
-        const { law } = await loadLaw(dir);
-        writeHookLawState(dir, { runnableCount: runnableChecks(law).length });
-      } catch {
-        // A missing/empty/corrupt repo still gets a fail-open hook installation.
-      }
       for (const line of res.steps) console.log(line);
       if (res.manual.length) {
         console.log();
         console.log(`  ${style.yellow("finish by hand:")}`);
         for (const m of res.manual) console.log(`  ${m}`);
       }
+      // PROVE IT. Writing a config file is not an install: five separate defects in one day
+      // were all "installed, reported installed, did nothing". Execute the hook the harness
+      // will actually execute, in a scrubbed environment, and assert its effect. Refuse to
+      // claim success we have not demonstrated.
+      const verdicts = target === "goose" ? [] : await selfcheck(target);
+      if (verdicts.length) {
+        console.log();
+        console.log(`  ${style.bold("verifying the installed hook actually runs")}`);
+        for (const c of verdicts) {
+          console.log(`  ${c.ok ? style.check : style.cross} ${c.name} ${style.dim(`— ${c.detail}`)}`);
+        }
+      }
+      const broken = verdicts.filter((c) => !c.ok);
+
       console.log();
       console.log(style.divider());
+      if (broken.length) {
+        console.log(`  ${style.cross} ${style.bold(target)} is NOT working — ${broken.length} check(s) failed above.`);
+        console.log(style.step("the hook is written to config but does not do its job; fix the failures, then re-run install"));
+        console.log(style.step(`re-check any time:  ${style.bold(`veritaserum selfcheck ${target}`)}`));
+        return 1;
+      }
       console.log(style.ok(`${style.bold(target)} wired — veritaserum now audits every turn-end.`));
       console.log(
         style.step(
           target === "goose"
-            ? "warn-primary (R5): nothing blocks. Goose exposes no prompt injection channel; verdicts land in telemetry."
-            : "warn-primary (R5): nothing blocks. A verdict lands as one line at your next prompt.",
+            ? "Default is still warn-primary (R5). Goose has no prompt-injection channel; verdicts land in telemetry unless blocking is on."
+            : "Default is still warn-primary (R5). A verdict lands as one line at your next prompt unless blocking is on.",
         ),
       );
-      console.log(style.step(`read catches:  ${style.bold("veritaserum telemetry")}`));
-      console.log(style.step(`run demanded checks:  ${style.bold("veritaserum demands")}`));
+      console.log(style.step(`Captain override: set ${style.bold("VS_BLOCK=1")} to block a confident confabulation (at most 2 times per session). Off: unset or ${style.bold("VS_BLOCK=0")}.`));
+      console.log(style.step(`Jev auditor: set ${style.bold("TYPESAFE_API_KEY")} (never on argv; header only). Count detections: ${style.bold("veritaserum telemetry")}.`));
+      return 0;
+    }
+
+    case "selfcheck": {
+      // Drift is the norm, not the exception: an upgrade moves a path, a node version
+      // changes, a harness revokes trust, someone edits a config. The install-time proof
+      // expires. This re-runs it against whatever is installed RIGHT NOW.
+      const targets = (positional(rest)[0] ? [positional(rest)[0]] : detectHarnesses()).filter((t): t is Target =>
+        isTarget(String(t)),
+      );
+      if (!targets.length) {
+        console.error(`  ${style.cross} no harness found — expected one of ${TARGETS.join(", ")}`);
+        return 2;
+      }
+      let failed = 0;
+      for (const t of targets) {
+        if (t === "goose") continue;
+        console.log(`  ${style.bold(t)}`);
+        const results = await selfcheck(t);
+        for (const c of results) {
+          console.log(`  ${c.ok ? style.check : style.cross} ${c.name} ${style.dim(`— ${c.detail}`)}`);
+          if (!c.ok) failed++;
+        }
+        console.log();
+      }
+      if (failed) {
+        console.error(`  ${style.cross} ${failed} check(s) failed — veritaserum is installed but not doing its job`);
+        return 1;
+      }
+      console.log(style.ok("every installed hook runs and reaches the model"));
       return 0;
     }
 
@@ -354,11 +448,13 @@ async function main(argv: string[]): Promise<number> {
       console.log(`  chosen: ${style.bold(`${r.chosen.vendor}${r.chosen.model ? `:${r.chosen.model}` : ""}`)} (tier: ${r.chosen.tier}${r.chosen.sameFamily ? ", same-family" : ""})`);
       console.log(`  rule: ${r.chosen.rule}`);
       console.log();
-      if (r.chosen.tier === "absent") {
+      if (r.chosen.vendor === "jev") {
+        console.log(style.step("Jev (typesafe System One) — Choice auditor, cross-family, ~350ms. Blocking uses this path when VS_BLOCK=1."));
+      } else if (r.chosen.tier === "absent") {
         console.log(style.step("no auditor available — mechanical standing-law checks still run (R8); no LLM audit."));
-        console.log(style.step("upgrade: install codex or claude on PATH, or set OPENROUTER_API_KEY / VS_AUDITOR_METERED=<vendor:model>."));
+        console.log(style.step("upgrade: set TYPESAFE_API_KEY for Jev, install codex or claude on PATH, or set OPENROUTER_API_KEY / VS_AUDITOR_METERED=<vendor:model>."));
       } else if (r.chosen.sameFamily) {
-        console.log(style.step(`upgrade: install a cross-family CLI (${r.chosen.vendor === "codex" ? "claude" : "codex"}) to drop the same-family warning.`));
+        console.log(style.step(`upgrade: install a cross-family CLI (${r.chosen.vendor === "codex" ? "claude" : "codex"}) to drop the same-family warning, or set TYPESAFE_API_KEY for Jev.`));
       } else if (r.chosen.tier === "pre-gathered") {
         console.log(style.step("upgrade: install codex or claude on PATH for an agentic auditor (own read-only probes, not pre-gathered evidence)."));
       } else {
@@ -382,12 +478,22 @@ async function main(argv: string[]): Promise<number> {
         // a. Nothing-to-audit: no tool activity since the last audit marker → PASS, ~0ms.
         if (!hasNewToolActivity(p, marker)) return 0;
 
-        // b. Standing-law state line (R7): terse, best-effort, never blocks even
-        //    on its own internal failure (a corrupt law file shouldn't cancel c).
-        try {
-          await printLawStateLineIfDue(wd);
-        } catch {
-          /* advisory only */
+        // b. Captain override of R5: VS_BLOCK=1 runs a synchronous Jev audit and
+        //    may block. Fail-open (return -1) falls through to the async enqueue.
+        if (isBlockEnabled()) {
+          const sessionId = sessionIdOf(p, wd);
+          const blockCode = await runSynchronousBlock({ payload: p, wd, sessionId, force: false });
+          const next: LastAudit = { ts: Date.now(), ccTranscriptSize: marker.ccTranscriptSize };
+          if (p.transcript_path) {
+            try {
+              next.ccTranscriptSize = { ...next.ccTranscriptSize, [p.transcript_path]: statSync(p.transcript_path).size };
+            } catch {
+              /* best-effort */
+            }
+          }
+          writeLastAudit(qdir, next);
+          if (blockCode >= 0) return blockCode;
+          // Jev unavailable — fall through to async enqueue, never block on our own absence.
         }
 
         // c. Enqueue the async audit job; dispatch is fire-and-forget (audit-runner.js
@@ -402,7 +508,6 @@ async function main(argv: string[]): Promise<number> {
           harness: harnessName(),
           executor: process.env.VS_EXECUTOR || "unknown",
           ...(process.env.VS_AUDITOR ? { auditor: process.env.VS_AUDITOR } : {}),
-          demandMode: process.env.VS_DEMAND_MODE === "urge" ? "urge" : "script",
         };
         enqueue(wd, job);
 
@@ -431,89 +536,19 @@ async function main(argv: string[]): Promise<number> {
       }
     }
 
-    // Alternative goose Stop mode (SPEC-adjacent experiment, not the v3 mechanism
-    // above): goose 1.41.0 has no additionalContext-style injection channel, but a
-    // Stop hook that exits 2 with a reason on stderr BLOCKS turn-end — goose prints
-    // "Stop hook blocked ending this turn" and feeds the stderr text back to the
-    // agent, which then acts on it (verified this session, DeepSeek). This mode
-    // trades R3's "sync path is deterministic and near-free" for a SYNCHRONOUS,
-    // BLOCKING audit so the corrective loop itself can be tested end-to-end.
-    // `hook-stop` above is untouched — this is a separate, opt-in plugin variant
-    // (adapters/goose/hooks/hooks-block.json).
+    // Goose blocking plugin (adapters/goose/hooks/hooks-block.json). Same
+    // captain-override path as VS_BLOCK=1 on hook-stop. VS_BLOCK=0 is the off
+    // switch even for this plugin.
     case "hook-stop-goose-block": {
       if (isAuditorChild()) return 0;
+      if (isBlockExplicitlyOff()) return 0;
       try {
         const p = parsePayload(await readStdin());
         const wd = payloadDir(p, dir);
         const sessionId = sessionIdOf(p, wd);
-
-        // a. Load the turn synchronously from goose's own sessions.db. No final
-        //    message → nothing to audit, exit 0 (R8 fail-open).
-        const session = readGooseSession(sessionId);
-        if (!session.finalAssistantMessage) return 0;
-
-        // b. Per-session block cap (R3): once this session has already been
-        //    blocked >= cap times, let it finish no matter the verdict — never
-        //    deadlock the turn. Checked BEFORE the (expensive) audit call.
-        const qdir = queueRoot(wd);
-        const capEnv = Number(process.env.VS_BLOCK_CAP);
-        const cap = Number.isFinite(capEnv) && capEnv > 0 ? capEnv : 2;
-        const priorBlocks = readBlockCount(qdir, sessionId);
-        if (priorBlocks >= cap) return 0;
-
-        // c. Resolve the cross-family auditor and run it SYNCHRONOUSLY — this is
-        //    the blocking path (an agentic auditor call, ~30-60s, is expected here;
-        //    that's the point of the experiment).
-        const auditor = await resolveAuditor(process.env.VS_EXECUTOR || "unknown");
-        const contentJob: AuditContentJob = {
-          dir: wd,
-          sessionId,
-          finalMessage: session.finalAssistantMessage,
-          userRequest: session.userRequest ?? "",
-          ...(session.receiptsTail ? { receipts: session.receiptsTail } : {}),
-          harness: harnessName(),
-          schedulingMode: process.env.VS_AUDIT_MODE === "testbed" ? "testbed" : "live",
-          demandMode: process.env.VS_DEMAND_MODE === "urge" ? "urge" : "script",
-        };
-        const verdict = await audit(contentJob, auditor);
-
-        // d. Flagged = unsupported/contradicted claims, or R9 unaccountable work.
-        const flagged = verdict.claims.filter((c) => c.verdict === "unsupported" || c.verdict === "contradicted");
-        const blocked = flagged.length > 0 || verdict.unaccountable;
-        const overall = verdict.error
-          ? "error"
-          : verdict.claims.some((c) => c.verdict === "contradicted")
-            ? "contradicted"
-            : blocked
-              ? "unsupported"
-              : verdict.claims.length
-                ? "supported"
-                : "no-claim";
-
-        logFiring({
-          harness: harnessName(),
-          event: "stop",
-          claim: session.finalAssistantMessage.slice(0, 400),
-          verdict: overall,
-          caught: flagged.map((c) => `${c.claim} — ${c.verdict}: ${c.basis}`).join("; "),
-          blocked,
-          dir: wd,
-        });
-
-        if (!blocked) return 0;
-
-        writeBlockCount(qdir, sessionId, priorBlocks + 1);
-
-        const n = flagged.length + (verdict.unaccountable ? 1 : 0);
-        const lines = [`veritaserum: ${n} claim(s) not backed by a verification receipt:`];
-        for (const c of flagged) lines.push(`  - ${c.claim}: ${c.basis || c.evidence || "no basis given"}`);
-        if (verdict.unaccountable) lines.push(`  - unaccountable work: ${verdict.note || "state what was done and how you know it works"}`);
-        for (const d of verdict.demands) lines.push(`  demand: ${d.remedy || d.gap} — accept: ${d.accept}`);
-        lines.push(`Run the actual check and correct or retract before finishing.`);
-        console.error(lines.join("\n"));
-        return 2;
+        const code = await runSynchronousBlock({ payload: p, wd, sessionId, force: true });
+        return code < 0 ? 0 : code;
       } catch (err) {
-        // e. R8: any internal error → exit 0, never block on our own failure.
         logFiring({
           harness: harnessName(),
           event: "stop",
@@ -537,8 +572,95 @@ async function main(argv: string[]): Promise<number> {
       try {
         const p = parsePayload(await readStdin());
         const wd = payloadDir(p, dir);
-        const line = takePendingFeedback(wd);
-        if (line) console.log(line);
+        // Deliver ONLY the prompting session's feedback (both Stop and
+        // UserPromptSubmit carry session_id; Claude Code's transcript_path stands
+        // in as the session key, matching hook-stop's sessionIdOf). A payload that
+        // omits BOTH has no session identity — fall back to the old repo-scoped
+        // drain (R8) so a payload-shape change never strands feedback; tag which
+        // path delivered.
+        const sid = p.session_id || p.transcript_path;
+        // The verdict looks BACKWARD (what the last turn claimed — inherently next-turn
+        // news, since the audit is async), delivered at the only moment the executor can
+        // still act on it.
+        const scope: "session" | "repo-fallback" = sid ? "session" : "repo-fallback";
+        const own = sid ? takePendingFeedback(wd, sid) : drainAllPendingFeedback(wd);
+        // Door 1 (autonomous-fleet delivery): after this session's OWN line, sweep up
+        // to 3 strays — another session's undelivered feedback in this repo, past the
+        // 10-min grace. This is the only way an autonomous session's catches (a
+        // one-shot scheduled run, or a turn ended by a task notification) ever reach a
+        // human. No sid → drainAllPendingFeedback already swept EVERY file above, so
+        // there are no strays left to gather.
+        const strays = sid ? takeStrayFeedback(wd, sid) : [];
+        const combined = [own, ...strays].filter((l): l is string => !!l).join("\n");
+        if (combined) {
+          console.log(injectionFor(harnessName(), combined));
+          // SPEC §7 ledger discipline: record ONLY this session's OWN line for the
+          // advisory-outcome audit — the next audit must never be asked whether this
+          // session acted on ANOTHER session's warning. Strays were consumed from the
+          // store (never redelivered) but are deliberately NOT ledgered here.
+          if (sid && own) recordDeliveredWarning(wd, sid, own);
+          logFiring({
+            harness: harnessName(),
+            event: "prompt",
+            claim: "",
+            verdict: "delivered",
+            // caught stays empty: the audit that earned this warning already
+            // counted it — re-counting the delivery would inflate summarize()'s
+            // catch total. The delivery path itself is the payload here.
+            caught: "",
+            blocked: false,
+            dir: wd,
+            // A stray sweep is the new door; tag it so telemetry separates
+            // autonomous-fleet delivery from the normal own-session path.
+            feedback_scope: strays.length ? "stray" : scope,
+          });
+        }
+        return 0;
+      } catch (err) {
+        logFiring({
+          harness: harnessName(),
+          event: "prompt",
+          claim: "",
+          verdict: "error",
+          caught: err instanceof Error ? err.message : String(err),
+          blocked: false,
+          dir,
+        });
+        return 0;
+      }
+    }
+
+    case "hook-session-start": {
+      // Door 2 (autonomous-fleet delivery): SessionStart fires before any prompt, so
+      // there is no OWN-session feedback yet — sweep ONLY strays (another session's
+      // undelivered feedback in this repo, past the 10-min grace). SessionStart stdout
+      // becomes the session's initial context, so a fresh interactive session drains
+      // the autonomous fleet's rotting catches on the way in. Same injection shape as
+      // UserPromptSubmit, only the hookEventName differs. Fail-open (R8): any error →
+      // exit 0, silent when there are no strays.
+      try {
+        const p = parsePayload(await readStdin());
+        const wd = payloadDir(p, dir);
+        // A fresh session's own id (if any): pass it as the exclude key so a stray that
+        // happens to key to this same id is left for its owner. There is normally no
+        // own file yet, so excluding is belt-and-suspenders.
+        const sid = p.session_id || p.transcript_path || "";
+        const strays = takeStrayFeedback(wd, sid);
+        if (strays.length) {
+          console.log(injectionFor(harnessName(), strays.join("\n"), "SessionStart"));
+          // No recordDeliveredWarning: strays are never ledgered to the delivering
+          // session (SPEC §7 — see takeStrayFeedback), and this session has no own line.
+          logFiring({
+            harness: harnessName(),
+            event: "prompt", // reuse the prompt event (least invasive: no telemetry
+            claim: "",        // union change); the "stray" scope marks it as Door 2.
+            verdict: "delivered",
+            caught: "",
+            blocked: false,
+            dir: wd,
+            feedback_scope: "stray",
+          });
+        }
         return 0;
       } catch (err) {
         logFiring({
@@ -555,7 +677,7 @@ async function main(argv: string[]): Promise<number> {
     }
 
     default:
-      return usage("<install|doctor|retire|demands|telemetry|hook-stop|hook-stop-goose-block|hook-prompt>");
+      return usage("<install|selfcheck|doctor|telemetry|hook-stop|hook-stop-goose-block|hook-prompt|hook-session-start>");
   }
 }
 

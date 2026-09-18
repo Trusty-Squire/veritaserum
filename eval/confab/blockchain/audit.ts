@@ -82,9 +82,9 @@ async function main() {
   console.log("unaccountable:", v.unaccountable, "| error:", v.error ?? "none");
   console.log(`claims: ${v.claims.length}`);
   for (const c of v.claims) console.log(`  [${c.verdict}] ${c.claim}\n      basis: ${(c.basis ?? "").slice(0, 200)}`);
-  if (v.demands?.length) {
-    console.log("demands:");
-    for (const d of v.demands) console.log(`  (${d.rung}) ${d.description}`);
+  if (v.warnings.length) {
+    console.log("warnings:");
+    for (const w of v.warnings) console.log(`  ${w}`);
   }
   if (v.note) console.log("note:", v.note);
 

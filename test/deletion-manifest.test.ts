@@ -8,6 +8,7 @@
 import { describe, it, expect } from "vitest";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { execa } from "execa";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const src = (f: string) => resolve(ROOT, "src", f);
@@ -76,21 +77,50 @@ describe("v3 deletion manifest — the contract system is gone (one role, not fo
     await expect(import(deletedModuleSpecifier(name))).rejects.toThrow();
   });
 
-  it("the auditor still authors law by itself — appendDemand survives the knight", async () => {
-    const mod = (await import("../src/law.js")) as Record<string, unknown>;
-    expect(typeof mod.appendDemand).toBe("function");
-  });
-
-  it("gate-run.ts (mechanical check exec, used by auditor.ts) still exports runGate", async () => {
-    const mod = (await import("../src/gate-run.js")) as Record<string, unknown>;
-    expect(typeof mod.runGate).toBe("function");
-  });
-
   it("vendor resolution keeps exactly one role: the auditor", async () => {
     const mod = (await import("../src/resolve.js")) as Record<string, unknown>;
     expect(typeof mod.resolveAuditor).toBe("function");
     expect(mod.resolveKnight).toBeUndefined();
     expect(mod.resolveJudge).toBeUndefined();
     expect(mod.resolveTranscriber).toBeUndefined();
+  });
+});
+
+// 2026-07-20: the case-law / demand / statute machinery was removed. The auditor
+// is stateless per turn now — LLM verdict + the no-LLM grounding tier. See
+// SPEC.md "2026-07-20: case law removed".
+describe("v3 deletion manifest — case law is gone (the auditor is stateless per turn)", () => {
+  const GONE = ["law", "demands", "gate-run", "schema"];
+
+  it.each(GONE)("src/%s.ts is gone", (name) => {
+    expect(existsSync(src(`${name}.ts`))).toBe(false);
+  });
+
+  it.each(GONE)("importing src/%s.js throws (module absent)", async (name) => {
+    await expect(import(deletedModuleSpecifier(name))).rejects.toThrow();
+  });
+
+  it("the in-repo law and statute files are gone", () => {
+    expect(existsSync(resolve(ROOT, "veritaserum.law.yaml"))).toBe(false);
+    expect(existsSync(resolve(ROOT, "contract.yaml"))).toBe(false);
+  });
+
+  it("the auditor no longer authors demands or runs mechanical checks", async () => {
+    const mod = (await import("../src/auditor.js")) as Record<string, unknown>;
+    // The audit verdict carries no demands/mechanicalChecks: prove the shape by
+    // asserting the module exports only audit() as its function surface here.
+    expect(typeof mod.audit).toBe("function");
+    expect(mod.appendDemand).toBeUndefined();
+    expect(mod.materializeDemand).toBeUndefined();
+  });
+
+  it("the `retire` and `demands` CLI commands are gone from the usage string", async () => {
+    const CLI = resolve(ROOT, "src", "cli.ts");
+    const tsx = resolve(ROOT, "node_modules", ".bin", "tsx");
+    const r = await execa(tsx, [CLI, "bogus-subcommand"], { reject: false });
+    const usage = `${r.stdout}\n${r.stderr}`;
+    expect(usage).toMatch(/usage: veritaserum/);
+    expect(usage).not.toMatch(/\bretire\b/);
+    expect(usage).not.toMatch(/\bdemands\b/);
   });
 });

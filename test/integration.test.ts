@@ -1,27 +1,22 @@
 /**
- * Sanity E2E (Lane D1 task item 6): the whole v3 chain wired together with a
- * fake auditor — a temp repo → a committed law with one runnable check →
- * `queueJob` + `runQueue` running the REAL `runAudit` (src/run-audit.ts), with
- * `resolveAuditor` stubbed via `VS_AUDITOR=codex` + a PATH-shim fake `codex`
+ * Sanity E2E: the whole v3 chain wired together with a fake auditor — a temp
+ * repo → `queueJob` + `runQueue` running the REAL `runAudit` (src/run-audit.ts),
+ * with `resolveAuditor` stubbed via `VS_AUDITOR=codex` + a PATH-shim fake `codex`
  * that echoes a canned verdict JSON (the same injection pattern
  * test/resolve-auditor.test.ts uses for its auth-probe candidates).
  *
- * Asserts: a telemetry event is written, the auditor's demand is appended to
- * the law tree copy, and the "last green" law-check marker is updated (the
- * seed runnable check passed mechanically).
+ * Asserts: the queue drains cleanly (no dead job) and a telemetry audit event is
+ * written with the auditor's verdict. The auditor is stateless per turn now — no
+ * case law, no demands, no green marker (see SPEC.md "2026-07-20: case law removed").
  */
 import { describe, it, expect, afterEach } from "vitest";
 import { mkdtemp, rm, writeFile, chmod } from "node:fs/promises";
-import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { writeFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execa } from "execa";
-import { tempRepo, write } from "./helpers.js";
-import { queueJob, queueRoot, runQueue, lawCheckMarkerPath, type AuditJob } from "../src/audit-runner.js";
+import { tempRepo } from "./helpers.js";
+import { queueJob, queueRoot, runQueue, type AuditJob } from "../src/audit-runner.js";
 import { runAudit } from "../src/run-audit.js";
-import { appendDemand, readLawTreeSync } from "../src/law.js";
-import { demandsDir } from "../src/demands.js";
-import { currentTreeHash } from "../src/git.js";
 import { readFirings, type Firing } from "../src/telemetry.js";
 
 const ENV_KEYS = ["PATH", "VS_QUEUE_ROOT", "VS_TELEMETRY_PATH", "VS_DOCTOR_CACHE_PATH", "VS_AUDITOR", "VS_EXECUTOR"] as const;
@@ -38,27 +33,18 @@ async function repo(): Promise<string> {
   return dir;
 }
 
-/** A fake `codex` on PATH: any args, always prints one canned verdict and exits 0 —
- *  enough for both resolveAuditor's 1-token doctor probe (VS_AUDITOR bypasses that
- *  probe entirely, but the shim would satisfy it too) and the real audit invocation. */
+/** A fake `codex` on PATH: any args, always prints one canned verdict and exits 0. */
 async function shimCodex(shimDir: string, replyJson: string): Promise<void> {
   const p = join(shimDir, "codex");
   await writeFile(p, `#!/bin/sh\ncat <<'JSON'\n${replyJson}\nJSON\n`, "utf8");
   await chmod(p, 0o755);
 }
 
-describe("integration — sync enqueue → real runAudit → case law + telemetry + green marker (SPEC §2/§6.6)", () => {
-  it("wires the whole chain: telemetry written, demand appended to the law tree copy, green marker updated", async () => {
+describe("integration — sync enqueue → real runAudit → telemetry (SPEC §2/§6.6)", () => {
+  it("wires the whole chain: queue drains cleanly and a telemetry audit event is written", async () => {
     const dir = await repo();
 
-    // A law with one runnable check that always passes, committed to HEAD —
-    // loadLaw (src/law.ts) reads case law from HEAD, never the tree (R6).
-    await appendDemand(dir, { run: "true", rung: "oracle", originClaim: "seed: repo builds" });
-    await execa("git", ["add", "-A"], { cwd: dir });
-    await execa("git", ["commit", "-q", "-m", "seed law"], { cwd: dir });
-
-    // A Claude Code-shaped transcript: a load-bearing, oracle-needing claim
-    // (SPEC §6.1's "wrote an MCCFR solver, working well" fixture).
+    // A Claude Code-shaped transcript: a load-bearing, verification-needing claim.
     const transcriptPath = join(dir, "transcript.jsonl");
     writeFileSync(
       transcriptPath,
@@ -83,17 +69,7 @@ describe("integration — sync enqueue → real runAudit → case law + telemetr
     });
 
     const CANNED_REPLY = JSON.stringify({
-      claims: [{ claim: "wrote an MCCFR solver, it's working well", verdict: "unsupported", basis: "no Kuhn-anchor test found", evidence: "" }],
-      demands: [
-        {
-          origin_claim: "wrote an MCCFR solver, it's working well",
-          gap: "no Kuhn-poker anchor test exists for the MCCFR solver",
-          remedy: "add a Kuhn-poker anchor test for the MCCFR solver",
-          accept: "computed strategy within 1e-3 of the known Kuhn equilibrium values",
-          test_file: "process.exit(1);\n",
-          rung: "oracle",
-        },
-      ],
+      claims: [{ claim: "wrote an MCCFR solver, it's working well", verdict: "unsupported", basis: "no Kuhn-anchor test found", evidence: "", reliance: "the user trusts the solver's output as an equilibrium strategy that was never validated" }],
       unaccountable: false,
       note: "",
     });
@@ -122,29 +98,15 @@ describe("integration — sync enqueue → real runAudit → case law + telemetr
       expect(existsSync(join(qdir, "dead"))).toBe(true);
       expect(readdirSync(join(qdir, "dead")).filter((f) => f.endsWith(".json"))).toHaveLength(0);
 
-      // 2. telemetry event written (SPEC §7).
+      // 2. telemetry event written (SPEC §7) with the auditor's verdict.
       const firings: Firing[] = readFirings();
       const auditFirings = firings.filter((f) => f.event === "audit");
       expect(auditFirings.length).toBeGreaterThanOrEqual(1);
       const last = auditFirings[auditFirings.length - 1]!;
       expect(last.verdict).toBe("unsupported");
-      expect((last.law_ids ?? []).length).toBeGreaterThanOrEqual(1); // the seed mechanical check ran
 
-      // 3. the auditor's demand materialized as a failing test in the STATE
-      //    dir — never in the user's repo (docs/DEMANDS.md phase 1).
-      const demandPath = join(demandsDir(dir), "no-kuhn-poker-anchor-test-exists-for-the-mccfr-solver.cjs");
-      expect(existsSync(demandPath)).toBe(true);
-      const demandContent = readFileSync(demandPath, "utf8");
-      expect(demandContent).toContain("wrote an MCCFR solver, it's working well");
-      expect(demandContent).toContain("within 1e-3");
-      expect(existsSync(join(dir, "test/veritaserum"))).toBe(false); // invisible: nothing lands in the repo
-      const law = readLawTreeSync(dir)!;
-      expect(law.gates.some((gate) => gate.lineage.provenance.includes("MCCFR solver"))).toBe(true);
-
-      // 4. the green marker was updated — the seed "true" check passed mechanically.
-      const markerPath = lawCheckMarkerPath(dir);
-      expect(existsSync(markerPath)).toBe(true);
-      expect(readFileSync(markerPath, "utf8").trim()).toBe(await currentTreeHash(dir));
+      // 3. nothing landed in the user's repo — the auditor is stateless per turn.
+      expect(existsSync(join(dir, "veritaserum.law.yaml"))).toBe(false);
     } finally {
       for (const k of ENV_KEYS) {
         if (saved[k] === undefined) delete process.env[k];

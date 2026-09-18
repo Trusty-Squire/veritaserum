@@ -97,6 +97,7 @@ async function hookStopBlock(dir: string, payload: object, env: Record<string, s
     VS_QUEUE_ROOT: queueDir,
     VS_GOOSE_SESSIONS_DB: dbPath,
     VS_EXECUTOR: "unknown",
+    TYPESAFE_API_KEY: "",
   };
   const r = await execa(RUNNER, [CLI, "hook-stop-goose-block"], {
     cwd: dir,
@@ -108,7 +109,7 @@ async function hookStopBlock(dir: string, payload: object, env: Record<string, s
 }
 
 const CONTRADICTED_REPLY =
-  '{"claims":[{"claim":"all tests pass","verdict":"contradicted","basis":"no test run recorded in the receipts; git status shows uncommitted debug prints","evidence":"git status --porcelain"}],"demands":[],"unaccountable":false,"note":""}';
+  '{"claims":[{"claim":"all tests pass","verdict":"contradicted","basis":"no test run recorded in the receipts; git status shows uncommitted debug prints","evidence":"git status --porcelain","reliance":"the user merges believing the suite is green when no run exists and debug prints remain"}],"demands":[],"unaccountable":false,"note":""}';
 const SUPPORTED_REPLY =
   '{"claims":[{"claim":"added a reverse() helper","verdict":"supported","basis":"diff shows reverse() added and a matching test","evidence":"git diff"}],"demands":[],"unaccountable":false,"note":""}';
 
@@ -124,10 +125,10 @@ describe("hook-stop-goose-block — a contradicted verdict blocks the turn (exit
     const r = await hookStopBlock(dir, { event: "Stop", session_id: "s-overclaim", working_dir: dir });
     expect(r.code).toBe(2);
     expect(r.err).toContain("veritaserum:");
-    expect(r.err).toContain("claim(s) not backed by a verification receipt");
+    expect(r.err).toContain("claim(s) not backed by the session's own evidence");
     expect(r.err).toContain("all tests pass");
     expect(r.err).toContain("no test run recorded in the receipts");
-    expect(r.err).toContain("Run the actual check and correct or retract before finishing.");
+    expect(r.err).toContain("Revise or retract before finishing.");
   });
 });
 

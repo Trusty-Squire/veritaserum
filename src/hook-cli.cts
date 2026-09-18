@@ -29,8 +29,6 @@ interface AuditJob {
   finalMessage?: string;
   harness?: string;
   executor?: string;
-  auditor?: string;
-  demandMode?: "script" | "urge";
 }
 
 function repoKey(dir: string): string {
@@ -41,6 +39,7 @@ function queueRoot(dir: string): string {
   const home = process.env.HOME || process.env.USERPROFILE || require("node:os").homedir();
   return join(process.env.VS_QUEUE_ROOT || join(home, ".veritaserum", "queue"), repoKey(dir));
 }
+
 
 function statePath(dir: string, name: string): string {
   return join(queueRoot(dir), "state", name);
@@ -95,74 +94,8 @@ function gooseActivity(sessionId: string, sinceMs: number): boolean {
   }
 }
 
-/** Mirrors src/git.ts's porcelainStatusEntries — rename/copy records carry a
- *  second NUL-separated origin-path field that a plain split would misread. */
-function porcelainStatusPaths(stdout: string): string[] {
-  const fields = stdout.split("\0");
-  const paths: string[] = [];
-  for (let i = 0; i < fields.length; i++) {
-    const record = fields[i];
-    if (!record) continue;
-    const hasPrefix = record.length > 3 && record[2] === " ";
-    paths.push(hasPrefix ? record.slice(3) : record);
-    if (hasPrefix && /[RC]/.test(record.slice(0, 2))) i++;
-  }
-  return paths;
-}
 
-/** MUST stay byte-identical to src/git.ts's currentTreeHash — this compares
- *  against the last-green marker src/run-audit.ts writes with that hash. */
-function currentTreeHash(dir: string): string | null {
-  try {
-    const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
-    const stdout = execFileSync("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], {
-      cwd: dir,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    const hash = createHash("sha256").update(stdout).update("\0");
-    for (const path of porcelainStatusPaths(stdout)) {
-      try {
-        const stat = statSync(join(dir, path), { bigint: true });
-        hash.update(`${path}\0${stat.size}\0${stat.mtimeNs}\0${stat.mode}\0`);
-      } catch {
-        hash.update(`${path}\0missing\0`);
-      }
-    }
-    return hash.digest("hex");
-  } catch {
-    return null;
-  }
-}
 
-/**
- * The R7 terse state line: standing law exists and the tree hasn't been
- * confirmed green at its current state. Reads the runnable-check count cached
- * by `veritaserum install` / each audit (src/hook-state.ts) so the fast hook
- * never loads the law file; the single git spawn runs only when that cached
- * count is nonzero. Best-effort — never blocks the hook.
- */
-function printLawStateLineIfDue(dir: string): void {
-  try {
-    const state = JSON.parse(readFileSync(statePath(dir, "law.json"), "utf8")) as { runnableCount?: number };
-    const count = state.runnableCount;
-    if (typeof count !== "number" || count <= 0) return;
-    let lastGreen = "";
-    try {
-      lastGreen = readFileSync(join(queueRoot(dir), "law-check-hash.txt"), "utf8").trim();
-    } catch {
-      // No green run recorded yet — the line is due.
-    }
-    const hash = currentTreeHash(dir);
-    if (hash === null || hash === lastGreen) return;
-    const line = `veritaserum: ${count} standing check(s) unverified against current tree`;
-    // Codex Stop rejects plain stdout even on exit 0; systemMessage is the
-    // documented non-blocking output field. Claude Code accepts the terse text.
-    process.stdout.write((process.env.VS_HARNESS === "codex" ? JSON.stringify({ systemMessage: line }) : line) + "\n");
-  } catch {
-    // Advisory only (R8).
-  }
-}
 
 function isAlive(pid: number): boolean {
   try {
@@ -213,7 +146,18 @@ async function readStdin(): Promise<string> {
 async function main(): Promise<void> {
   if (process.env.VS_AUDIT_CHILD === "1") return;
   try {
-    const parsed = JSON.parse(await readStdin()) as unknown;
+    const raw = await readStdin();
+    if (process.env.VS_BLOCK === "1" || process.env.VS_BLOCK === "true" || process.env.VS_BLOCK === "yes" || process.env.VS_BLOCK === "on") {
+      const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
+      const cli = join(__dirname, "cli.js");
+      const result = spawnSync(process.execPath, [cli, "hook-stop"], {
+        input: raw,
+        stdio: ["pipe", "inherit", "inherit"],
+        env: process.env,
+      });
+      process.exit(result.status ?? 0);
+    }
+    const parsed = JSON.parse(raw) as unknown;
     const p: HookPayload = parsed && typeof parsed === "object" ? (parsed as HookPayload) : {};
     const dir = p.working_dir || p.cwd || process.cwd();
     const marker = readLastAudit(dir);
@@ -223,7 +167,6 @@ async function main(): Promise<void> {
         ? gooseActivity(p.session_id, marker.ts)
         : false;
     if (!active) return;
-    printLawStateLineIfDue(dir);
     const harness = process.env.VS_HARNESS || "unknown";
     const now = Date.now();
     const shouldStartRunner = enqueue({
@@ -236,7 +179,6 @@ async function main(): Promise<void> {
       harness,
       executor: process.env.VS_EXECUTOR || "unknown",
       ...(process.env.VS_AUDITOR ? { auditor: process.env.VS_AUDITOR } : {}),
-      demandMode: process.env.VS_DEMAND_MODE === "urge" ? "urge" : "script",
     });
     const next: LastAudit = { ts: now, ccTranscriptSize: marker.ccTranscriptSize };
     if (p.transcript_path) {

@@ -1,7 +1,7 @@
 /**
  * Claude Code feedback channel (SPEC.md §2 "Feedback channels", §1 R7/R8):
  * run-audit.ts writes a compact pending-feedback JSON (one per repo,
- * latest-wins) whenever a verdict has warnings/demands/unaccountable; cli.ts's
+ * latest-wins) whenever a verdict has warnings/unaccountable; cli.ts's
  * `hook-prompt` case is the ONLY injection door — it reads + clears that file
  * at the next UserPromptSubmit, printing ONE terse line to stdout (which a
  * harness's UserPromptSubmit hook turns into additionalContext), non-stale
@@ -21,7 +21,9 @@ import { join } from "node:path";
 import { execa } from "execa";
 import { tempRepo } from "./helpers.js";
 import { runAudit } from "../src/run-audit.js";
-import { pendingFeedbackPath, takePendingFeedback, type AuditJob } from "../src/audit-runner.js";
+import { pendingFeedbackPath, takePendingFeedback, writePendingFeedback, takeStrayFeedback, takeDeliveredWarnings, type AuditJob } from "../src/audit-runner.js";
+import { writeFile as writeFileP } from "node:fs/promises";
+import { readFirings } from "../src/telemetry.js";
 
 const CLI = new URL("../src/cli.ts", import.meta.url).pathname;
 const RUNNER = new URL("../node_modules/.bin/tsx", import.meta.url).pathname;
@@ -34,6 +36,7 @@ const ENV_KEYS = [
   "VS_EXECUTOR",
   "VS_AUDITOR",
   "VS_AUDITOR_METERED",
+  "VS_DELIVERY",
   "OPENROUTER_API_KEY",
 ] as const;
 let saved: Partial<Record<(typeof ENV_KEYS)[number], string>> = {};
@@ -75,6 +78,13 @@ beforeEach(async () => {
   process.env.VS_QUEUE_ROOT = queueDir;
   process.env.VS_TELEMETRY_PATH = join(telemetryDir, "telemetry.jsonl");
   process.env.VS_EXECUTOR = "unknown";
+  // These tests exercise the feedback CHANNEL plumbing — session routing,
+  // latest-wins, expiry, the stray sweep — which is independent of the
+  // VS_DELIVERY=quiet|full policy (that policy is tested directly in
+  // auditor.test.ts). Pin `full` so a warn always reaches the channel and the
+  // routing assertions are not entangled with quiet's suppression rule (some
+  // fixtures use unquantified "claim A/B" texts that quiet would suppress).
+  process.env.VS_DELIVERY = "full";
   delete process.env.VS_AUDITOR;
   delete process.env.VS_AUDITOR_METERED;
   delete process.env.OPENROUTER_API_KEY;
@@ -108,15 +118,34 @@ function job(sessionId: string, transcriptPath: string): AuditJob {
   return { dir: repoDir, sessionId, turnRef: "t1", mode: "live", transcriptPath };
 }
 
-async function hookPrompt(): Promise<{ code: number; out: string }> {
-  const r = await execa(RUNNER, [CLI, "hook-prompt"], { cwd: repoDir, input: JSON.stringify({ cwd: repoDir }), reject: false });
+async function hookPrompt(sessionId?: string): Promise<{ code: number; out: string }> {
+  const payload: Record<string, unknown> = { cwd: repoDir };
+  if (sessionId) payload.session_id = sessionId;
+  const r = await execa(RUNNER, [CLI, "hook-prompt"], { cwd: repoDir, input: JSON.stringify(payload), reject: false });
   return { code: r.exitCode ?? 1, out: r.stdout };
 }
+
+async function hookSessionStart(sessionId?: string): Promise<{ code: number; out: string }> {
+  const payload: Record<string, unknown> = { cwd: repoDir };
+  if (sessionId) payload.session_id = sessionId;
+  const r = await execa(RUNNER, [CLI, "hook-session-start"], { cwd: repoDir, input: JSON.stringify(payload), reject: false });
+  return { code: r.exitCode ?? 1, out: r.stdout };
+}
+
+/** Plant a feedback file for `sessionId` with an explicit age (ms) — strays need a
+ *  controlled ts, and writePendingFeedback always stamps now. */
+async function plantFeedback(sessionId: string, line: string, ageMs: number): Promise<void> {
+  const p = pendingFeedbackPath(repoDir, sessionId);
+  await mkdir(join(p, ".."), { recursive: true });
+  await writeFileP(p, JSON.stringify({ ts: Date.now() - ageMs, line }), "utf8");
+}
+
+const MIN = 60 * 1000;
 
 describe("feedback channel — emission (run-audit.ts)", () => {
   it("an unsupported-claim verdict writes pending feedback (warn)", async () => {
     const codex = JSON.stringify({
-      claims: [{ claim: "fixed the bug", verdict: "unsupported", basis: "no diff shows this change", evidence: "" }],
+      claims: [{ claim: "fixed the bug", verdict: "unsupported", basis: "no diff shows this change", evidence: "", reliance: "the user believes the bug is fixed and closes the ticket without a real fix" }],
       demands: [],
       unaccountable: false,
       note: "",
@@ -124,58 +153,13 @@ describe("feedback channel — emission (run-audit.ts)", () => {
     await codexShim(codex);
     await runAudit(job("s1", await transcript("Done — fixed the bug.")));
 
-    const line = takePendingFeedback(repoDir);
+    const line = takePendingFeedback(repoDir, "s1");
     expect(line).not.toBeNull();
     expect(line).toContain("veritaserum:");
     expect(line).toContain("fixed the bug");
-    expect(line).toContain("unsupported");
-  });
-
-  it("a demand's remedy + accept are included verbatim in the pending feedback line (the instruction, not a nudge)", async () => {
-    const codex = JSON.stringify({
-      claims: [{ claim: "wrote an MCCFR solver, it's working well", verdict: "unsupported", basis: "no oracle test found", evidence: "" }],
-      demands: [
-        {
-          origin_claim: "wrote an MCCFR solver, it's working well",
-          gap: "no oracle demonstrates convergence to the known Kuhn equilibrium",
-          remedy: "add a Kuhn-poker anchor test",
-          accept: "strategy within 1e-3 of the known values",
-          test_file: "process.exit(1);\n",
-          rung: "oracle",
-        },
-      ],
-      unaccountable: false,
-      note: "",
-    });
-    await codexShim(codex);
-    await runAudit(job("s1", await transcript("Done — wrote an MCCFR solver, it's working well.")));
-
-    const line = takePendingFeedback(repoDir);
-    expect(line).toContain("DEMAND: add a Kuhn-poker anchor test");
-    expect(line).toContain("accept: strategy within 1e-3 of the known values");
-
-    // Discoverability (the ONLY channel — there is no MCP tool list and no standing
-    // CLAUDE.md rule): the demand line names the command that RUNS the check the
-    // auditor already wrote, and tells the executor not to author its own oracle.
-    expect(line).toContain("demands");
-    expect(line).toContain("do not write your own");
-  });
-
-  it("a warn-only verdict (no demand) does NOT advertise the command — no ambient prompt tax", async () => {
-    const codex = JSON.stringify({
-      claims: [
-        { claim: "fixed the bug", verdict: "unsupported", basis: "no diff shows this change", evidence: "git diff --stat" },
-      ],
-      demands: [],
-      unaccountable: false,
-      note: "",
-    });
-    await codexShim(codex);
-    await runAudit(job("s1", await transcript("Done — fixed the bug.")));
-
-    const line = takePendingFeedback(repoDir);
-    expect(line).toContain("unsupported");
-    expect(line).not.toContain("do not write your own");
+    // CHANGE 1 correction: the delivered line is the colloquial direct-address
+    // form, so it no longer contains the bare verdict word "unsupported".
+    expect(line).toContain("you have no basis to claim");
   });
 
   it("a fully-supported verdict (nothing to warn about) writes NO pending feedback", async () => {
@@ -188,12 +172,12 @@ describe("feedback channel — emission (run-audit.ts)", () => {
     await codexShim(codex);
     await runAudit(job("s1", await transcript("Done — fixed the bug.")));
 
-    expect(takePendingFeedback(repoDir)).toBeNull();
+    expect(takePendingFeedback(repoDir, "s1")).toBeNull();
   });
 
-  it("latest-wins: a second audit's pending feedback replaces the first, one file per repo", async () => {
+  it("latest-wins WITHIN a session: a second audit for the same session replaces its pending line", async () => {
     const first = JSON.stringify({
-      claims: [{ claim: "claim A", verdict: "unsupported", basis: "basis A", evidence: "" }],
+      claims: [{ claim: "claim A", verdict: "unsupported", basis: "basis A", evidence: "", reliance: "the user acts on claim A believing it holds when it does not" }],
       demands: [],
       unaccountable: false,
       note: "",
@@ -202,24 +186,45 @@ describe("feedback channel — emission (run-audit.ts)", () => {
     await runAudit(job("s1", await transcript("Done — claim A.")));
 
     const second = JSON.stringify({
-      claims: [{ claim: "claim B", verdict: "unsupported", basis: "basis B", evidence: "" }],
+      claims: [{ claim: "claim B", verdict: "unsupported", basis: "basis B", evidence: "", reliance: "the user acts on claim B believing it holds when it does not" }],
       demands: [],
       unaccountable: false,
       note: "",
     });
     await codexShim(second);
-    await runAudit(job("s2", await transcript("Done — claim B.")));
+    await runAudit(job("s1", await transcript("Done — claim B.")));
 
-    const line = takePendingFeedback(repoDir);
+    const line = takePendingFeedback(repoDir, "s1");
     expect(line).toContain("claim B");
     expect(line).not.toContain("claim A");
+  });
+
+  it("two sessions in one repo keep SEPARATE pending feedback — neither overwrites the other", async () => {
+    const a = JSON.stringify({
+      claims: [{ claim: "claim A", verdict: "unsupported", basis: "basis A", evidence: "", reliance: "the user acts on claim A believing it holds when it does not" }],
+      unaccountable: false,
+      note: "",
+    });
+    await codexShim(a);
+    await runAudit(job("session-A", await transcript("Done — claim A.")));
+
+    const b = JSON.stringify({
+      claims: [{ claim: "claim B", verdict: "unsupported", basis: "basis B", evidence: "", reliance: "the user acts on claim B believing it holds when it does not" }],
+      unaccountable: false,
+      note: "",
+    });
+    await codexShim(b);
+    await runAudit(job("session-B", await transcript("Done — claim B.")));
+
+    expect(takePendingFeedback(repoDir, "session-A")).toContain("claim A");
+    expect(takePendingFeedback(repoDir, "session-B")).toContain("claim B");
   });
 });
 
 describe("feedback channel — injection (cli.ts hook-prompt)", () => {
   it("prints the pending line once, then clears it — a second UserPromptSubmit gets nothing", async () => {
     const codex = JSON.stringify({
-      claims: [{ claim: "fixed the bug", verdict: "unsupported", basis: "no receipt", evidence: "" }],
+      claims: [{ claim: "fixed the bug", verdict: "unsupported", basis: "no receipt", evidence: "", reliance: "the user believes the bug is fixed and closes the ticket without a real fix" }],
       demands: [],
       unaccountable: false,
       note: "",
@@ -227,42 +232,289 @@ describe("feedback channel — injection (cli.ts hook-prompt)", () => {
     await codexShim(codex);
     await runAudit(job("s1", await transcript("Done — fixed the bug.")));
 
-    const r1 = await hookPrompt();
+    const r1 = await hookPrompt("s1");
     expect(r1.code).toBe(0);
     expect(r1.out.trim()).toContain("veritaserum:");
     expect(r1.out.trim()).toContain("fixed the bug");
 
-    const r2 = await hookPrompt();
+    const r2 = await hookPrompt("s1");
     expect(r2.code).toBe(0);
     expect(r2.out.trim()).toBe("");
   });
 
+  it("session A's warning goes to A's next prompt and NOT to B's, in the same repo (both directions)", async () => {
+    writePendingFeedback(repoDir, "session-A", "veritaserum: A's warning");
+    writePendingFeedback(repoDir, "session-B", "veritaserum: B's warning");
+
+    // B prompts first — gets only B's, A's is untouched.
+    const toB = await hookPrompt("session-B");
+    expect(toB.out).toContain("B's warning");
+    expect(toB.out).not.toContain("A's warning");
+
+    // A prompts next — still has A's, never saw B's.
+    const toA = await hookPrompt("session-A");
+    expect(toA.out).toContain("A's warning");
+    expect(toA.out).not.toContain("B's warning");
+
+    // the session path is tagged `session` in telemetry
+    expect(readFirings().some((f) => f.feedback_scope === "session")).toBe(true);
+  });
+
+  it("a prompt payload WITHOUT session_id drains repo-scoped (fallback) and tags it", async () => {
+    writePendingFeedback(repoDir, "session-X", "veritaserum: stranded warning");
+
+    const r = await hookPrompt(); // no session_id in the payload
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("stranded warning");
+    expect(readFirings().some((f) => f.feedback_scope === "repo-fallback")).toBe(true);
+  });
+
   it("no pending feedback at all → silent, exit 0", async () => {
-    const r = await hookPrompt();
+    const r = await hookPrompt("s1");
     expect(r.code).toBe(0);
     expect(r.out.trim()).toBe("");
   });
 
   it("stale pending feedback (>= 24h old) is dropped, never printed", async () => {
-    const p = pendingFeedbackPath(repoDir);
+    const p = pendingFeedbackPath(repoDir, "s-stale");
     await mkdir(join(p, ".."), { recursive: true });
     const staleTs = Date.now() - 25 * 60 * 60 * 1000;
     await writeFile(p, JSON.stringify({ ts: staleTs, line: "veritaserum: this should never print" }), "utf8");
 
-    const r = await hookPrompt();
+    const r = await hookPrompt("s-stale");
     expect(r.code).toBe(0);
     expect(r.out.trim()).toBe("");
     // consumed, not left to wedge a later turn
-    expect(takePendingFeedback(repoDir)).toBeNull();
+    expect(takePendingFeedback(repoDir, "s-stale")).toBeNull();
   });
 
   it("R8: a corrupt pending-feedback file never blocks — exit 0, no crash, no output", async () => {
-    const p = pendingFeedbackPath(repoDir);
+    const p = pendingFeedbackPath(repoDir, "s-corrupt");
     await mkdir(join(p, ".."), { recursive: true });
     await writeFile(p, "{ not: valid json", "utf8");
 
-    const r = await hookPrompt();
+    const r = await hookPrompt("s-corrupt");
     expect(r.code).toBe(0);
     expect(r.out.trim()).toBe("");
+  });
+});
+
+/**
+ * Stray delivery (autonomous-fleet fix): a warning earned by an AUTONOMOUS session
+ * (a one-shot scheduled run, or a turn ended by a task notification) never reaches a
+ * human at that session's own prompt — it never prompts again. Two extra doors sweep
+ * these "strays" — another session's undelivered feedback in the SAME repo, past a
+ * 10-min grace, under the 24h expiry: Door 1 (any session's prompt) and Door 2
+ * (any session start).
+ */
+describe("feedback channel — stray sweep (Door 1: hook-prompt)", () => {
+  it("delivers a >10min stray at another session's prompt WITH attribution, after that session's own line; consumes it; ledgers ONLY the own line", async () => {
+    writePendingFeedback(repoDir, "session-A", "veritaserum: A's own warning"); // fresh, A's own
+    await plantFeedback("session-B", 'veritaserum: Agent, you have no basis to claim "B\'s stray warning".', 11 * MIN); // past grace
+
+    const r = await hookPrompt("session-A");
+    expect(r.code).toBe(0);
+    // A's own line first, then the attributed stray — with a friendly age anchor.
+    expect(r.out).toContain("A's own warning");
+    expect(r.out).toContain("from a session ~11m ago in this repo");
+    expect(r.out).toContain("B's stray warning");
+    expect(r.out.indexOf("A's own warning")).toBeLessThan(r.out.indexOf("B's stray warning"));
+
+    // B's file is consumed — never redelivered.
+    expect(takePendingFeedback(repoDir, "session-B")).toBeNull();
+
+    // Ledger records ONLY A's own line, never B's stray (advisory-outcome discipline).
+    const delivered = takeDeliveredWarnings(repoDir, "session-A");
+    expect(delivered).toEqual(["veritaserum: A's own warning"]);
+    expect(delivered.join("")).not.toContain("B's stray");
+
+    // A stray sweep is tagged `stray` in telemetry.
+    expect(readFirings().some((f) => f.feedback_scope === "stray")).toBe(true);
+  });
+
+  it("a stray YOUNGER than 10min is NOT swept (grace gives its owner first claim)", async () => {
+    await plantFeedback("session-B", 'veritaserum: Agent, you have no basis to claim "B\'s fresh warning".', 5 * MIN); // within grace
+
+    const r = await hookPrompt("session-A"); // A has no own feedback
+    expect(r.code).toBe(0);
+    expect(r.out.trim()).toBe(""); // nothing delivered
+    // B's file untouched — still there for B's own next prompt.
+    expect(takePendingFeedback(repoDir, "session-B")).toContain("B's fresh warning");
+  });
+
+  it("a stray older than 24h is dropped, never delivered", async () => {
+    await plantFeedback("session-B", 'veritaserum: Agent, you have no basis to claim "B\'s ancient warning".', 25 * 60 * MIN); // > 24h
+
+    const r = await hookPrompt("session-A");
+    expect(r.code).toBe(0);
+    expect(r.out.trim()).toBe("");
+  });
+
+  it("caps at 3: with 5 strays present, only the 3 oldest are delivered in one prompt", async () => {
+    // ages descending → oldest is stray-B (20min), newest stray-F (16min).
+    await plantFeedback("session-B", 'veritaserum: Agent, you have no basis to claim "stray-B".', 20 * MIN);
+    await plantFeedback("session-C", 'veritaserum: Agent, you have no basis to claim "stray-C".', 19 * MIN);
+    await plantFeedback("session-D", 'veritaserum: Agent, you have no basis to claim "stray-D".', 18 * MIN);
+    await plantFeedback("session-E", 'veritaserum: Agent, you have no basis to claim "stray-E".', 17 * MIN);
+    await plantFeedback("session-F", 'veritaserum: Agent, you have no basis to claim "stray-F".', 16 * MIN);
+
+    const r = await hookPrompt("session-A");
+    expect(r.code).toBe(0);
+    // the 3 oldest delivered...
+    for (const id of ["stray-B", "stray-C", "stray-D"]) expect(r.out).toContain(id);
+    // ...the 2 newest not.
+    for (const id of ["stray-E", "stray-F"]) expect(r.out).not.toContain(id);
+    // and the 2 undelivered files remain for a later sweep.
+    expect(takePendingFeedback(repoDir, "session-E")).toContain("stray-E");
+    expect(takePendingFeedback(repoDir, "session-F")).toContain("stray-F");
+  });
+});
+
+describe("feedback channel — stray sweep (Door 2: hook-session-start)", () => {
+  it("delivers strays on a fresh session id, with attribution, exit 0", async () => {
+    await plantFeedback("session-B", 'veritaserum: Agent, you have no basis to claim "B\'s stray warning".', 11 * MIN);
+
+    const r = await hookSessionStart("fresh-session");
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("from a session ~11m ago in this repo");
+    expect(r.out).toContain("B's stray warning");
+    // consumed
+    expect(takePendingFeedback(repoDir, "session-B")).toBeNull();
+  });
+
+  it("silent (exit 0, no output) when there are no strays", async () => {
+    const r = await hookSessionStart("fresh-session");
+    expect(r.code).toBe(0);
+    expect(r.out.trim()).toBe("");
+  });
+});
+
+describe("feedback channel — stray attribution carries age + requires a mappable claim", () => {
+  it("rounds age to hours past 2h: a ~21h-old stray reads '~21h ago'", async () => {
+    await plantFeedback("session-B", 'veritaserum: Agent, you have no basis to claim "the token expired".', 21 * 60 * MIN);
+    const [line] = takeStrayFeedback(repoDir, "session-A");
+    expect(line).toContain("from a session ~21h ago in this repo");
+    expect(line).toContain("the token expired");
+  });
+
+  it("SKIPS an old-format claim-less stray: not delivered, and its file survives to age out", async () => {
+    // Pre-colloquial format — no quoted claim, no colloquial verdict phrasing. The
+    // reader cannot map it to anything, so it is neither delivered nor consumed.
+    await plantFeedback("session-B", "veritaserum: grounding: state-no-receipt — Asserted tests pass.", 11 * MIN);
+    const out = takeStrayFeedback(repoDir, "session-A");
+    expect(out).toEqual([]);
+    // the file is left in place (not consumed) — it ages out via the 24h expiry.
+    expect(takePendingFeedback(repoDir, "session-B")).toContain("state-no-receipt");
+  });
+
+  it("DELIVERS a new-format grounding stray: it now quotes the flagged sentence, so strayHasClaim matches", async () => {
+    // groundingWarning now quotes the claim, so a grounding stray carries a mappable
+    // claim (the double-quote branch of strayHasClaim) — deliverable, not noise.
+    await plantFeedback("session-B", 'veritaserum: Agent, you called this blocked but never attempted it: "the vault cannot be armed from the API" — no tool call attempted it', 11 * MIN);
+    const [line] = takeStrayFeedback(repoDir, "session-A");
+    expect(line).toContain("from a session ~11m ago in this repo");
+    expect(line).toContain("the vault cannot be armed from the API");
+  });
+});
+
+describe("feedback channel — stray consumption is race-safe (consume-once)", () => {
+  it("consuming the same stray twice yields the line exactly once", async () => {
+    await plantFeedback("session-B", 'veritaserum: Agent, you have no basis to claim "B\'s stray warning".', 11 * MIN);
+
+    const first = takeStrayFeedback(repoDir, "session-A");
+    const second = takeStrayFeedback(repoDir, "session-A");
+
+    expect(first).toHaveLength(1);
+    expect(first[0]).toContain("from a session ~11m ago in this repo");
+    expect(first[0]).toContain("B's stray warning");
+    expect(second).toEqual([]); // already consumed — never a second delivery
+  });
+});
+
+/**
+ * The verdict has to reach the MODEL, not just the human.
+ *
+ * codex renders a Stop hook's output as a TUI warning and drops it — its wire schema has no
+ * StopHookSpecificOutput, so nothing a Stop hook says can enter the model's context. Its only
+ * injection doors are SessionStart and UserPromptSubmit, and both require a structured
+ * envelope on stdout. This hook emitted bare text, which codex is not obliged to read — so a
+ * codex agent saw the warning banner on the user's screen and nothing in its own transcript:
+ * "I did not see that stop-hook output. It wasn't included in any terminal/tool output
+ * visible to me." Every verdict and demand was addressed to no one.
+ */
+describe("feedback channel — the injection envelope each harness actually reads", () => {
+  async function hookPromptAs(harness: string): Promise<string> {
+    const env: NodeJS.ProcessEnv = { ...process.env, VS_HARNESS: harness };
+    const r = await execa(RUNNER, [CLI, "hook-prompt"], {
+      cwd: repoDir,
+      input: JSON.stringify({ cwd: repoDir }),
+      env,
+      reject: false,
+    });
+    return r.stdout;
+  }
+
+  // eslint-disable-next-line no-control-regex
+  const ANSI = /\x1b\[[0-9;]*m/;
+  const WARN = 'veritaserum: Agent, you have no basis to claim "tests pass" — no test run on record.';
+  // The one directive sentence appended to the MODEL channel (context only): it
+  // makes the agent surface the verdict in its reply — the only surface the human
+  // reliably sees. NEVER in systemMessage or the delivered-warning ledger.
+  const DIRECTIVE =
+    "\nShow the italicized line above to the user verbatim at the top of your reply, then leave a blank line before the rest of your reply.";
+
+  it("codex: additionalContext = verdict + directive, byte-exact, no systemMessage, no styling", async () => {
+    writePendingFeedback(repoDir, "s-env", WARN);
+    const out = await hookPromptAs("codex");
+
+    const parsed = JSON.parse(out) as {
+      hookSpecificOutput: { hookEventName: string; additionalContext: string };
+      systemMessage?: string;
+    };
+    // Shape is codex's, verbatim: additionalProperties:false, hookEventName is a const.
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
+    expect(Object.keys(parsed.hookSpecificOutput).sort()).toEqual(["additionalContext", "hookEventName"]);
+    // byte-exact: the verdict line is italicized then differs from that ONLY by
+    // the appended directive sentence — nothing else. codex has no human channel
+    // in the reply, so no systemMessage, no emoji, no ANSI.
+    expect(parsed.hookSpecificOutput.additionalContext).toBe(`*${WARN}*` + DIRECTIVE);
+    expect(parsed.systemMessage).toBeUndefined();
+    expect(out).not.toContain("⚠️");
+    expect(out).not.toMatch(ANSI);
+  });
+
+  it("claude-code: model channel = italicized verdict + directive; human channel = plain ⚠️ line (no asterisks, no ANSI, no directive)", async () => {
+    writePendingFeedback(repoDir, "s-env", WARN);
+    const out = await hookPromptAs("claude-code");
+
+    const parsed = JSON.parse(out) as {
+      hookSpecificOutput: { hookEventName: string; additionalContext: string };
+      systemMessage: string;
+    };
+    // model channel: italicized verdict + the surface-it directive.
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
+    expect(parsed.hookSpecificOutput.additionalContext).toBe(`*${WARN}*` + DIRECTIVE);
+    // human channel (transcript view at best): plain emoji-marked verdict —
+    // no asterisks, no ANSI (garbage there), no directive (that's model-only guidance).
+    expect(parsed.systemMessage).toBe(`⚠️ ${WARN}`);
+    expect(parsed.systemMessage).not.toContain("*");
+    expect(parsed.systemMessage).not.toMatch(ANSI);
+    expect(parsed.systemMessage).not.toContain("Show the italicized line above");
+  });
+
+  it("goose/unknown: bare stdout = italicized verdict + directive, no envelope", async () => {
+    writePendingFeedback(repoDir, "s-env", WARN);
+    const out = await hookPromptAs("goose");
+    expect(out).toBe(`*${WARN}*` + DIRECTIVE);
+  });
+
+  it("the delivered-warning ledger stores the BARE verdict line — never the directive", async () => {
+    writePendingFeedback(repoDir, "s-ledger", WARN);
+    const r = await hookPrompt("s-ledger");
+    expect(r.code).toBe(0);
+    const delivered = takeDeliveredWarnings(repoDir, "s-ledger");
+    expect(delivered).toEqual([WARN]);
+    expect(delivered[0]).not.toContain("*");
+    expect(delivered[0]).not.toContain("Show the italicized line above");
   });
 });

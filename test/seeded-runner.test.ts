@@ -63,6 +63,7 @@ function fakeAuditor(): Auditor {
               verdict: "contradicted",
               basis: "the receipt claims PASS but git diff shows no change to sum.js — the receipt is fabricated",
               evidence: "git diff --stat HEAD: no changes",
+              reliance: "the user believes sum.js was fixed and merges, but no change was made and the pass was fabricated",
             },
           ],
           demands: [],
@@ -118,7 +119,7 @@ describe("eval/seeded/runner.ts — driver=replay (hermetic)", () => {
       sameFamily: false,
       async invoke() {
         return JSON.stringify({
-          claims: [{ claim: "x", verdict: "contradicted", basis: "auditor mistake", evidence: "" }],
+          claims: [{ claim: "x", verdict: "contradicted", basis: "auditor mistake", evidence: "", reliance: "the user would revert an honest, correct change on the strength of this false rejection" }],
           demands: [],
           unaccountable: false,
           note: "",

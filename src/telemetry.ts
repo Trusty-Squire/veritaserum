@@ -25,6 +25,11 @@ export interface Firing {
   /** True when VS_ADVISORY was set: logged only, the agent was not actually stopped. */
   advisory?: boolean;
   dir: string;
+  /** How big the auditor's prompt was, in chars. The audit is an LLM call on every turn with
+   *  tool activity; at a 256 KiB receipts cap that was ~65k tokens EACH, and nothing recorded
+   *  it — so a quota drained with no trace of what drained it. Cost you cannot see is cost
+   *  you cannot control. */
+  prompt_chars?: number;
   /** v3 (SPEC §7): what grounded the verdict — a fresh probe, the harness's own
    *  receipt record, a mechanical standing-law check, or nothing (no claims). */
   verdict_basis?: "probe" | "receipt" | "standing-law" | "none";
@@ -48,6 +53,46 @@ export interface Firing {
   false_flag?: boolean;
   /** End-to-end async audit duration (mechanical checks + one auditor call). */
   audit_duration_ms?: number;
+  /** Which drain path delivered a next-prompt warning: session-scoped (the
+   *  normal path, keyed by the earning session), repo-fallback (the payload
+   *  omitted session_id, so every session's pending feedback was drained), or
+   *  stray (Door 1/Door 2 autonomous-fleet delivery — a warning earned by a
+   *  DIFFERENT session in this repo, swept past its 10-min grace). */
+  feedback_scope?: "session" | "repo-fallback" | "stray";
+  /** SPEC §7 "advisory outcome" (was the warn followed?): the LLM auditor's
+   *  judgment, on the turn after a warning was delivered, of whether the turn
+   *  acted on it. LLM-only — absent when no auditor ran or no warning was
+   *  pending for the session. */
+  advisory_outcome?: "addressed-corrected" | "addressed-confirmed" | "ignored";
+  /** CHANGE 1 (the gate): what happened to the LLM audit this turn. "skipped" —
+   *  the gate found nothing claim-shaped and did NOT invoke the LLM (the 81% we
+   *  stop paying for). "shadow" — a gated turn the shadow sampler ran anyway.
+   *  "full" — a non-gated audit. Absent → no auditor was available (tier absent).
+   *  Gate safety is the query `gated:"shadow" AND gate_missed:true`. */
+  gated?: "skipped" | "shadow" | "full";
+  /** CHANGE 1 (shadow safety): true when a shadow audit of a GATED turn returned
+   *  a substantive verdict (unsupported/contradicted/unaccountable) — i.e. the
+   *  gate WOULD have wrongly skipped a real finding. The gate's miss rate is
+   *  `count(gate_missed) / count(gated:"shadow")`, a telemetry query not a belief. */
+  gate_missed?: boolean;
+  /** CHANGE 2 (claim-conditioned evidence): bytes of the SELECTED receipts payload
+   *  actually shipped to the auditor (vs the blind tail). 0 when nothing was
+   *  shipped (gated-skip, or no receipts). Paired with prompt_chars, this makes
+   *  the token saving measurable. */
+  evidence_bytes?: number;
+  /** DELIVERY POLICY (VS_DELIVERY=quiet|full): what the delivery gate did with this
+   *  turn's warnings. "full" — full mode, every warning delivered. "quiet" — quiet
+   *  mode, nothing suppressed (all warnings were deliverable). "suppressed-quiet" —
+   *  quiet mode held ≥1 warning back from the pending-feedback file (still deduped +
+   *  telemetered, just not surfaced). Absent when the turn produced no warnings. The
+   *  suppression rate is the query `delivery:"suppressed-quiet"`. */
+  delivery?: "full" | "quiet" | "suppressed-quiet";
+  /** THE ANCHOR (depends_on verification): outcome for the single flagged claim.
+   *  "verified" — the quote survived string-matching against the turn's text;
+   *  "void" — missing/too-short/paraphrased; "n/a" — the claim carried no quote.
+   *  The void rate is the query `anchor:"void"` — a high one means the mechanical
+   *  fallback (connective+distance linkage) is the follow-up. Absent when no flag. */
+  anchor?: "verified" | "void" | "n/a";
 }
 
 export function telemetryPath(): string {
@@ -186,7 +231,7 @@ export function summarize(firings: Firing[]): string {
   const label = (f: Firing): string => (f.blocked ? (f.advisory ? "would-block" : "BLOCKED") : "flagged");
   const lines = [
     `ser telemetry — ${n} firing(s)`,
-    `  caught (flagged an unsupported claim):  ${caught.length}`,
+    `  confabulations detected:                 ${caught.length}`,
     `  blocked (actually stopped the turn):    ${actuallyBlocked.length}`,
     `  would-block (advisory, logged only):    ${wouldBlock.length}`,
     `  by harness: ${JSON.stringify(byHarness)}`,

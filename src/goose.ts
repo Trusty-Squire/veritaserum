@@ -58,6 +58,15 @@ function isToolBlock(b: ContentBlock): boolean {
   return b?.type === "toolRequest" || b?.type === "toolResponse";
 }
 
+function thinkingOf(blocks: ContentBlock[]): string {
+  return blocks
+    .filter((b) => b?.type === "thinking")
+    .map((b) => (typeof b.thinking === "string" ? b.thinking : typeof b.text === "string" ? b.text : ""))
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
 function textOf(blocks: ContentBlock[]): string {
   return blocks
     .filter((b) => b?.type === "text" && typeof b.text === "string")
@@ -186,6 +195,8 @@ export function readGooseSession(sessionId: string, dbPath: string = defaultGoos
     const lines: string[] = [];
     for (const row of rows) {
       const blocks = parseContentJson(row.content_json);
+      const thinking = thinkingOf(blocks);
+      if (thinking) lines.push(`thinking: ${thinking.slice(0, 1500)}`);
       if (!blocks.some(isToolBlock)) continue;
       for (const b of blocks) {
         const line = toolLine(b);
