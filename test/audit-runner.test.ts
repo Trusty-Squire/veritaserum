@@ -174,6 +174,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const qdir = process.argv[1];
 const lock = path.join(qdir, ".lock");
+const ready = path.join(qdir, ".freezer-ready");
+fs.writeFileSync(ready, "1");
 const deadline = Date.now() + 5000;
 (function poll() {
   try {
@@ -194,6 +196,14 @@ const deadline = Date.now() + 5000;
       ],
       { stdio: "ignore" },
     );
+  }
+
+  async function waitForFreezer(qdir: string): Promise<void> {
+    const ready = join(qdir, ".freezer-ready");
+    const deadline = Date.now() + 2000;
+    while (!existsSync(ready) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
   }
 
   it("a stale lock (dead pid) is reclaimed rather than blocking forever", async () => {
@@ -242,6 +252,7 @@ const deadline = Date.now() + 5000;
     queueJob(dir, job("s1", "t1", "testbed"));
 
     const freezer = freezeQueueAfterLock(qdir);
+    await waitForFreezer(qdir);
     const exit = new Promise<number | null>((resolve) => {
       freezer.once("exit", (code) => resolve(code));
     });
@@ -270,6 +281,7 @@ const deadline = Date.now() + 5000;
     queueJob(dir, job("s1", "t2", "live"));
 
     const freezer = freezeQueueAfterLock(qdir);
+    await waitForFreezer(qdir);
     const exit = new Promise<number | null>((resolve) => {
       freezer.once("exit", (code) => resolve(code));
     });

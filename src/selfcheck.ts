@@ -145,12 +145,15 @@ export async function selfcheck(target: Target): Promise<Check[]> {
 
   let repo = "";
   let state = "";
+  let prevQueue: string | undefined;
   try {
     repo = await scratchRepo();
     state = mkdtempSync(join(tmpdir(), "vs-selfcheck-state-"));
     const queue = join(state, "queue");
+    prevQueue = process.env.VS_QUEUE_ROOT;
+    process.env.VS_QUEUE_ROOT = queue;
     const env = { VS_QUEUE_ROOT: queue, VS_TELEMETRY_PATH: join(state, "telemetry.jsonl") };
-    const qdir = () => queueRoot(repo).replace(join(homedir(), ".veritaserum", "queue"), queue);
+    const qdir = () => queueRoot(repo);
 
     for (const { event, command, ours } of hooks) {
       if (!ours) {
@@ -282,6 +285,8 @@ export async function selfcheck(target: Target): Promise<Check[]> {
   } catch (err) {
     checks.push({ name: "selfcheck", ok: false, detail: err instanceof Error ? err.message : String(err) });
   } finally {
+    if (prevQueue === undefined) delete process.env.VS_QUEUE_ROOT;
+    else process.env.VS_QUEUE_ROOT = prevQueue;
     for (const d of [repo, state]) if (d) rmSync(d, { recursive: true, force: true });
   }
   return checks;

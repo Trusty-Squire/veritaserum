@@ -73,7 +73,6 @@ export function buildFeedbackLine(verdict: AuditVerdict): string | null {
   if (!lead) return null;
   return `veritaserum: ${lead}`.slice(0, 600);
 }
-}
 
 export const runAudit: RunAudit = async (job: AuditJob): Promise<void> => {
   const { finalMessage, userRequest, receipts, conversationTail } = loadTurnMaterial(job);

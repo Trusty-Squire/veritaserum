@@ -78,7 +78,7 @@ describe.sequential("packed production surfaces", () => {
     await execa(bin, ["install", "codex"], { cwd: repo, env: { HOME: home, VS_QUEUE_ROOT: queueBase } });
     const hooks = JSON.parse(readFileSync(join(home, ".codex", "hooks.json"), "utf8"));
     const command = hooks.hooks.Stop[0].hooks[0].command as string;
-    expect(command).toContain("hook-cli.cjs");
+    expect(command).toContain("vs-hook-stop");
 
     const qdir = join(queueBase, repoKey(repo));
     mkdirSync(qdir, { recursive: true });
@@ -173,10 +173,11 @@ describe.sequential("packed production surfaces", () => {
     });
     const hooks = JSON.parse(readFileSync(join(home, ".codex", "hooks.json"), "utf8"));
     const command = hooks.hooks.Stop[0].hooks[0].command as string;
-    expect(command).toContain(join(home, ".veritaserum", "runtime", "node_modules", "veritaserum", "dist", "hook-cli.cjs"));
+    expect(command).toContain(join(home, ".veritaserum", "bin", "vs-hook-stop"));
     expect(command).not.toContain("npx -");
     expect(command).not.toContain("/_npx/");
     expect(existsSync(join(home, ".veritaserum", "runtime", "node_modules", "veritaserum", "dist", "hook-cli.cjs"))).toBe(true);
+    expect(readFileSync(join(home, ".veritaserum", "bin", "vs-hook-stop"), "utf8")).toContain("hook-cli.cjs");
 
     // The npm cache is deliberately gone and PATH contains only Node. This is the
     // persistent shape a later editor session inherits after `npx ... install` exits.
