@@ -997,6 +997,55 @@ describe("audit — CHANGE 2: claim-conditioned evidence selection", () => {
   });
 });
 
+describe("audit — Jev deterministic input filter", () => {
+  it("does not invoke Jev when no deterministic load-bearing span survives, even on the old shadow path", async () => {
+    const dir = await repo();
+    const auditor = fakeAuditor("pre-gathered", OK_REPLY, { vendor: "jev" });
+    const v = await audit(
+      job(dir, { finalMessage: "Could this be the timeout? It might be, but I have not verified it." }),
+      auditor,
+      nullEmbedder(),
+      { rng: () => 0 },
+    );
+
+    expect(auditor.calls).toHaveLength(0);
+    expect(v.auditUsage).toEqual({ status: "not-run", reason: "gated" });
+  });
+
+  it("sends Jev only surviving verbatim spans and claim-relevant receipts", async () => {
+    const dir = await repo();
+    const auditor = fakeAuditor("pre-gathered", OK_REPLY, { vendor: "jev" });
+    const receipts = [
+      '> Bash {"command":"pnpm test"}',
+      "< src/cache.ts: 128 tests passed in 4.2 seconds",
+      '> Bash {"command":"curl https://example.test/noise"}',
+      `< ${"unrelated output ".repeat(300)}`,
+    ].join("\n");
+    await audit(
+      job(dir, {
+        finalMessage: [
+          "Maybe the earlier timeout was environmental.",
+          "I updated src/cache.ts; all 128 tests passed in 4.2 seconds.",
+          "Could there still be a race?",
+        ].join("\n"),
+        receipts,
+      }),
+      auditor,
+      nullEmbedder(),
+      { rng: () => 0 },
+    );
+
+    expect(auditor.calls).toHaveLength(1);
+    const state = JSON.parse(auditor.calls[0]!.prompt) as { finalMessage: string; evidence: string };
+    expect(state.finalMessage).toBe("I updated src/cache.ts;\nall 128 tests passed in 4.2 seconds.");
+    expect(state.finalMessage).not.toContain("Maybe");
+    expect(state.finalMessage).not.toContain("race");
+    expect(state.evidence).toContain("pnpm test");
+    expect(state.evidence).toContain("src/cache.ts: 128 tests passed in 4.2 seconds");
+    expect(state.evidence).not.toContain("unrelated output");
+  });
+});
+
 describe("selectEvidence — unit (pure, reuses precomputed vectors)", () => {
   const REL = [1, 0]; // aligned with the claim vector
   const IRREL = [0, 1]; // orthogonal to the claim vector

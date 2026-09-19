@@ -26,6 +26,7 @@ import { execa } from "execa";
 import { logFiring } from "./telemetry.js";
 import type { Auditor, AuditorTier, AuditorUsage } from "./resolve.js";
 import { groundingCheck, selectEvidence, hasSpecificQuantity, specificNumbersIn, findNumberSnippet, stateKindsOf, type GitProbeState, type GroundingFlag } from "./grounding.js";
+import { detectLoadBearingClaims, renderClaimSpans, selectJevEvidence } from "./jev-input.js";
 import { readFullSessionToolResults } from "./transcript.js";
 import { ollamaEmbedder, cosine, type Embedder } from "./embed.js";
 
@@ -1254,6 +1255,7 @@ export async function audit(
   const auditStartedAt = Date.now();
   const rng = opts.rng ?? Math.random;
   const select = opts.selectEvidence ?? selectEvidence;
+  const jevSpans = auditor.vendor === "jev" ? detectLoadBearingClaims(job.finalMessage) : undefined;
 
   // CHANGE 1: the no-LLM grounding tier runs FIRST — regardless of auditor
   // availability (SPEC §2, R8) — and its result now GATES the LLM audit. It also
@@ -1281,15 +1283,15 @@ export async function audit(
   // them; the gate never decides a judgment call. FAIL-OPEN: a grounding error
   // (embedder unavailable) forces the full audit.
   const shadowRate = Number(process.env.VS_SHADOW_RATE ?? 0.1);
-  const gateEligible =
-    auditor.tier !== "absent" &&
-    !grounding.error &&
-    grounding.flags.length === 0 &&
-    grounding.loadBearingSentences === 0;
+  const gateEligible = auditor.tier !== "absent" && (auditor.vendor === "jev"
+    ? jevSpans!.length === 0
+    : !grounding.error && grounding.flags.length === 0 && grounding.loadBearingSentences === 0);
   // SHADOW SAMPLING (the safety valve): a gate-eligible turn still runs the full
   // audit with probability shadowRate, so gate safety is a telemetry query, not a
   // belief. RNG injected at the call boundary (opts.rng), Math.random by default.
-  const shadow = gateEligible && rng() < shadowRate;
+  // Jev's deterministic filter is the cost boundary requested by the product:
+  // no surviving span means no Jev call, including the legacy shadow sample.
+  const shadow = auditor.vendor !== "jev" && gateEligible && rng() < shadowRate;
   const gated: "skipped" | "shadow" | "full" | undefined =
     auditor.tier === "absent" ? undefined : gateEligible ? (shadow ? "shadow" : "skipped") : "full";
   const runLLM = auditor.tier !== "absent" && (!gateEligible || shadow);
@@ -1311,7 +1313,12 @@ export async function audit(
     let selectedReceipts = job.receipts ?? "";
     let evidenceElided = false;
     evidenceBytes = job.receipts ? Buffer.byteLength(job.receipts, "utf8") : 0;
-    if (job.receipts && grounding.selection) {
+    if (auditor.vendor === "jev" && job.receipts) {
+      const sel = selectJevEvidence(job.receipts, jevSpans!);
+      selectedReceipts = sel.text;
+      evidenceBytes = sel.bytes;
+      evidenceElided = sel.elidedLines > 0;
+    } else if (job.receipts && grounding.selection) {
       try {
         const sel = select(grounding.selection, evidenceBudgetBytes());
         selectedReceipts = sel.text;
@@ -1329,7 +1336,7 @@ export async function audit(
         auditor.vendor === "jev"
           ? JSON.stringify({
               userRequest: job.userRequest,
-              finalMessage: job.finalMessage,
+              finalMessage: renderClaimSpans(jevSpans!),
               evidence: await gatherEvidence(job.dir, selectedReceipts),
             })
           : auditor.tier === "agentic"
