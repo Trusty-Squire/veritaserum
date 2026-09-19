@@ -24,7 +24,7 @@
  */
 import { execa } from "execa";
 import { logFiring } from "./telemetry.js";
-import type { Auditor, AuditorTier } from "./resolve.js";
+import type { Auditor, AuditorTier, AuditorUsage } from "./resolve.js";
 import { groundingCheck, selectEvidence, hasSpecificQuantity, specificNumbersIn, findNumberSnippet, stateKindsOf, type GitProbeState, type GroundingFlag } from "./grounding.js";
 import { readFullSessionToolResults } from "./transcript.js";
 import { ollamaEmbedder, cosine, type Embedder } from "./embed.js";
@@ -324,6 +324,8 @@ export interface AuditVerdict {
   auditorTier: AuditorTier;
   sameFamily: boolean;
   vendor: string;
+  /** Exact provider-returned usage, or an explicit reason there was none. */
+  auditUsage?: AuditorUsage | { status: "not-run"; reason: "gated" | "auditor-absent" };
   /** SPEC §7: the LLM auditor's judgment of a previously delivered warning's
    *  outcome. Present only when deliveredWarnings were supplied AND the LLM
    *  returned a valid value; never set by the grounding tier. */
@@ -1179,6 +1181,7 @@ function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict, promptChars = 0
     : verdict.sameFamily
       ? "same_family"
       : (verdict.auditorTier as "agentic" | "pre-gathered");
+  const usage = verdict.auditUsage ?? { status: "unavailable" as const, reason: "auditor did not expose provider usage" };
 
   logFiring({
     harness: job.harness || "unknown",
@@ -1194,6 +1197,18 @@ function logAuditTelemetry(job: AuditJob, verdict: AuditVerdict, promptChars = 0
     dir: job.dir,
     verdict_basis: basis,
     auditor_tier: auditorTierTag,
+    auditor_vendor: verdict.vendor,
+    auditor_model: usage.status === "not-run" ? undefined : usage.model,
+    audit_usage: usage.status === "reported"
+      ? {
+          status: "reported",
+          input_tokens: usage.inputTokens,
+          output_tokens: usage.outputTokens,
+          ...(usage.costUsd !== undefined ? { cost_usd: usage.costUsd } : {}),
+        }
+      : usage.status === "not-run"
+        ? { status: "not-run", reason: usage.reason }
+        : { status: "unavailable", reason: usage.reason },
     prompt_chars: promptChars,
     scheduling_mode: job.schedulingMode || "live",
     turn_ref: job.turnRef || job.sessionId,
@@ -1283,6 +1298,9 @@ export async function audit(
   let error: string | undefined;
   let promptChars = 0;
   let evidenceBytes = 0;
+  let auditUsage: NonNullable<AuditVerdict["auditUsage"]> = auditor.tier === "absent"
+    ? { status: "not-run", reason: "auditor-absent" }
+    : { status: "not-run", reason: "gated" };
 
   if (auditor.tier === "absent") {
     error = "auditor_absent";
@@ -1305,6 +1323,7 @@ export async function audit(
         evidenceElided = false;
       }
     }
+    auditor.lastUsage = undefined;
     try {
       const prompt =
         auditor.vendor === "jev"
@@ -1322,6 +1341,12 @@ export async function audit(
       if (!reply) error = "auditor reply did not parse as the expected JSON verdict";
     } catch (e) {
       error = `auditor invocation failed: ${e instanceof Error ? e.message : String(e)}`;
+    } finally {
+      auditUsage = auditor.lastUsage ?? {
+        status: "unavailable",
+        reason: "auditor did not expose provider usage",
+        ...(auditor.model ? { model: auditor.model } : {}),
+      };
     }
   }
 
@@ -1415,6 +1440,7 @@ export async function audit(
     auditorTier: auditor.tier,
     sameFamily: auditor.sameFamily,
     vendor: auditor.vendor,
+    auditUsage,
     auditDurationMs: Date.now() - auditStartedAt,
     ...(reply?.advisoryOutcome ? { advisoryOutcome: reply.advisoryOutcome } : {}),
     ...(error ? { error } : {}),

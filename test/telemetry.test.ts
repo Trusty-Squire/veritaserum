@@ -75,6 +75,28 @@ describe("telemetry (hermetic — VS_TELEMETRY_PATH points at a temp file)", () 
     expect(s).toContain("3 firing(s)");
     expect(s).toMatch(/confabulations detected:\s+2/);
   });
+
+  it("summarize shows audit rate, tier share, measured tokens, and known-vs-unknown price", () => {
+    const rows: Firing[] = [
+      {
+        ts: "2026-09-18T12:00:00.000Z",
+        ...firing({ event: "audit", auditor_tier: "agentic", auditor_vendor: "claude", caught: "", blocked: false }),
+        audit_usage: { status: "reported", input_tokens: 1_000, output_tokens: 100, cost_usd: 0.02 },
+      },
+      {
+        ts: "2026-09-19T12:00:00.000Z",
+        ...firing({ event: "audit", auditor_tier: "pre-gathered", auditor_vendor: "jev", caught: "", blocked: false }),
+        audit_usage: { status: "reported", input_tokens: 200, output_tokens: 20 },
+      },
+    ];
+    const s = summarize(rows);
+    expect(s).toContain("audits/day: 1.0 average across 2 calendar day(s); latest 2026-09-19: 1");
+    expect(s).toContain("agentic 1/2 (50.0%)");
+    expect(s).toContain("Jev 1/2 (50.0%)");
+    expect(s).toContain("agentic: 1,000 in / 100 out (1 reported); $0.02 known cost");
+    expect(s).toContain("Jev: 200 in / 20 out (1 reported); no known cost; price unknown for 1 audit(s)");
+    expect(s).toContain("known spend share: agentic 100.0%, Jev 0.0%, other 0.0%");
+  });
 });
 
 describe("wilsonLowerBound — hand-computed spot checks (z=1.96, textbook formula)", () => {
