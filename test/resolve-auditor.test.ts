@@ -2,7 +2,14 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, writeFile, chmod, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isExhausted, resolveAuditor, doctorReport, executorFamily } from "../src/resolve.js";
+import {
+  isExhausted,
+  resolveAuditor,
+  doctorReport,
+  executorFamily,
+  parseCodexExecJson,
+  parseClaudePrintJson,
+} from "../src/resolve.js";
 
 // Hermetic: this sandbox has REAL codex/claude CLIs on the ambient PATH (used by
 // eval/ scripts), so every test pins PATH to a fresh shim dir + the bare minimum
@@ -61,6 +68,61 @@ describe("executorFamily", () => {
   it("classifies anything else (ollama, goose, unknown) as other", () => {
     expect(executorFamily("ollama:qwen2.5:3b")).toBe("other");
     expect(executorFamily("unknown")).toBe("other");
+  });
+});
+
+describe("provider usage parsing — exact counters, never prompt-size estimates", () => {
+  it("reads Codex turn.completed usage and the final agent message", () => {
+    const parsed = parseCodexExecJson(
+      [
+        JSON.stringify({ type: "thread.started", thread_id: "t1" }),
+        JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: '{"claims":[]}' } }),
+        JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1_234, cached_input_tokens: 900, output_tokens: 56 } }),
+      ].join("\n"),
+      "gpt-test",
+    );
+    expect(parsed.text).toBe('{"claims":[]}');
+    expect(parsed.usage).toEqual({
+      status: "reported",
+      inputTokens: 1_234,
+      outputTokens: 56,
+      model: "gpt-test",
+    });
+  });
+
+  it("marks Codex usage unavailable when turn.completed omits it", () => {
+    const parsed = parseCodexExecJson(
+      JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "ok" } }),
+    );
+    expect(parsed.text).toBe("ok");
+    expect(parsed.usage.status).toBe("unavailable");
+  });
+
+  it("sums Claude's provider-reported uncached + cache input and preserves reported cost", () => {
+    const parsed = parseClaudePrintJson(
+      JSON.stringify({
+        result: '{"claims":[]}',
+        total_cost_usd: 0.0123,
+        modelUsage: {
+          "claude-sonnet-test": {
+            inputTokens: 100,
+            cacheCreationInputTokens: 200,
+            cacheReadInputTokens: 300,
+            outputTokens: 40,
+            costUSD: 0.0123,
+          },
+        },
+      }),
+      "sonnet",
+    );
+    expect(parsed.text).toBe('{"claims":[]}');
+    expect(parsed.usage).toEqual({
+      status: "reported",
+      inputTokens: 600,
+      outputTokens: 40,
+      model: "claude-sonnet-test",
+      costUsd: 0.0123,
+    });
   });
 });
 

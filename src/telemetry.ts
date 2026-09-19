@@ -36,6 +36,26 @@ export interface Firing {
   /** v3 (SPEC §2 "internal mechanics"): the auditor's trust tier for this run —
    *  same_family tags an agentic auditor that shares the executor's model family. */
   auditor_tier?: "agentic" | "pre-gathered" | "same_family" | "absent";
+  /** Concrete provider/model for this audit. Legacy rows predate these fields. */
+  auditor_vendor?: string;
+  auditor_model?: string;
+  /** Exact provider-returned usage for this audit. No prompt-length estimates.
+   *  A missing cost_usd on a reported record means price unknown, not zero. */
+  audit_usage?:
+    | {
+        status: "reported";
+        input_tokens: number;
+        output_tokens: number;
+        cost_usd?: number;
+      }
+    | {
+        status: "unavailable";
+        reason: string;
+      }
+    | {
+        status: "not-run";
+        reason: "gated" | "auditor-absent";
+      };
   /** v3 (SPEC §2): LIVE (a new turn-end supersedes) vs TESTBED (the queue drains). */
   scheduling_mode?: "live" | "testbed";
   /** v3: standing case-law entry ids checked mechanically in this audit. */
@@ -221,6 +241,23 @@ export function summarizePrecision(firings: Firing[]): PrecisionReport {
   };
 }
 
+type SpendGroup = "agentic" | "Jev" | "other";
+
+function spendGroup(f: Firing): SpendGroup {
+  if (f.auditor_vendor === "jev") return "Jev";
+  if (f.auditor_tier === "agentic" || f.auditor_tier === "same_family") return "agentic";
+  return "other";
+}
+
+function formatCount(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+function formatUsd(n: number): string {
+  if (n === 0) return "$0.00";
+  return `$${n.toFixed(n < 0.01 ? 6 : 2)}`;
+}
+
 /** Human-readable summary — the in-the-wild measurement. */
 export function summarize(firings: Firing[]): string {
   const n = firings.length;
@@ -229,12 +266,66 @@ export function summarize(firings: Firing[]): string {
   const wouldBlock = firings.filter((f) => f.blocked && f.advisory);
   const byHarness = firings.reduce<Record<string, number>>((m, f) => ((m[f.harness] = (m[f.harness] ?? 0) + 1), m), {});
   const label = (f: Firing): string => (f.blocked ? (f.advisory ? "would-block" : "BLOCKED") : "flagged");
+  const audits = firings.filter((f) => f.event === "audit");
+  const auditDays = audits.map((f) => f.ts.slice(0, 10)).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+  const firstDay = auditDays[0];
+  const latestDay = auditDays.at(-1);
+  const calendarDays = firstDay && latestDay
+    ? Math.max(1, Math.round((Date.parse(`${latestDay}T00:00:00Z`) - Date.parse(`${firstDay}T00:00:00Z`)) / 86_400_000) + 1)
+    : 0;
+  const latestCount = latestDay ? auditDays.filter((d) => d === latestDay).length : 0;
+  const groups: Record<SpendGroup, Firing[]> = { agentic: [], Jev: [], other: [] };
+  for (const f of audits) groups[spendGroup(f)].push(f);
+  const pct = (part: number, total: number): string => total ? `${((part / total) * 100).toFixed(1)}%` : "0.0%";
+  const usageLines: string[] = [];
+  let knownSpendTotal = 0;
+  const knownSpend: Record<SpendGroup, number> = { agentic: 0, Jev: 0, other: 0 };
+  for (const name of ["agentic", "Jev", "other"] as const) {
+    const rows = groups[name];
+    if (!rows.length) continue;
+    const reported = rows.filter((f) => f.audit_usage?.status === "reported");
+    const input = reported.reduce((sum, f) => sum + (f.audit_usage?.status === "reported" ? f.audit_usage.input_tokens : 0), 0);
+    const output = reported.reduce((sum, f) => sum + (f.audit_usage?.status === "reported" ? f.audit_usage.output_tokens : 0), 0);
+    const priced = reported.filter((f) => f.audit_usage?.status === "reported" && f.audit_usage.cost_usd !== undefined);
+    const cost = priced.reduce(
+      (sum, f) => sum + (f.audit_usage?.status === "reported" ? (f.audit_usage.cost_usd ?? 0) : 0),
+      0,
+    );
+    knownSpend[name] = cost;
+    knownSpendTotal += cost;
+    const unknownPrice = reported.length - priced.length;
+    const usageUnavailable = rows.filter((f) => f.audit_usage?.status === "unavailable").length;
+    const notRun = rows.filter((f) => f.audit_usage?.status === "not-run").length;
+    const legacy = rows.filter((f) => !f.audit_usage).length;
+    const details = [
+      `${formatCount(input)} in / ${formatCount(output)} out (${formatCount(reported.length)} reported)`,
+      priced.length ? `${formatUsd(cost)} known cost` : "no known cost",
+      unknownPrice ? `price unknown for ${formatCount(unknownPrice)} audit(s)` : "",
+      usageUnavailable ? `usage unavailable for ${formatCount(usageUnavailable)}` : "",
+      notRun ? `provider not run for ${formatCount(notRun)}` : "",
+      legacy ? `${formatCount(legacy)} legacy row(s) without usage` : "",
+    ].filter(Boolean);
+    usageLines.push(`    ${name}: ${details.join("; ")}`);
+  }
+  const spendShare = knownSpendTotal > 0
+    ? `agentic ${pct(knownSpend.agentic, knownSpendTotal)}, Jev ${pct(knownSpend.Jev, knownSpendTotal)}, other ${pct(knownSpend.other, knownSpendTotal)}`
+    : "agentic n/a, Jev n/a (no positive provider-reported spend)";
+  const tierParts = (["agentic", "Jev", "other"] as const)
+    .filter((name) => groups[name].length > 0)
+    .map((name) => `${name} ${formatCount(groups[name].length)}/${formatCount(audits.length)} (${pct(groups[name].length, audits.length)})`);
   const lines = [
     `ser telemetry — ${n} firing(s)`,
     `  confabulations detected:                 ${caught.length}`,
     `  blocked (actually stopped the turn):    ${actuallyBlocked.length}`,
     `  would-block (advisory, logged only):    ${wouldBlock.length}`,
     `  by harness: ${JSON.stringify(byHarness)}`,
+    ``,
+    `audit volume and cost:`,
+    `  audits/day: ${calendarDays ? `${(audits.length / calendarDays).toFixed(1)} average across ${formatCount(calendarDays)} calendar day(s); latest ${latestDay}: ${formatCount(latestCount)}` : "no audits"}`,
+    `  tier split (all time): ${tierParts.length ? tierParts.join("; ") : "no audits"}`,
+    `  provider-reported tokens and cost:`,
+    ...(usageLines.length ? usageLines : ["    no audits"]),
+    `  known spend share: ${spendShare}`,
     ``,
     `recent catches:`,
     ...caught.slice(-10).map((f) => `  [${f.ts.slice(0, 19)}] ${f.harness} ${label(f)}: ${f.caught.slice(0, 120)}`),

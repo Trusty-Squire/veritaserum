@@ -63,6 +63,12 @@ export interface JevCallMeta {
   model?: string;
   inputTokens?: number;
   outputTokens?: number;
+  costUsd?: number;
+}
+
+export interface JevInvocation {
+  reply: string;
+  meta: JevCallMeta;
 }
 
 const RECORD_CAP = 48 * 1024;
@@ -197,7 +203,7 @@ function redactSecrets(value: string): string {
   return value.replace(/Bearer\s+\S+/gi, "Bearer [redacted]");
 }
 
-export async function invokeJev(prompt: string, timeoutMs: number = JEV_TIMEOUT_MS): Promise<string> {
+export async function invokeJevWithMeta(prompt: string, timeoutMs: number = JEV_TIMEOUT_MS): Promise<JevInvocation> {
   const key = typesafeApiKey();
   if (!key) throw new Error("TYPESAFE_API_KEY not set");
 
@@ -234,5 +240,29 @@ export async function invokeJev(prompt: string, timeoutMs: number = JEV_TIMEOUT_
   }
   const answer = parseJevResponse(parsed);
   const turn = parseTurnState(prompt);
-  return choiceToAuditReply(answer, turn.finalMessage);
+  const obj = parsed as {
+    model?: unknown;
+    usage?: { input_tokens?: unknown; output_tokens?: unknown; cost_usd?: unknown; cost?: unknown };
+  };
+  const inputTokens = obj.usage?.input_tokens;
+  const outputTokens = obj.usage?.output_tokens;
+  const reportedCost = obj.usage?.cost_usd ?? obj.usage?.cost;
+  return {
+    reply: choiceToAuditReply(answer, turn.finalMessage),
+    meta: {
+      latencyMs: Date.now() - started,
+      httpStatus: res.status,
+      ...(typeof obj.model === "string" && obj.model ? { model: obj.model } : {}),
+      ...(typeof inputTokens === "number" && Number.isFinite(inputTokens) && inputTokens >= 0 ? { inputTokens } : {}),
+      ...(typeof outputTokens === "number" && Number.isFinite(outputTokens) && outputTokens >= 0 ? { outputTokens } : {}),
+      ...(typeof reportedCost === "number" && Number.isFinite(reportedCost) && reportedCost >= 0
+        ? { costUsd: reportedCost }
+        : {}),
+    },
+  };
+}
+
+/** Backwards-compatible text-only seam used by callers that do not need usage. */
+export async function invokeJev(prompt: string, timeoutMs: number = JEV_TIMEOUT_MS): Promise<string> {
+  return (await invokeJevWithMeta(prompt, timeoutMs)).reply;
 }

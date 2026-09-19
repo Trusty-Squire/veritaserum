@@ -49,17 +49,14 @@ function harnessName(): string {
  * "I did not see that stop-hook output. It wasn't included in any terminal/tool output
  * visible to me." Every verdict, every demand, silently addressed to no one.
  *
- * The AGENT'S REPLY is the only channel proven to reach the human on every surface. A
- * controlled canary (twice) showed additionalContext reliably reaches the MODEL, but
- * Claude Code's systemMessage does NOT render on the human's main chat surface — per the
- * docs it lands in the ctrl+r transcript view, which nobody watches (the owner saw nothing
- * across two deliveries and 18h of production). So we make the agent the display: the model
- * channel carries the verdict PLUS a directive telling the agent to surface the verdict line
- * verbatim at the top of its reply. systemMessage is KEPT (it still renders in the transcript
- * view, and future clients may surface it) but PLAIN — rendering there is transcript-raw at
- * best, so ANSI escapes are garbage. The directive lives in the model CONTEXT only: never in
- * systemMessage, telemetry, the dedupe store, or the delivered-warning ledger (that ledger
- * keeps the bare verdict line so the advisory-outcome audit quotes the right thing).
+ * Presentation is harness-specific. Claude Code visibly surfaces this UserPromptSubmit hook
+ * output, so asking Claude to repeat the same verdict produces a duplicate. Codex 0.155.0,
+ * by contrast, deliberately hides model-facing Context entries from its TUI; there the agent
+ * reply remains the only way the human sees the verdict, so Codex keeps the directive below.
+ * systemMessage stays PLAIN — ANSI escapes are garbage in transcript-raw renderers. The
+ * directive lives in model context only: never in systemMessage, telemetry, the dedupe store,
+ * or the delivered-warning ledger (that ledger keeps the bare verdict line so the
+ * advisory-outcome audit quotes the right thing).
  */
 const SHOW_DIRECTIVE =
   "\nShow the italicized line above to the user verbatim at the top of your reply, then leave a blank line before the rest of your reply.";
@@ -90,13 +87,11 @@ function injectionFor(harness: string, line: string, event: "UserPromptSubmit" |
     });
   }
   if (harness === "claude-code") {
-    // Model channel (additionalContext): the italicized verdict + a directive to
-    // surface it in the reply — the reply is the only surface the human reliably
-    // sees. Human channel (systemMessage): PLAIN "⚠️ <verdict>" — no asterisks, no
-    // ANSI (transcript-raw rendering makes escapes garbage), no directive (that's
-    // model-only guidance). "⚠️ " marks the line in every renderer.
+    // Claude Code already surfaces the hook output to the human. Keep the verdict in
+    // additionalContext so Claude can act on it, but do not ask Claude to print the
+    // same line again. systemMessage remains the plain human-facing copy.
     return JSON.stringify({
-      hookSpecificOutput: { hookEventName: event, additionalContext: italic + SHOW_DIRECTIVE },
+      hookSpecificOutput: { hookEventName: event, additionalContext: italic },
       systemMessage: `⚠️ ${line}`,
     });
   }

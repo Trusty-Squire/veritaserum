@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { selectJudgeVendor, NoJudgeVendorError, MockLlmClient, OllamaClient, ollamaNumCtx } from "../src/llm.js";
+import { selectJudgeVendor, NoJudgeVendorError, MockLlmClient, OllamaClient, OpenRouterClient, ollamaNumCtx } from "../src/llm.js";
 
 // ---------------------------------------------------------------------------
 // ollama streams now (stream:true): the response body is newline-delimited JSON,
@@ -55,6 +55,34 @@ describe("cross-vendor judge selection (owner policy)", () => {
   it("throws when no cross-vendor judge and no OpenRouter model", () => {
     expect(() => selectJudgeVendor("claude", { available: ["claude"] })).toThrow(NoJudgeVendorError);
     expect(() => selectJudgeVendor("codex", { available: [] })).toThrow(NoJudgeVendorError);
+  });
+});
+
+describe("OpenRouterClient usage", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it("captures provider-reported tokens, routed model, and call cost", async () => {
+    let requestBody: Record<string, unknown> = {};
+    globalThis.fetch = (async (_url, init) => {
+      requestBody = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({
+        model: "provider/model-version",
+        choices: [{ message: { content: "ok" } }],
+        usage: { prompt_tokens: 456, completion_tokens: 78, cost: 0.0042 },
+      }), { status: 200 });
+    }) as typeof fetch;
+    const client = new OpenRouterClient("requested/model", "secret", "https://example.invalid");
+    await expect(client.complete({ prompt: "x" })).resolves.toBe("ok");
+    expect(requestBody.usage).toEqual({ include: true });
+    expect(client.lastUsage).toEqual({
+      inputTokens: 456,
+      outputTokens: 78,
+      model: "provider/model-version",
+      costUsd: 0.0042,
+    });
   });
 });
 

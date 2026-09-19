@@ -18,7 +18,7 @@ import {
   OpenRouterClient,
   type Vendor,
 } from "./llm.js";
-import { invokeJev, JEV_MODEL, JEV_TIMEOUT_MS } from "./jev.js";
+import { invokeJevWithMeta, JEV_MODEL, JEV_TIMEOUT_MS } from "./jev.js";
 // The knight (authored gates up front), the transcriber (turned a complaint into a gate),
 // and the semantic judge (ruled on a gate's claim over captured evidence) are GONE. All
 // three were special cases of what the auditor already does — author a check, or rule on a
@@ -40,12 +40,31 @@ import { invokeJev, JEV_MODEL, JEV_TIMEOUT_MS } from "./jev.js";
 
 export type AuditorTier = "agentic" | "pre-gathered" | "absent";
 
+/** Usage for one provider invocation. A missing price is deliberately distinct
+ * from zero: subscription CLIs and Jev can report exact tokens without exposing
+ * a per-call dollar price. */
+export type AuditorUsage =
+  | {
+      status: "reported";
+      inputTokens: number;
+      outputTokens: number;
+      model?: string;
+      costUsd?: number;
+    }
+  | {
+      status: "unavailable";
+      reason: string;
+      model?: string;
+    };
+
 export interface Auditor {
   tier: AuditorTier;
   vendor: Vendor | "none";
   model?: string;
   /** True when the auditor shares a model family with the executor (rules 3/4). */
   sameFamily: boolean;
+  /** Usage for the most recent invoke(), reset at the start of every call. */
+  lastUsage?: AuditorUsage;
   /**
    * One audit invocation. `dir` matters only to agentic CLIs (their own
    * read-only probes run there); pre-gathered clients ignore it — the caller
@@ -165,6 +184,130 @@ function reasonFrom(r: { stdout?: string; stderr?: string }): string {
   return text ? text.slice(0, 300) : "no output";
 }
 
+function nonnegativeNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+/** Parse `codex exec --json`. The completed turn is the provider's exact usage
+ * envelope; the final completed agent message is the verdict text. */
+export function parseCodexExecJson(stdout: string, configuredModel?: string): { text: string; usage: AuditorUsage } {
+  let text = "";
+  let sawEvent = false;
+  let inputTokens: number | undefined;
+  let outputTokens: number | undefined;
+  for (const line of stdout.split("\n")) {
+    if (!line.trim()) continue;
+    let event: Record<string, unknown>;
+    try {
+      event = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (typeof event.type === "string") sawEvent = true;
+    if (event.type === "item.completed") {
+      const item = event.item as { type?: unknown; text?: unknown } | undefined;
+      if (item?.type === "agent_message" && typeof item.text === "string") text = item.text;
+    }
+    if (event.type === "turn.completed") {
+      const usage = event.usage as { input_tokens?: unknown; output_tokens?: unknown } | undefined;
+      inputTokens = nonnegativeNumber(usage?.input_tokens);
+      outputTokens = nonnegativeNumber(usage?.output_tokens);
+    }
+  }
+  const usage: AuditorUsage = inputTokens !== undefined && outputTokens !== undefined
+    ? { status: "reported", inputTokens, outputTokens, ...(configuredModel ? { model: configuredModel } : {}) }
+    : { status: "unavailable", reason: "codex turn.completed did not report token usage", ...(configuredModel ? { model: configuredModel } : {}) };
+  // Compatibility with older Codex versions and hermetic CLI shims that ignore
+  // --json and return the verdict body directly. Usage remains explicitly
+  // unavailable; never infer it from the body size.
+  if (!sawEvent && !text) text = stdout;
+  return { text: text.trim(), usage };
+}
+
+/** Parse `claude -p --output-format json`. `modelUsage` is aggregate and includes
+ * cache creation/read input, so summing it gives the full provider-reported input
+ * volume across an agentic tool loop. */
+export function parseClaudePrintJson(stdout: string, configuredModel: string): { text: string; usage: AuditorUsage } {
+  let data: {
+    result?: unknown;
+    total_cost_usd?: unknown;
+    usage?: {
+      input_tokens?: unknown;
+      output_tokens?: unknown;
+      cache_creation_input_tokens?: unknown;
+      cache_read_input_tokens?: unknown;
+    };
+    modelUsage?: Record<string, {
+      inputTokens?: unknown;
+      outputTokens?: unknown;
+      cacheCreationInputTokens?: unknown;
+      cacheReadInputTokens?: unknown;
+      costUSD?: unknown;
+    }>;
+  };
+  try {
+    data = JSON.parse(stdout) as typeof data;
+  } catch {
+    return {
+      text: "",
+      usage: { status: "unavailable", reason: "claude JSON result did not parse", model: configuredModel },
+    };
+  }
+
+  const models = Object.entries(data.modelUsage ?? {});
+  let inputTokens: number | undefined;
+  let outputTokens: number | undefined;
+  let modelCostUsd: number | undefined;
+  let model = configuredModel;
+  if (models.length > 0) {
+    let input = 0;
+    let output = 0;
+    let complete = true;
+    let cost = 0;
+    let costComplete = true;
+    for (const [, usage] of models) {
+      const direct = nonnegativeNumber(usage.inputTokens);
+      const cacheCreation = nonnegativeNumber(usage.cacheCreationInputTokens) ?? 0;
+      const cacheRead = nonnegativeNumber(usage.cacheReadInputTokens) ?? 0;
+      const out = nonnegativeNumber(usage.outputTokens);
+      const modelCost = nonnegativeNumber(usage.costUSD);
+      if (modelCost === undefined) costComplete = false;
+      else cost += modelCost;
+      if (direct === undefined || out === undefined) complete = false;
+      else {
+        input += direct + cacheCreation + cacheRead;
+        output += out;
+      }
+    }
+    if (complete) {
+      inputTokens = input;
+      outputTokens = output;
+    }
+    if (costComplete) modelCostUsd = cost;
+    model = models.map(([name]) => name).sort().join(",");
+  } else {
+    const direct = nonnegativeNumber(data.usage?.input_tokens);
+    const cacheCreation = nonnegativeNumber(data.usage?.cache_creation_input_tokens) ?? 0;
+    const cacheRead = nonnegativeNumber(data.usage?.cache_read_input_tokens) ?? 0;
+    const out = nonnegativeNumber(data.usage?.output_tokens);
+    if (direct !== undefined && out !== undefined) {
+      inputTokens = direct + cacheCreation + cacheRead;
+      outputTokens = out;
+    }
+  }
+  const costUsd = nonnegativeNumber(data.total_cost_usd) ?? modelCostUsd;
+  const usage: AuditorUsage = inputTokens !== undefined && outputTokens !== undefined
+    ? {
+        status: "reported",
+        inputTokens,
+        outputTokens,
+        model,
+        ...(costUsd !== undefined ? { costUsd } : {}),
+      }
+    : { status: "unavailable", reason: "claude JSON result did not report token usage", model };
+  return { text: typeof data.result === "string" ? data.result.trim() : "", usage };
+}
+
 /** A quota/limit refusal is not a broken auditor — it is an EXHAUSTED one. Same shape as an
  *  outage from our side (the audit does not happen), but the remedy is a different vendor,
  *  not a retry. Recognising it is what lets the audit fall back instead of giving up. */
@@ -204,13 +347,18 @@ const DEFAULT_CLAUDE_AUDITOR_MODEL = process.env.VS_AUDITOR_MODEL || "sonnet";
 
 function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTier, sameFamily: boolean): Auditor {
   switch (vendor) {
-    case "codex":
-      return {
+    case "codex": {
+      const auditor: Auditor = {
         tier,
         vendor,
         model,
         sameFamily,
         async invoke(prompt, dir, timeoutMs) {
+          auditor.lastUsage = {
+            status: "unavailable",
+            reason: "codex invocation did not return usage",
+            ...(model ? { model } : {}),
+          };
           // Agentic: the auditor gathers its own evidence (git log/status/diff, law
           // from HEAD) inside a read-only sandbox — no "don't use tools" instruction,
           // unlike the v1 CodexCliClient judge (that reasons over given evidence only).
@@ -223,7 +371,7 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
           // unset or anything else omits the flag and falls open to codex's own default.
           const effort = process.env.VS_AUDITOR_EFFORT;
           const effortArgs = effort && AUDITOR_EFFORTS.has(effort) ? ["-c", `model_reasoning_effort=${effort}`] : [];
-          const r = await execa("codex", ["exec", "-s", "read-only", ...(model ? ["-m", model] : []), ...effortArgs, "-"], {
+          const r = await execa("codex", ["exec", "--json", "-s", "read-only", ...(model ? ["-m", model] : []), ...effortArgs, "-"], {
             cwd: dir,
             input: prompt,
             env: auditorChildEnv(),
@@ -237,73 +385,120 @@ function buildAuditor(vendor: Vendor, model: string | undefined, tier: AuditorTi
             // cause, which is indistinguishable from one that never ran.
             throw new Error(`codex exec failed (exit ${r.exitCode ?? "timeout"}): ${reasonFrom(r)}`);
           }
-          return (r.stdout ?? "").trim();
+          const parsed = parseCodexExecJson(r.stdout ?? "", model);
+          auditor.lastUsage = parsed.usage;
+          return parsed.text;
         },
       };
+      return auditor;
+    }
     case "claude": {
       // Pin the model. With no --model, `claude -p` inherits the USER's default — for a Fable
       // subscriber, the frontier model, on every turn. That is what drained the quota.
       const claudeModel = model ?? DEFAULT_CLAUDE_AUDITOR_MODEL;
-      return {
+      const auditor: Auditor = {
         tier,
         vendor,
         model: claudeModel,
         sameFamily,
         async invoke(prompt, dir, timeoutMs) {
+          auditor.lastUsage = {
+            status: "unavailable",
+            reason: "claude invocation did not return usage",
+            model: claudeModel,
+          };
           // Prompt over STDIN, not argv — same MAX_ARG_STRLEN (128 KiB) ceiling as the
           // codex path above; a long session's prompt exceeds it and execve fails E2BIG.
-          const r = await execa("claude", ["-p", "--allowedTools", CLAUDE_READONLY_TOOLS, "--model", claudeModel], {
+          const r = await execa(
+            "claude",
+            ["-p", "--output-format", "json", "--allowedTools", CLAUDE_READONLY_TOOLS, "--model", claudeModel],
+            {
             cwd: dir,
             input: prompt,
             env: auditorChildEnv(),
             reject: false,
             timeout: timeoutMs ?? DEFAULT_AUDITOR_TIMEOUT_MS,
-          });
+            },
+          );
           if (r.exitCode !== 0) {
             throw new Error(`claude -p failed (exit ${r.exitCode ?? "timeout"}): ${reasonFrom(r)}`);
           }
-          return (r.stdout ?? "").trim();
+          const parsed = parseClaudePrintJson(r.stdout ?? "", claudeModel);
+          auditor.lastUsage = parsed.usage;
+          return parsed.text;
         },
       };
+      return auditor;
     }
 
     case "ollama": {
       const m = model || DEFAULT_OLLAMA_MODEL;
-      return {
+      const auditor: Auditor = {
         tier,
         vendor,
         model: m,
         sameFamily,
         async invoke(prompt, _dir, timeoutMs) {
-          return new OllamaClient(m).complete({ prompt, timeoutMs: timeoutMs ?? OLLAMA_AUDITOR_TIMEOUT_MS });
+          auditor.lastUsage = { status: "unavailable", reason: "ollama did not report token usage", model: m };
+          const client = new OllamaClient(m);
+          const text = await client.complete({ prompt, timeoutMs: timeoutMs ?? OLLAMA_AUDITOR_TIMEOUT_MS });
+          const inputTokens = client.lastUsage?.promptEvalCount;
+          const outputTokens = client.lastUsage?.evalCount;
+          if (inputTokens !== undefined && outputTokens !== undefined) {
+            // Local inference has no provider/API charge. Host compute cost is outside
+            // the provider-reported spend tracked here.
+            auditor.lastUsage = { status: "reported", inputTokens, outputTokens, model: m, costUsd: 0 };
+          }
+          return text;
         },
       };
+      return auditor;
     }
     case "openrouter": {
       const m = model || DEFAULT_METERED_MODEL;
-      return {
+      const auditor: Auditor = {
         tier,
         vendor,
         model: m,
         sameFamily,
         async invoke(prompt, _dir, timeoutMs) {
+          auditor.lastUsage = { status: "unavailable", reason: "openrouter did not report token usage", model: m };
           const key = openrouterApiKey();
           if (!key) throw new Error("OPENROUTER_API_KEY not set");
-          return new OpenRouterClient(m, key).complete({ prompt, timeoutMs: timeoutMs ?? DEFAULT_AUDITOR_TIMEOUT_MS });
+          const client = new OpenRouterClient(m, key);
+          const text = await client.complete({ prompt, timeoutMs: timeoutMs ?? DEFAULT_AUDITOR_TIMEOUT_MS });
+          if (client.lastUsage) auditor.lastUsage = { status: "reported", ...client.lastUsage };
+          return text;
         },
       };
+      return auditor;
     }
     case "jev": {
       const m = model || JEV_MODEL;
-      return {
+      const auditor: Auditor = {
         tier: "pre-gathered",
         vendor,
         model: m,
         sameFamily: false,
         async invoke(prompt, _dir, timeoutMs) {
-          return invokeJev(prompt, timeoutMs ?? JEV_TIMEOUT_MS);
+          auditor.lastUsage = { status: "unavailable", reason: "jev did not report token usage", model: m };
+          const invocation = await invokeJevWithMeta(prompt, timeoutMs ?? JEV_TIMEOUT_MS);
+          const { inputTokens, outputTokens, costUsd } = invocation.meta;
+          if (inputTokens !== undefined && outputTokens !== undefined) {
+            auditor.lastUsage = {
+              status: "reported",
+              inputTokens,
+              outputTokens,
+              model: invocation.meta.model ?? m,
+              ...(costUsd !== undefined ? { costUsd } : {}),
+            };
+          } else if (invocation.meta.model) {
+            auditor.lastUsage = { status: "unavailable", reason: "jev did not report token usage", model: invocation.meta.model };
+          }
+          return invocation.reply;
         },
       };
+      return auditor;
     }
   }
 }

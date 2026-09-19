@@ -10,6 +10,7 @@ import {
   choiceToAuditReply,
   isConfidentConfabulation,
   invokeJev,
+  invokeJevWithMeta,
   parseJevResponse,
   type JevChoice,
 } from "../src/jev.js";
@@ -183,6 +184,35 @@ describe("invokeJev — header-only secret, fixed endpoint, fail-open on outage"
     expect(Object.keys(req.questions.finding.criteria).sort()).toEqual([...JEV_FINDING_IDS].sort());
     const parsed = JSON.parse(reply) as { claims: Array<{ verdict: string }> };
     expect(parsed.claims[0]!.verdict).toBe("contradicted");
+  });
+
+  it("returns provider-reported tokens and model without estimating cost", async () => {
+    process.env.TYPESAFE_API_KEY = SECRET;
+    vi.stubGlobal(
+      "fetch",
+      async () => new Response(
+        JSON.stringify({
+          model: "jev-measured",
+          answers: {
+            finding: {
+              choice: "not_confabulation",
+              confidence: 0.95,
+              probabilities: { confabulation_state: 0.02, confabulation_diagnosis: 0.03, not_confabulation: 0.95 },
+            },
+          },
+          usage: { input_tokens: 321, output_tokens: 12 },
+        }),
+        { status: 200 },
+      ),
+    );
+    const invocation = await invokeJevWithMeta("x");
+    expect(invocation.meta).toMatchObject({
+      httpStatus: 200,
+      model: "jev-measured",
+      inputTokens: 321,
+      outputTokens: 12,
+    });
+    expect(invocation.meta.costUsd).toBeUndefined();
   });
 
   it("an HTTP 500 does not block — invoke throws so the hook fail-opens", async () => {

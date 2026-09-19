@@ -29,6 +29,16 @@ export interface LlmClient {
   complete(req: LlmRequest): Promise<string>;
 }
 
+/** Usage reported by a completion provider. These are provider counters, never
+ * estimates derived from prompt length. `costUsd` is absent when the provider
+ * reports tokens but does not report a price for the call. */
+export interface CompletionUsage {
+  inputTokens: number;
+  outputTokens: number;
+  model?: string;
+  costUsd?: number;
+}
+
 // ---------------------------------------------------------------------------
 // Availability — is a local subscription usable right now (binary + auth)?
 // ---------------------------------------------------------------------------
@@ -389,17 +399,22 @@ export class OllamaClient implements LlmClient {
 /** OpenRouter — metered. Constructed only when the user opts in; never auto-selected. */
 export class OpenRouterClient implements LlmClient {
   readonly vendor = "openrouter" as const;
+  lastUsage: CompletionUsage | undefined = undefined;
   constructor(
     private readonly model: string,
     private readonly apiKey: string,
     private readonly baseUrl = "https://openrouter.ai/api/v1",
   ) {}
   async complete(req: LlmRequest): Promise<string> {
+    this.lastUsage = undefined;
     const res = await fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
       body: JSON.stringify({
         model: this.model,
+        // OpenRouter only guarantees token/cost accounting in the response when
+        // explicitly requested. The returned numbers are logged verbatim.
+        usage: { include: true },
         messages: [
           ...(req.system ? [{ role: "system", content: req.system }] : []),
           { role: "user", content: req.prompt },
@@ -407,7 +422,25 @@ export class OpenRouterClient implements LlmClient {
       }),
     });
     if (!res.ok) throw new Error(`openrouter ${res.status}: ${await res.text()}`);
-    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+    const data = (await res.json()) as {
+      model?: unknown;
+      choices?: { message?: { content?: string } }[];
+      usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; cost?: unknown };
+    };
+    const inputTokens = data.usage?.prompt_tokens;
+    const outputTokens = data.usage?.completion_tokens;
+    if (
+      typeof inputTokens === "number" && Number.isFinite(inputTokens) && inputTokens >= 0 &&
+      typeof outputTokens === "number" && Number.isFinite(outputTokens) && outputTokens >= 0
+    ) {
+      const cost = data.usage?.cost;
+      this.lastUsage = {
+        inputTokens,
+        outputTokens,
+        model: typeof data.model === "string" && data.model ? data.model : this.model,
+        ...(typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? { costUsd: cost } : {}),
+      };
+    }
     return (data.choices?.[0]?.message?.content ?? "").trim();
   }
 }

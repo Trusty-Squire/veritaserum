@@ -736,6 +736,12 @@ describe("audit — telemetry (one event per audit)", () => {
     const reply =
       '{"claims":[{"claim":"x","verdict":"unsupported","basis":"y","evidence":"z","reliance":"the user relies on x and is burned when it is false"}],"unaccountable":false,"note":""}';
     const auditor = fakeAuditor("agentic", reply, { vendor: "codex", sameFamily: true });
+    const invoke = auditor.invoke.bind(auditor);
+    auditor.invoke = async (prompt, callDir, timeoutMs) => {
+      const out = await invoke(prompt, callDir, timeoutMs);
+      auditor.lastUsage = { status: "reported", inputTokens: 123, outputTokens: 45, model: "gpt-test" };
+      return out;
+    };
     await audit(job(dir), auditor, nullEmbedder(), FORCE_RUN);
 
     const firings: Firing[] = readFirings();
@@ -747,6 +753,9 @@ describe("audit — telemetry (one event per audit)", () => {
     expect(f.verdict_basis).toBe("probe"); // a claim carries evidence
     expect(f.scheduling_mode).toBe("live");
     expect(typeof f.vague_turn).toBe("boolean");
+    expect(f.auditor_vendor).toBe("codex");
+    expect(f.auditor_model).toBe("gpt-test");
+    expect(f.audit_usage).toEqual({ status: "reported", input_tokens: 123, output_tokens: 45 });
   });
 
   it("tags auditor_tier 'absent' when the auditor is unavailable", async () => {
@@ -755,6 +764,7 @@ describe("audit — telemetry (one event per audit)", () => {
     await audit(job(dir), auditor, nullEmbedder(), FORCE_RUN);
     const firings = readFirings();
     expect(firings[0]!.auditor_tier).toBe("absent");
+    expect(firings[0]!.audit_usage).toEqual({ status: "not-run", reason: "auditor-absent" });
   });
 });
 

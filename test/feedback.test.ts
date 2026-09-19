@@ -483,7 +483,7 @@ describe("feedback channel — the injection envelope each harness actually read
     expect(out).not.toMatch(ANSI);
   });
 
-  it("claude-code: model channel = italicized verdict + directive; human channel = plain ⚠️ line (no asterisks, no ANSI, no directive)", async () => {
+  it("claude-code: model channel carries the verdict without asking for a duplicate echo", async () => {
     writePendingFeedback(repoDir, "s-env", WARN);
     const out = await hookPromptAs("claude-code");
 
@@ -491,11 +491,12 @@ describe("feedback channel — the injection envelope each harness actually read
       hookSpecificOutput: { hookEventName: string; additionalContext: string };
       systemMessage: string;
     };
-    // model channel: italicized verdict + the surface-it directive.
+    // Claude Code surfaces the hook output itself. The verdict still reaches the
+    // model, but the model must not be told to print the same line a second time.
     expect(parsed.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
-    expect(parsed.hookSpecificOutput.additionalContext).toBe(`*${WARN}*` + DIRECTIVE);
-    // human channel (transcript view at best): plain emoji-marked verdict —
-    // no asterisks, no ANSI (garbage there), no directive (that's model-only guidance).
+    expect(parsed.hookSpecificOutput.additionalContext).toBe(`*${WARN}*`);
+    expect(parsed.hookSpecificOutput.additionalContext).not.toContain("Show the italicized line above");
+    // Human channel: plain emoji-marked verdict, with no model-only instructions.
     expect(parsed.systemMessage).toBe(`⚠️ ${WARN}`);
     expect(parsed.systemMessage).not.toContain("*");
     expect(parsed.systemMessage).not.toMatch(ANSI);
