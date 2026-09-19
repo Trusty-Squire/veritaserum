@@ -17,7 +17,6 @@ import { logFiring, readFirings, summarize } from "./telemetry.js";
 import { installTarget, detectHarnesses, isTarget, TARGETS, type Target } from "./install.js";
 import { selfcheck } from "./selfcheck.js";
 import * as style from "./style.js";
-import { typesafeApiKey } from "./llm.js";
 import { loadTurnMaterial, buildFeedbackLine } from "./run-audit.js";
 import {
   isBlockEnabled,
@@ -199,12 +198,10 @@ function writeLastAudit(qdir: string, next: LastAudit): void {
  * yes/no). Unknown payload shape → nothing to audit (fail toward silence, R8-adjacent).
  */
 /**
- * Never audit the auditor. The agentic auditor IS a coding agent (codex/claude) and it
- * runs inside the audited repo, so veritaserum's own Stop hook fires on ITS turn-end and
- * enqueues a job — whose audit spawns another auditor, which enqueues again. That loop
- * never converges: it floods the queue with empty-content self-audits and starves the
- * real session's job. resolve.ts stamps VS_AUDIT_CHILD on every auditor subprocess; the
- * hook that sees it does nothing.
+ * Never audit the auditor. When the classifier was a coding-agent CLI, it ran
+ * inside the audited repo and veritaserum's own Stop hook fired on ITS
+ * turn-end. Jev is HTTP, but the hook still honors VS_AUDIT_CHILD so a leftover
+ * child env cannot enqueue a loop.
  */
 function isAuditorChild(): boolean {
   return process.env.VS_AUDIT_CHILD === "1";
@@ -248,13 +245,8 @@ async function runSynchronousBlock(args: {
   if (priorBlocks >= cap) return 0;
 
   const executor = process.env.VS_EXECUTOR || "unknown";
-  const auditor =
-    typesafeApiKey() && !process.env.VS_AUDITOR
-      ? await resolveAuditor(executor, "jev")
-      : args.force || process.env.VS_AUDITOR
-        ? await resolveAuditor(executor)
-        : null;
-  if (!auditor || auditor.tier === "absent") return -1; // caller fail-opens (enqueue)
+  const auditor = await resolveAuditor(executor);
+  if (auditor.tier === "absent") return -1; // caller fail-opens (enqueue)
 
   const job: AuditJob = {
     dir: args.wd,
@@ -265,7 +257,6 @@ async function runSynchronousBlock(args: {
     ...(typeof args.payload.last_assistant_message === "string" ? { finalMessage: args.payload.last_assistant_message } : {}),
     harness: harnessName(),
     executor,
-    ...(process.env.VS_AUDITOR ? { auditor: process.env.VS_AUDITOR } : {}),
   };
   const material = loadTurnMaterial(job);
   if (!material.finalMessage) return 0;
@@ -429,33 +420,23 @@ async function main(argv: string[]): Promise<number> {
     case "doctor": {
       const executor = process.env.VS_EXECUTOR || "unknown";
       const r = await doctorReport(executor);
-      console.log(style.banner("veritaserum · doctor", "auditor resolution (SPEC §2)"));
+      console.log(style.banner("veritaserum · doctor", "Jev classifier"));
       console.log();
-      console.log(`  executor: ${style.bold(r.executor)} (family: ${r.family})`);
+      console.log(`  executor: ${style.bold(r.executor)}`);
       console.log();
-      console.log(`  candidates:`);
       for (const c of r.candidates) {
         const mark = c.ok ? style.ok(c.vendor) : style.cross + " " + c.vendor;
-        const fired = c.firedRule ? style.dim(` — fired: ${c.firedRule}`) : "";
-        console.log(`    ${mark}: ${c.detail}${fired}`);
+        console.log(`    ${mark}: ${c.detail}`);
       }
       console.log();
-      console.log(`  chosen: ${style.bold(`${r.chosen.vendor}${r.chosen.model ? `:${r.chosen.model}` : ""}`)} (tier: ${r.chosen.tier}${r.chosen.sameFamily ? ", same-family" : ""})`);
+      console.log(`  chosen: ${style.bold(`${r.chosen.vendor}${r.chosen.model ? `:${r.chosen.model}` : ""}`)} (tier: ${r.chosen.tier})`);
       console.log(`  rule: ${r.chosen.rule}`);
       console.log();
       if (r.chosen.vendor === "jev") {
-        console.log(style.step("Jev (typesafe System One) — Choice auditor, cross-family, ~350ms. Blocking uses this path when VS_BLOCK=1."));
-      } else if (r.chosen.tier === "absent") {
-        console.log(style.step("no auditor available — mechanical standing-law checks still run (R8); no LLM audit."));
-        console.log(style.step("upgrade: set TYPESAFE_API_KEY for Jev, install codex or claude on PATH, or set OPENROUTER_API_KEY / VS_AUDITOR_METERED=<vendor:model>."));
-      } else if (r.chosen.sameFamily) {
-        console.log(style.step(`upgrade: install a cross-family CLI (${r.chosen.vendor === "codex" ? "claude" : "codex"}) to drop the same-family warning, or set TYPESAFE_API_KEY for Jev.`));
-      } else if (r.chosen.tier === "pre-gathered") {
-        console.log(style.step("upgrade: install codex or claude on PATH for an agentic auditor (own read-only probes, not pre-gathered evidence)."));
+        console.log(style.step("Jev (typesafe System One) — Choice classifier. Blocking uses this path when VS_BLOCK=1."));
       } else {
-        console.log(style.step("agentic, cross-family — no upgrade needed."));
+        console.log(style.step("Jev did not run — set TYPESAFE_API_KEY. There is no CLI or local-model fallback."));
       }
-      console.log(style.step("override any rule with VS_AUDITOR=<vendor[:model]>."));
       return 0;
     }
 
@@ -502,7 +483,6 @@ async function main(argv: string[]): Promise<number> {
           ...(typeof p.last_assistant_message === "string" ? { finalMessage: p.last_assistant_message } : {}),
           harness: harnessName(),
           executor: process.env.VS_EXECUTOR || "unknown",
-          ...(process.env.VS_AUDITOR ? { auditor: process.env.VS_AUDITOR } : {}),
         };
         enqueue(wd, job);
 

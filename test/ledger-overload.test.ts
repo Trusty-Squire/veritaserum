@@ -52,8 +52,8 @@ afterEach(async () => {
  *  accurate, not a false claim (supported). */
 function fakeAuditor(): Auditor {
   return {
-    tier: "agentic",
-    vendor: "codex",
+    tier: "pre-gathered",
+    vendor: "jev",
     sameFamily: false,
     async invoke(prompt: string) {
       if (prompt.includes("Re-checked add/list/delete, category filtering, date-range, sums, and CSV round-trip — all still passing")) {

@@ -1,14 +1,13 @@
 /**
- * Pinned-baseline eval harness (SPEC §6.1) — runs the eval/fixtures/*.json
- * scenarios through the REAL resolved auditor (SPEC §2 "Auditor resolution":
- * codex exec / claude -p / a metered model, whatever resolveAuditor() picks
- * for VS_EXECUTOR) and prints a scorecard against each fixture's `expected`.
+ * Pinned-baseline eval harness — runs the eval/fixtures/*.json scenarios
+ * through the REAL resolved Jev classifier (TYPESAFE_API_KEY) and prints a
+ * scorecard against each fixture's `expected`.
  *
  * This is the live counterpart to test/fixtures.test.ts's hermetic, scripted
- * pipeline test — it costs real auditor invocations (an LLM call per fixture),
+ * pipeline test — it costs real Jev invocations (one Choice per fixture),
  * so it is NEVER run by CI or by an agent automatically. A human runs it by
- * hand (`npm run eval:fixtures`) to track whether real auditor behavior still
- * matches the pinned baseline as models/prompts change.
+ * hand (`npm run eval:fixtures`) to track whether live Jev still matches the
+ * pinned baseline.
  *
  * Never mutates a real repo: each fixture gets its own throwaway temp git repo
  * (eval/fixtures/types.ts's fixtureRepo), same as the hermetic test.
@@ -67,7 +66,7 @@ async function main(): Promise<void> {
   const auditor = await resolveAuditor(executor);
   console.log(`eval:fixtures — auditor: ${auditor.vendor}${auditor.model ? `:${auditor.model}` : ""} (tier: ${auditor.tier}${auditor.sameFamily ? ", same-family" : ""})`);
   if (auditor.tier === "absent") {
-    console.log("no auditor available (auditor_absent) — nothing to score. Install codex/claude on PATH or set VS_AUDITOR.");
+    console.log("Jev did not run — nothing to score. Set TYPESAFE_API_KEY. There is no CLI or local-model fallback.");
     return;
   }
   console.log("");

@@ -1,28 +1,22 @@
 /**
- * Sanity E2E: the whole v3 chain wired together with a fake auditor — a temp
- * repo → `queueJob` + `runQueue` running the REAL `runAudit` (src/run-audit.ts),
- * with `resolveAuditor` stubbed via `VS_AUDITOR=codex` + a PATH-shim fake `codex`
- * that echoes a canned verdict JSON (the same injection pattern
- * test/resolve-auditor.test.ts uses for its auth-probe candidates).
- *
- * Asserts: the queue drains cleanly (no dead job) and a telemetry audit event is
- * written with the auditor's verdict. The auditor is stateless per turn now — no
- * case law, no demands, no green marker (see SPEC.md "2026-07-20: case law removed").
+ * Sanity E2E: queueJob + runQueue running the REAL runAudit with Jev mocked
+ * via fetch. Asserts the queue drains and telemetry records the Jev verdict.
  */
-import { describe, it, expect, afterEach } from "vitest";
-import { mkdtemp, rm, writeFile, chmod } from "node:fs/promises";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
 import { writeFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { tempRepo } from "./helpers.js";
+import { tempRepo, JEV_STATE_CONFAB } from "./helpers.js";
 import { queueJob, queueRoot, runQueue, type AuditJob } from "../src/audit-runner.js";
 import { runAudit } from "../src/run-audit.js";
 import { readFirings, type Firing } from "../src/telemetry.js";
 
-const ENV_KEYS = ["PATH", "VS_QUEUE_ROOT", "VS_TELEMETRY_PATH", "VS_DOCTOR_CACHE_PATH", "VS_AUDITOR", "VS_EXECUTOR"] as const;
+const ENV_KEYS = ["PATH", "VS_QUEUE_ROOT", "VS_TELEMETRY_PATH", "VS_EXECUTOR", "TYPESAFE_API_KEY"] as const;
 
 let cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
+  vi.unstubAllGlobals();
   await Promise.all(cleanups.map((c) => c()));
   cleanups = [];
 });
@@ -33,18 +27,10 @@ async function repo(): Promise<string> {
   return dir;
 }
 
-/** A fake `codex` on PATH: any args, always prints one canned verdict and exits 0. */
-async function shimCodex(shimDir: string, replyJson: string): Promise<void> {
-  const p = join(shimDir, "codex");
-  await writeFile(p, `#!/bin/sh\ncat <<'JSON'\n${replyJson}\nJSON\n`, "utf8");
-  await chmod(p, 0o755);
-}
-
-describe("integration — sync enqueue → real runAudit → telemetry (SPEC §2/§6.6)", () => {
+describe("integration — sync enqueue → real runAudit → telemetry", () => {
   it("wires the whole chain: queue drains cleanly and a telemetry audit event is written", async () => {
     const dir = await repo();
 
-    // A Claude Code-shaped transcript: a load-bearing, verification-needing claim.
     const transcriptPath = join(dir, "transcript.jsonl");
     writeFileSync(
       transcriptPath,
@@ -57,35 +43,24 @@ describe("integration — sync enqueue → real runAudit → telemetry (SPEC §2
       ].join("\n") + "\n",
     );
 
-    const shimDir = await mkdtemp(join(tmpdir(), "vs-int-shim-"));
     const telemetryDir = await mkdtemp(join(tmpdir(), "vs-int-tel-"));
-    const cacheDir = await mkdtemp(join(tmpdir(), "vs-int-cache-"));
     const queueDir = await mkdtemp(join(tmpdir(), "vs-int-queue-"));
     cleanups.push(async () => {
-      await rm(shimDir, { recursive: true, force: true });
       await rm(telemetryDir, { recursive: true, force: true });
-      await rm(cacheDir, { recursive: true, force: true });
       await rm(queueDir, { recursive: true, force: true });
     });
-
-    const CANNED_REPLY = JSON.stringify({
-      claims: [{ claim: "wrote an MCCFR solver, it's working well", verdict: "unsupported", basis: "no Kuhn-anchor test found", evidence: "", reliance: "the user trusts the solver's output as an equilibrium strategy that was never validated" }],
-      unaccountable: false,
-      note: "",
-    });
-    await shimCodex(shimDir, CANNED_REPLY);
 
     const saved: Partial<Record<(typeof ENV_KEYS)[number], string>> = {};
     for (const k of ENV_KEYS) {
       const v = process.env[k];
       if (v !== undefined) saved[k] = v;
     }
-    process.env.PATH = `${shimDir}:/usr/bin:/bin`;
+    process.env.PATH = `/usr/bin:/bin`;
     process.env.VS_QUEUE_ROOT = queueDir;
     process.env.VS_TELEMETRY_PATH = join(telemetryDir, "telemetry.jsonl");
-    process.env.VS_DOCTOR_CACHE_PATH = join(cacheDir, "doctor.json");
-    process.env.VS_AUDITOR = "codex"; // stub resolveAuditor — no probe, no real CLI
     process.env.VS_EXECUTOR = "unknown";
+    process.env.TYPESAFE_API_KEY = "sk-test";
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify(JEV_STATE_CONFAB), { status: 200 }));
 
     try {
       const job: AuditJob = { dir, sessionId: "s-int", turnRef: "t-int", mode: "live", transcriptPath };
@@ -93,19 +68,17 @@ describe("integration — sync enqueue → real runAudit → telemetry (SPEC §2
 
       await runQueue(dir, runAudit);
 
-      // 1. queue drained cleanly — no dead job (runAudit didn't throw).
       const qdir = queueRoot(dir);
       expect(existsSync(join(qdir, "dead"))).toBe(true);
       expect(readdirSync(join(qdir, "dead")).filter((f) => f.endsWith(".json"))).toHaveLength(0);
 
-      // 2. telemetry event written (SPEC §7) with the auditor's verdict.
       const firings: Firing[] = readFirings();
       const auditFirings = firings.filter((f) => f.event === "audit");
       expect(auditFirings.length).toBeGreaterThanOrEqual(1);
       const last = auditFirings[auditFirings.length - 1]!;
-      expect(last.verdict).toBe("unsupported");
+      expect(last.verdict).toBe("contradicted");
+      expect(last.auditor_vendor).toBe("jev");
 
-      // 3. nothing landed in the user's repo — the auditor is stateless per turn.
       expect(existsSync(join(dir, "veritaserum.law.yaml"))).toBe(false);
     } finally {
       for (const k of ENV_KEYS) {

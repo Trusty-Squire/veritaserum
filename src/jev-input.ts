@@ -2,10 +2,9 @@
  * Deterministic Jev input diet.
  *
  * This module invokes no model or embedding. It finds verbatim spans in the
- * final message using the grounding tier's existing guards/state/quantity
- * lexicons, then retains only receipt blocks relevant to those spans. Unknown
- * prose fails closed for cost: if no span survives, the caller does not invoke
- * Jev.
+ * final message using the lexicon in src/lexicon.ts, then retains only receipt
+ * blocks relevant to those spans. Unknown prose fails closed for cost: if no
+ * span survives, the caller does not invoke Jev.
  */
 import {
   DIRECTIVE_ECHO,
@@ -16,7 +15,7 @@ import {
   numbersIn,
   specificNumbersIn,
   stateKindsOf,
-} from "./grounding.js";
+} from "./lexicon.js";
 
 export type LoadBearingReason = "state" | "work" | "test" | "quantity" | "causal" | "blocker";
 

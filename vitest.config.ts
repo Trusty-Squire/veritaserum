@@ -3,8 +3,9 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["test/**/*.test.ts", "src/**/*.test.ts"],
-    // Force the grounding tier's ollama client at a closed port so the hermetic
-    // suite is network-free and deterministic (see test/setup.ts).
+    // Strip a live TYPESAFE_API_KEY so the hermetic suite never calls Jev
+    // (see test/setup.ts). In-process tests mock fetch; subprocess tests use
+    // VS_JEV_ENDPOINT.
     setupFiles: ["./test/setup.ts"],
     // The packed-tarball suite builds, npm-packs, and npm-installs the real
     // package — it needs pnpm/npm on PATH and registry access, so it is not

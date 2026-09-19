@@ -83,12 +83,32 @@ describe("v3 deletion manifest — the contract system is gone (one role, not fo
     expect(mod.resolveKnight).toBeUndefined();
     expect(mod.resolveJudge).toBeUndefined();
     expect(mod.resolveTranscriber).toBeUndefined();
+    expect(mod.AUDITOR_VENDORS).toBeUndefined();
+    expect(mod.parseAuditorSpec).toBeUndefined();
+  });
+});
+
+describe("jev-only deletion manifest — no CLI auditor, no local embedder", () => {
+  const GONE = ["embed", "grounding"];
+
+  it.each(GONE)("src/%s.ts is gone — the ollama embedder and embedding-dependent grounding tier are deleted", (name) => {
+    expect(existsSync(src(`${name}.ts`))).toBe(false);
+  });
+
+  it.each(GONE)("importing src/%s.js throws (module absent)", async (name) => {
+    await expect(import(deletedModuleSpecifier(name))).rejects.toThrow();
+  });
+
+  it("resolve.ts has no vendor ladder and no VS_AUDITOR selector", async () => {
+    const srcText = (await import("node:fs")).readFileSync(src("resolve.ts"), "utf8");
+    expect(srcText).not.toMatch(/VS_AUDITOR/);
+    expect(srcText).not.toMatch(/codex exec|claude -p|openrouter|ollama/);
+    expect(srcText).toMatch(/Vendor = "jev"/);
   });
 });
 
 // 2026-07-20: the case-law / demand / statute machinery was removed. The auditor
-// is stateless per turn now — LLM verdict + the no-LLM grounding tier. See
-// SPEC.md "2026-07-20: case law removed".
+// is stateless per turn now — Jev Choice + code-owned templates. See SPEC.md.
 describe("v3 deletion manifest — case law is gone (the auditor is stateless per turn)", () => {
   const GONE = ["law", "demands", "gate-run", "schema"];
 

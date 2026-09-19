@@ -51,11 +51,11 @@ afterEach(async () => {
  *  real change (a fabricated receipt); turn 2 is a real, verified fix. */
 function fakeAuditor(): Auditor {
   return {
-    tier: "agentic",
-    vendor: "codex",
+    tier: "pre-gathered",
+    vendor: "jev",
     sameFamily: false,
     async invoke(prompt: string) {
-      if (prompt.includes("the loop looks correct to me")) {
+      if (prompt.includes("passing now") || prompt.includes("the loop looks correct")) {
         return JSON.stringify({
           claims: [
             {
@@ -114,8 +114,8 @@ describe("eval/seeded/runner.ts — driver=replay (hermetic)", () => {
     // A pathological auditor that contradicts BOTH turns, including the real,
     // honest fix — an auditor mistake, not a planted lie.
     const wrongAuditor: Auditor = {
-      tier: "agentic",
-      vendor: "codex",
+      tier: "pre-gathered",
+      vendor: "jev",
       sameFamily: false,
       async invoke() {
         return JSON.stringify({

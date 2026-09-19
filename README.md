@@ -23,24 +23,22 @@ npx veritaserum install claude-code     # also: goose, codex   (--global for ~/.
 ```
 
 That's the whole install: two hooks in one config file. Nothing to approve, no server.
-Jev needs `TYPESAFE_API_KEY` in the environment (the key is a header, never argv).
-Without it, veritaserum still installs and fail-opens the LLM audit.
+The classifier is Jev. Set `TYPESAFE_API_KEY` (the key is a header, never argv).
+Without it, veritaserum still installs and reports that Jev did not run — it does
+not reach for a coding-agent CLI or a local model.
 
 Blocking (captain override): export `VS_BLOCK=1` in the sessions you want to test.
 Off without editing code: `VS_BLOCK=0` or unset. See [docs/BLOCKING.md](./docs/BLOCKING.md).
 
 ## What it does
 
-When your agent ends a turn, veritaserum's Stop hook fires and hands the turn to an
-**async, cross-family auditor** — a fresh model from a *different family* than the one that
-wrote the code, with no stake in it. The auditor picks out the load-bearing claims in what
-the agent just said and checks them against the only two sources of truth:
+When your agent ends a turn, veritaserum's Stop hook fires. A **deterministic
+filter** (`src/jev-input.ts`) finds load-bearing claims in the final message.
+If none survive, Jev is not called. If they do, **Jev** (typesafe.ai System One)
+answers one Choice against the session's own receipts. **Code-owned templates**
+write the warning — the classifier does not author prose.
 
-- **read-only git probes computed right now** (`git log`, `git status`, `git diff`) — what
-  the repo actually says, not what anyone remembers; and
-- **the harness's own record** of what actually ran (the receipts).
-
-Each claim comes back **supported**, **unsupported** (nothing backs it), or **contradicted**
+Each catch comes back **unsupported** (nothing backs it) or **contradicted**
 (the evidence says it's false). The verdict arrives as a single line at your next prompt.
 
 Honest uncertainty is never punished. "I'd need to benchmark this" asserts nothing and is
@@ -60,55 +58,25 @@ VS_BLOCK=0    # off (or unset) — warn-only, same as before
 Only a positive, confident finding blocks. An outage, a missing key, a malformed reply,
 or a timeout never does.
 
-The auditor is **Jev** (typesafe.ai System One) when `TYPESAFE_API_KEY` is set: a
-cross-family Choice question, not free prose. `veritaserum telemetry` counts detections —
+The classifier is **Jev** (typesafe.ai System One) when `TYPESAFE_API_KEY` is set: a
+Choice question, not free prose. `veritaserum telemetry` counts detections —
 that is the metric.
 
-## Standing law: a demand is a failing test
+## Why after the fact
 
-A claim that needed an oracle that doesn't exist gets one **demanded**. The auditor doesn't
-nag — it *writes the failing check itself*, and that demand persists as **case law**
-(`veritaserum.law.yaml`, git-tracked): a standing expectation, re-checked mechanically from
-then on, no LLM required. The first demand costs one auditor judgment; every later claim in
-its scope is settled by running a script. Precedent amortizes.
-
-Two properties make this safe rather than annoying:
-
-- **The oracle is not the agent's to edit.** The demand's test file lives in veritaserum's
-  own state dir, never in your repo, so the executor can *run* the check but cannot rewrite
-  it. It has to fix the code, not the test.
-- **Case law is reviewable.** The only repository write is a standing record and
-  state-oracle locator in `veritaserum.law.yaml`; the hidden test bytes stay out of the
-  repo. The auditor reads committed law from **git HEAD**; review and commit accepted
-  precedent, or veto it with `veritaserum retire`.
-
-Law is a git-tracked file, so it branches with your code like everything else.
-
-## Why cross-family, and why after the fact
-
-**Cross-family on purpose.** Different checkpoints of one lineage share blind spots, and a
-model grading its own family's output is biased toward passing it. The auditor resolves to a
-different family than the executor; a same-family auditor is only ever a fallback, and is
-tagged as such so you can trust it less.
-
-**After the fact, not before.** No upfront contract, no claim regexes, no phase detection —
-one mechanism, firing at turn-end, where the claim actually gets made.
+**After the fact, not before.** The filter runs at turn-end, where the claim
+actually gets made. No upfront contract, no phase detection.
 
 **Push, not pull — which is why there is no MCP server.** MCP is a *pull* surface: the
 executor decides whether to call it. Ground truth cannot be opt-in. An agent skips a
 self-check exactly when it is confabulating, because a confabulating agent doesn't
 experience itself as guessing — it feels done. A voluntary "audit me" tool is therefore
 adversely selected: its cleanest green stamps arrive precisely when they are worth least. So
-the audit is **pushed** by the harness and the executor cannot decline it. For the genuinely
-voluntary surface — run my demands, show me what got caught — the executor already has a
-shell, and those are CLI commands (below).
+the audit is **pushed** by the harness and the executor cannot decline it.
 
-**It uses your existing tools.** The auditor uses your configured `claude`/`codex`
-subscriptions, or local ollama models. Veritaserum does not add its own metered API, but
-your provider's normal subscription, quota, or usage terms still apply.
-
-**Fail-open.** No auditor, an LLM error, an unparseable reply, a corrupt law file — none of
-it stalls or blocks your agent. veritaserum never halts your work over its own hiccup.
+**Fail-open.** No key, a Jev outage, an unparseable reply — none of it stalls or
+blocks your agent, and none of it falls back to another model. veritaserum never
+halts your work over its own hiccup.
 
 ## CLI
 
@@ -116,7 +84,7 @@ it stalls or blocks your agent. veritaserum never halts your work over its own h
 veritaserum install <claude-code|goose|codex> [--global]   wire the auditor into a harness
 veritaserum selfcheck                      prove the installed hook RUNS (and reaches the model)
 veritaserum telemetry                      what got caught — verdicts, by harness
-veritaserum doctor                         which auditor rule fired, and why
+veritaserum doctor                         whether Jev is available (TYPESAFE_API_KEY)
 ```
 
 ## Install from source

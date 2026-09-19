@@ -2,9 +2,9 @@
  * Fixture replay through the auditor (SPEC §6.1 / §6 acceptance 1) — hermetic:
  * each of the eval/fixtures/*.json scenarios is driven through the REAL
  * pipeline (parse -> verdict -> demand -> telemetry, src/auditor.ts's `audit()`)
- * with a scripted fake `Auditor.invoke` standing in for the LLM call (same
- * injected-double pattern as test/auditor.test.ts) — no live codex/claude/ollama
- * call. The scripted reply per fixture is what a competent cross-family auditor
+ * with a scripted fake `Auditor.invoke` standing in for Jev (same
+ * injected-double pattern as test/auditor.test.ts) — no live Jev
+ * call. The scripted reply per fixture is what a competent Choice classifier
  * would very plausibly return for that scenario; this test asserts the PIPELINE
  * handles each shape correctly, not that a real LLM reasons this way (that's
  * eval/run-fixtures.ts's job, against the real resolved auditor, not run here).
@@ -16,13 +16,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { audit, type AuditJob } from "../src/auditor.js";
 import type { Auditor, AuditorTier } from "../src/resolve.js";
-import type { Embedder } from "../src/embed.js";
 import { loadFixtures, fixtureRepo, type Fixture } from "../eval/fixtures/types.js";
-
-/** No-op Embedder so the grounding tier fails open to zero flags (no ollama). */
-function nullEmbedder(): Embedder {
-  return { async embed(texts: string[]): Promise<number[][]> { return texts.map(() => []); } };
-}
 
 const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "eval", "fixtures");
 
@@ -51,10 +45,10 @@ afterEach(async () => {
 });
 
 function fakeAuditor(reply: string): Auditor {
-  const tier: AuditorTier = "agentic";
+  const tier: AuditorTier = "pre-gathered";
   return {
     tier,
-    vendor: "codex",
+    vendor: "jev",
     sameFamily: false,
     async invoke() {
       return reply;
@@ -193,8 +187,8 @@ const REPLIES: Record<string, string> = {
   "substantial-diff-claim-free": JSON.stringify({
     claims: [],
     demands: [],
-    unaccountable: true,
-    note: "state what was done and how you know it works — the diff is substantial but the summary makes no checkable claim",
+    unaccountable: false,
+    note: "no-claim (gated) — the summary makes no load-bearing claim, so Jev is not called",
   }),
   "preexisting-clean-tree": JSON.stringify({
     claims: [
@@ -263,13 +257,7 @@ describe("replay fixtures (SPEC §6.1) — scenarios through the real pipeline",
       const { dir, cleanup } = await fixtureRepo(f.repoSetup);
       cleanups.push(cleanup);
 
-      // CHANGE 1 (the gate): with the null embedder the grounding tier returns
-      // zero flags / zero load-bearing sentences and NO error, so these turns are
-      // gate-eligible and would be SKIPPED by default. Every fixture here IS a
-      // load-bearing scenario (a real ollama would classify it so), so force the
-      // audit to run via the shadow path (rng() < shadowRate) to exercise the
-      // pipeline. Gate/skip behaviour itself is covered in test/auditor.test.ts.
-      const v = await audit(job(dir, f), fakeAuditor(reply!), nullEmbedder(), { rng: () => 0 });
+      const v = await audit(job(dir, f), fakeAuditor(reply!));
 
       // Parse: a well-formed reply never lands in verdict.error.
       expect(v.error).toBeUndefined();

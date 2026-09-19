@@ -178,7 +178,6 @@ async function main(): Promise<void> {
       ...(typeof p.last_assistant_message === "string" ? { finalMessage: p.last_assistant_message } : {}),
       harness,
       executor: process.env.VS_EXECUTOR || "unknown",
-      ...(process.env.VS_AUDITOR ? { auditor: process.env.VS_AUDITOR } : {}),
     });
     const next: LastAudit = { ts: now, ccTranscriptSize: marker.ccTranscriptSize };
     if (p.transcript_path) {
