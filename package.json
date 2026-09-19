@@ -53,6 +53,7 @@
     "stress:production": "tsx scripts/stress/production-harness.ts",
     "stress:watchdog": "tsx scripts/stress/invariant-watchdog.ts",
     "measure:jev-filter": "tsx scripts/measure-jev-filter.ts",
+    "measure:jev-compression": "tsx scripts/measure-jev-compression.ts",
     "eval:fixtures": "tsx eval/run-fixtures.ts",
     "prepublishOnly": "npm run build"
   },

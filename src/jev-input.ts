@@ -35,6 +35,9 @@ export interface JevEvidenceSelection {
 }
 
 export const JEV_EVIDENCE_BUDGET_BYTES = 12 * 1024;
+export const JEV_COMPRESSED_REQUEST_BUDGET_BYTES = 512;
+export const JEV_COMPRESSED_CLAIM_BUDGET_BYTES = 1_200;
+export const JEV_COMPRESSED_EVIDENCE_BUDGET_BYTES = 2 * 1024;
 
 const PREDICTION = /\b(will|shall|going to|plan(?:s|ned)? to|expect(?:s|ed)? to|should|would|next i(?:'ll| will)|next we(?:'ll| will))\b/i;
 const ADDITIONAL_HEDGE = /\b(apparently|presumably|plausibly|unclear|unknown|i believe|we believe|suggests?|points? to|suspect)\b/i;
@@ -153,6 +156,98 @@ export function renderClaimSpans(spans: ClaimSpan[]): string {
   return spans.map((span) => span.text).join("\n");
 }
 
+function clipUtf8(value: string, budgetBytes: number): string {
+  if (budgetBytes <= 0) return "";
+  if (Buffer.byteLength(value, "utf8") <= budgetBytes) return value;
+  const suffix = "…";
+  if (budgetBytes < Buffer.byteLength(suffix, "utf8")) return "";
+  const room = Math.max(0, budgetBytes - Buffer.byteLength(suffix, "utf8"));
+  let clipped = Buffer.from(value, "utf8").subarray(0, room).toString("utf8").replace(/\uFFFD$/u, "").trimEnd();
+  while (clipped && Buffer.byteLength(`${clipped}${suffix}`, "utf8") > budgetBytes) clipped = clipped.slice(0, -1);
+  return `${clipped}${suffix}`;
+}
+
+const REQUEST_ACTION =
+  /\b(add|build|change|check|create|delete|diagnose|document|fix|implement|investigate|measure|move|remove|rename|replace|review|run|ship|test|trim|update|verify|write)\b/i;
+const REQUEST_SCOPE = /\b(all|both|each|every|everything|except|including|must|never|no|not|only|under|without)\b/i;
+
+function requestUnits(source: string): string[] {
+  return source
+    .replace(/\r/g, "")
+    .split(/(?<=[.!?;])\s+|\n+/)
+    .map((unit) => unit.trim().replace(/^(?:[-*•]|\d+[.)])\s+/, ""))
+    .filter(Boolean);
+}
+
+/** Deterministically preserve the request's requested work and scope guards. */
+export function compressUserRequest(
+  request: string,
+  budgetBytes: number = JEV_COMPRESSED_REQUEST_BUDGET_BYTES,
+): string {
+  const trimmed = request.trim();
+  if (!trimmed || budgetBytes <= 0) return "";
+  if (Buffer.byteLength(trimmed, "utf8") <= budgetBytes) return trimmed;
+  const units = requestUnits(trimmed);
+  const ranked = units.map((text, index) => {
+    let score = index === 0 ? 2 : 0;
+    if (REQUEST_ACTION.test(text)) score += 8;
+    if (REQUEST_SCOPE.test(text)) score += 7;
+    if (/\b(?:test|suite|build|commit|push|deploy|scope|request|asked)\b/i.test(text)) score += 5;
+    if (/`[^`]+`|(?:[A-Za-z0-9_.-]+[/\\])+[A-Za-z0-9_.@-]+|\b\w+\.(?:ts|tsx|js|jsx|json|md|py|go|rs|rb|yaml|yml)\b/i.test(text)) score += 4;
+    if (/\d/.test(text)) score += 2;
+    return { text, index, score };
+  });
+  const chosen: typeof ranked = [];
+  let used = 0;
+  for (const unit of [...ranked].sort((a, b) => b.score - a.score || a.index - b.index)) {
+    const extra = Buffer.byteLength(unit.text, "utf8") + (chosen.length ? 1 : 0);
+    if (chosen.length === 0 && extra > budgetBytes) return clipUtf8(unit.text, budgetBytes);
+    if (extra <= budgetBytes - used) {
+      chosen.push(unit);
+      used += extra;
+    }
+  }
+  if (chosen.length === 0) return clipUtf8(ranked[0]?.text ?? trimmed, budgetBytes);
+  return chosen.sort((a, b) => a.index - b.index).map((unit) => unit.text).join("\n");
+}
+
+function claimStrength(span: ClaimSpan): number {
+  const weights: Record<LoadBearingReason, number> = {
+    test: 60,
+    work: 50,
+    causal: 45,
+    blocker: 45,
+    quantity: 20,
+    state: 10,
+  };
+  let score = span.reasons.reduce((sum, reason) => sum + weights[reason], 0);
+  if (SCOPE_ASSERTION.test(span.text)) score += 8;
+  if (/`[^`]+`|(?:[A-Za-z0-9_.-]+[/\\])+[A-Za-z0-9_.@-]+/.test(span.text)) score += 5;
+  return score;
+}
+
+/** Keep only the claims most likely to change a Jev verdict, in source order. */
+export function selectStrongestClaimSpans(
+  spans: ClaimSpan[],
+  maxSpans: number = 3,
+  budgetBytes: number = JEV_COMPRESSED_CLAIM_BUDGET_BYTES,
+): ClaimSpan[] {
+  const selected: ClaimSpan[] = [];
+  let used = 0;
+  for (const span of [...spans].sort((a, b) => claimStrength(b) - claimStrength(a) || a.start - b.start)) {
+    if (selected.length >= maxSpans) break;
+    const extra = Buffer.byteLength(span.text, "utf8") + (selected.length ? 1 : 0);
+    if (extra > budgetBytes - used) continue;
+    selected.push(span);
+    used += extra;
+  }
+  if (selected.length === 0 && spans[0] && budgetBytes > 0) {
+    const text = clipUtf8(spans[0].text, budgetBytes);
+    return [{ ...spans[0], end: spans[0].start + text.length, text }];
+  }
+  return selected.sort((a, b) => a.start - b.start);
+}
+
 const STOP_WORDS = new Set([
   "about", "after", "again", "against", "also", "been", "before", "being", "between", "both", "could", "from", "have",
   "into", "just", "made", "more", "most", "only", "other", "over", "passed", "tests", "than", "that", "their", "there", "these",
@@ -251,4 +346,149 @@ export function selectJevEvidence(
     text = Buffer.from(text, "utf8").subarray(0, budgetBytes).toString("utf8").replace(/\uFFFD$/u, "");
   }
   return { text, bytes: Buffer.byteLength(text, "utf8"), retainedLines, elidedLines };
+}
+
+interface ReceiptBlock {
+  command: string;
+  output: string[];
+  index: number;
+}
+
+function commandFromReceiptLine(line: string): string | undefined {
+  if (/^\$\s+/.test(line)) return line.replace(/^\$\s+/, "").trim();
+  if (!/^>\s+/.test(line)) return undefined;
+  const jsonStart = line.indexOf("{");
+  if (jsonStart >= 0) {
+    try {
+      const value = JSON.parse(line.slice(jsonStart)) as Record<string, unknown>;
+      const command = value.command ?? value.cmd ?? value.args;
+      if (typeof command === "string" && command.trim()) return command.trim();
+      if (Array.isArray(command)) return command.map(String).join(" ");
+    } catch {
+      /* Keep the non-JSON tool call below. */
+    }
+  }
+  return line.slice(2).trim();
+}
+
+function receiptBlocks(receipts: string): { blocks: ReceiptBlock[]; loose: Array<{ text: string; index: number }> } {
+  const blocks: ReceiptBlock[] = [];
+  const loose: Array<{ text: string; index: number }> = [];
+  let current: ReceiptBlock | undefined;
+  receipts.split(/\r?\n/).forEach((line, index) => {
+    const command = commandFromReceiptLine(line);
+    if (command) {
+      current = { command, output: [], index };
+      blocks.push(current);
+      return;
+    }
+    if (current) current.output.push(line.replace(/^<\s?/, ""));
+    else if (line.trim()) loose.push({ text: line.trim(), index });
+  });
+  return { blocks, loose };
+}
+
+function maximumCounter(text: string, label: "passed" | "failed"): number | undefined {
+  const values = [
+    ...text.matchAll(new RegExp(`\\b(\\d+)\\s+${label}\\b`, "gi")),
+    ...text.matchAll(new RegExp(`\\b(?:all\\s+)?(\\d+)\\s+(?:tests?|specs?|checks?|files?)\\s+${label}\\b`, "gi")),
+  ]
+    .map((match) => Number.parseInt(match[1]!, 10))
+    .filter(Number.isFinite);
+  return values.length ? Math.max(...values) : undefined;
+}
+
+function quoted(value: string, cap = 220): string {
+  return `"${value.slice(0, cap).replace(/["\\\n\r]/g, " ").replace(/\s+/g, " ").trim()}"`;
+}
+
+/**
+ * Convert raw receipt prose into command/result facts. No model, embedding, or
+ * semantic summary is involved: every field comes from a bounded regex/parser.
+ */
+export function digestJevReceipts(
+  receipts: string,
+  spans: ClaimSpan[],
+  budgetBytes: number = JEV_COMPRESSED_EVIDENCE_BUDGET_BYTES,
+): JevEvidenceSelection {
+  if (!receipts.trim() || spans.length === 0 || budgetBytes <= 0) {
+    return { text: "", bytes: 0, retainedLines: 0, elidedLines: receipts ? receipts.split(/\r?\n/).length : 0 };
+  }
+  const anchors = evidenceAnchors(spans);
+  const parsed = receiptBlocks(receipts);
+  const facts: Array<{ text: string; score: number; index: number; sourceLines: number }> = [];
+  const structuredOutcome = /^(?:BROWSER_ASSERT|DOM_ASSERT|A11Y_ASSERT|VISUAL_ASSERT|SCREENSHOT_FACT|OBSERVATION_FACT)\b|\b(?:horizontal_overflow|overflow|visible|clipped|violations|serious|critical|measured_fps|dropped_frames|viewport)=[^\s]+/i;
+  for (const block of parsed.blocks) {
+    const output = block.output.join("\n");
+    const combined = `${block.command}\n${output}`;
+    const exitMatches = [...output.matchAll(/\bexit(?:ed)?(?:\s+with)?(?:\s+code)?\s*[:=]?\s*(-?\d+)\b/gi)];
+    const exitCode = exitMatches.length ? Number.parseInt(exitMatches.at(-1)![1]!, 10) : undefined;
+    const passed = maximumCounter(output, "passed");
+    const failed = maximumCounter(output, "failed");
+    let outcome: "pass" | "fail" | "unknown" = "unknown";
+    if (exitCode !== undefined) outcome = exitCode === 0 ? "pass" : "fail";
+    else if ((failed ?? 0) > 0 || /(^|\n)\s*(?:FAIL|✗|×)\b/m.test(output)) outcome = "fail";
+    else if (passed !== undefined || /(^|\n)\s*(?:PASS|✓)\b/m.test(output)) outcome = "pass";
+    const lower = combined.toLowerCase();
+    const mentions = [...new Set([
+      ...anchors.files.filter((anchor) => lower.includes(anchor)),
+      ...anchors.commands.filter((anchor) => lower.includes(anchor)),
+      ...anchors.tokens.filter((anchor) => !/^(?:suite|pass|passes|passing)$/.test(anchor) && lower.includes(anchor)),
+    ])].slice(0, 5);
+    const machineFacts = block.output
+      .filter((line) => structuredOutcome.test(line.trim()))
+      .map((line) => cleanMachineFact(line))
+      .filter(Boolean)
+      .slice(0, 3);
+    let score = outcome === "unknown" ? 5 : 25;
+    if (mentions.length) score += 100;
+    if (stateSignature(spans, combined)) score += 80;
+    if (anchors.numbers.length && numbersIn(combined).some((n) => anchors.numbers.some((claim) => approxEq(n, claim)))) score += 70;
+    const fields = [
+      `command=${quoted(block.command)}`,
+      `exit=${exitCode ?? "unknown"}`,
+      `outcome=${outcome}`,
+      ...(passed !== undefined ? [`passed=${passed}`] : []),
+      ...(failed !== undefined ? [`failed=${failed}`] : []),
+      ...(mentions.length ? [`mentions=${mentions.join(",")}`] : []),
+      ...(machineFacts.length ? [`facts=${machineFacts.join(";")}`] : []),
+    ];
+    facts.push({ text: fields.join(" "), score, index: block.index, sourceLines: block.output.length + 1 });
+  }
+
+  for (const line of parsed.loose) {
+    if (!structuredOutcome.test(line.text)) continue;
+    const lower = line.text.toLowerCase();
+    const score = 60 + anchors.tokens.filter((anchor) => lower.includes(anchor)).length * 5;
+    facts.push({ text: line.text.replace(/^([A-Z_]+)/, (prefix) => prefix.toLowerCase()), score, index: line.index, sourceLines: 1 });
+  }
+
+  const lineCount = receipts.split(/\r?\n/).length;
+  const header = `receipt_outcomes source_lines=${lineCount} commands=${parsed.blocks.length}`;
+  const kept: typeof facts = [];
+  let used = Buffer.byteLength(header, "utf8");
+  for (const fact of [...facts].sort((a, b) => b.score - a.score || a.index - b.index)) {
+    const extra = Buffer.byteLength(fact.text, "utf8") + 1;
+    if (extra > budgetBytes - used) continue;
+    kept.push(fact);
+    used += extra;
+  }
+  kept.sort((a, b) => a.index - b.index);
+  const retainedLines = kept.reduce((sum, fact) => sum + fact.sourceLines, 0);
+  const text = clipUtf8([header, ...kept.map((fact) => fact.text)].join("\n"), budgetBytes);
+  return {
+    text,
+    bytes: Buffer.byteLength(text, "utf8"),
+    retainedLines,
+    elidedLines: Math.max(0, lineCount - retainedLines),
+  };
+}
+
+function cleanMachineFact(value: string): string {
+  return value
+    .replace(/^<\s?/, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/["\\]/g, "")
+    .slice(0, 260);
 }

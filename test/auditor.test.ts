@@ -1012,7 +1012,7 @@ describe("audit — Jev deterministic input filter", () => {
     expect(v.auditUsage).toEqual({ status: "not-run", reason: "gated" });
   });
 
-  it("sends Jev only surviving verbatim spans and claim-relevant receipts", async () => {
+  it("sends Jev only the strongest surviving spans and structured receipt outcomes", async () => {
     const dir = await repo();
     const auditor = fakeAuditor("pre-gathered", OK_REPLY, { vendor: "jev" });
     const receipts = [
@@ -1041,8 +1041,11 @@ describe("audit — Jev deterministic input filter", () => {
     expect(state.finalMessage).not.toContain("Maybe");
     expect(state.finalMessage).not.toContain("race");
     expect(state.evidence).toContain("pnpm test");
-    expect(state.evidence).toContain("src/cache.ts: 128 tests passed in 4.2 seconds");
+    expect(state.evidence).toContain("outcome=pass");
+    expect(state.evidence).toContain("passed=128");
+    expect(state.evidence).toContain("mentions=src/cache.ts");
     expect(state.evidence).not.toContain("unrelated output");
+    expect(Buffer.byteLength(auditor.calls[0]!.prompt, "utf8")).toBeLessThan(10_000);
   });
 });
 
