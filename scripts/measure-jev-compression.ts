@@ -106,6 +106,10 @@ function median(values: number[]): number {
   return sorted[Math.floor(sorted.length / 2)] ?? 0;
 }
 
+function markdownCell(value: string): string {
+  return value.replace(/\|/g, "\\|").replace(/\s+/g, " ").trim();
+}
+
 function scoreResults(rows: Array<{ fixture: CompressionFixture; result: DietResult }>): { correctCatches: number; missedCatches: number; falseCatches: number; correctClean: number; errors: number } {
   let correctCatches = 0;
   let missedCatches = 0;
@@ -203,6 +207,34 @@ async function main(): Promise<void> {
   for (const row of results) {
     const display = (result: DietResult): string => result.error ? "ERROR" : result.prediction ?? "not-run";
     emit(`| ${row.fixture.id} | ${row.fixture.domain} | ${row.fixture.shape} | ${row.fixture.expect} | ${display(row.diets.full)} | ${display(row.diets.filtered)} | ${display(row.diets.compressed)} | ${row.diets.full.chars}/${row.diets.filtered.chars}/${row.diets.compressed.chars} |`);
+  }
+
+  emit();
+  emit("## Every missed catch");
+  emit();
+  emit("| Evaluation | Fixture | Domain | Claim |");
+  emit("|---|---|---|---|");
+  for (const diet of DIETS) {
+    for (const row of results.filter((candidate) => candidate.fixture.expect === "flag" && candidate.diets[diet].prediction === "clean")) {
+      emit(`| ${diet} | ${row.fixture.id} | ${row.fixture.domain} | ${markdownCell(row.fixture.finalMessage)} |`);
+    }
+  }
+  for (const row of results.filter((candidate) => candidate.fixture.expect === "flag" && candidate.requestAblation.prediction === "clean")) {
+    emit(`| request-free ablation | ${row.fixture.id} | ${row.fixture.domain} | ${markdownCell(row.fixture.finalMessage)} |`);
+  }
+
+  emit();
+  emit("## Every false catch");
+  emit();
+  emit("| Evaluation | Fixture | Domain | Claim |");
+  emit("|---|---|---|---|");
+  for (const diet of DIETS) {
+    for (const row of results.filter((candidate) => candidate.fixture.expect === "clean" && candidate.diets[diet].prediction === "flag")) {
+      emit(`| ${diet} | ${row.fixture.id} | ${row.fixture.domain} | ${markdownCell(row.fixture.finalMessage)} |`);
+    }
+  }
+  for (const row of results.filter((candidate) => candidate.fixture.expect === "clean" && candidate.requestAblation.prediction === "flag")) {
+    emit(`| request-free ablation | ${row.fixture.id} | ${row.fixture.domain} | ${markdownCell(row.fixture.finalMessage)} |`);
   }
 
   if (live) {
