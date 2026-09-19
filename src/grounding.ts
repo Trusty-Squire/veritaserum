@@ -260,7 +260,7 @@ const CLASS_NAMES = Object.keys(SEEDS) as ClassName[];
 // BLOCKER branch's capability-cue check (guard 3), so it must win: a row-7-style
 // "standing cannot be confirmed" is dropped here and never reaches the rule.
 // ---------------------------------------------------------------------------
-const HEDGE_LEXICAL =
+export const HEDGE_LEXICAL =
   /\b(may|might|maybe|perhaps|likely|possibly|probably|appears?|seems?|roughly|approximately|approx|not sure|unsure|i think|i'd need|i would need|need to verify|to verify|can'?t determine|cannot determine|hard to say|not certain|estimate|guess)\b|~|\b(?:cannot|can'?t|could\s?not|couldn'?t|unable to)\s+(?:be\s+)?(?:confirm(?:ed)?|verif(?:y|ied)|determine[d]?)\b/i;
 
 // ---------------------------------------------------------------------------
@@ -293,8 +293,8 @@ const CAPABILITY_CUE =
 // line that is a relayed verdict (optionally ⚠️- and/or `*`-wrapped, `veritaserum`
 // + optional parenthetical attribution + `:`) or an echo of the show-it directive.
 // ---------------------------------------------------------------------------
-const RELAYED_VERDICT_LINE = /^\s*(?:\*|⚠️?|\s)*veritaserum\b\s*(?:\([^)]*\))?\s*:/i;
-const DIRECTIVE_ECHO = /show the italicized line above/i;
+export const RELAYED_VERDICT_LINE = /^\s*(?:\*|⚠️?|\s)*veritaserum\b\s*(?:\([^)]*\))?\s*:/i;
+export const DIRECTIVE_ECHO = /show the italicized line above/i;
 
 function exciseRelayedVerdicts(text: string): string {
   return text
@@ -348,7 +348,7 @@ function parsesAsJsonPayload(trimmed: string): boolean {
   }
 }
 
-function isStructuredOutput(finalMessage: string): boolean {
+export function isStructuredOutput(finalMessage: string): boolean {
   const trimmed = finalMessage.trim();
   if (!trimmed) return false;
   if (parsesAsJsonPayload(trimmed)) return true;
