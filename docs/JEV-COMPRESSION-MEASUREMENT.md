@@ -54,14 +54,16 @@ full rows require Jev, so partial totals are not an accuracy comparison.
 With the Jev credential present, run:
 
 ```text
-pnpm measure:jev-compression --require-live
+corepack pnpm@8.15.9 measure:jev-compression --require-live
 ```
 
 The command calls Jev for full, current, compressed, and request-free ablation
 states, then reports for each diet and separately for backend/frontend:
 correct catches, missed catches, false catches, correct clean turns, errors,
-and every fixture row. `--repeat=N` is available for a majority verdict when
-model variance needs measuring.
+and every fixture row. It writes the complete Markdown report to
+`docs/JEV-COMPRESSION-LIVE-RESULTS.md`. `--repeat=N` is available for a majority
+verdict when model variance needs measuring, and `--output=path.md` overrides
+the result path.
 
 ## What is and is not being summarized
 

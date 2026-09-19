@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import { buildJevInputVariants, type JevInputVariants } from "../src/jev-evidence.js";
 import { buildJevState, invokeJevWithMeta, type JevTurnState } from "../src/jev.js";
 import { typesafeApiKey } from "../src/llm.js";
@@ -41,6 +41,16 @@ const live = Boolean(typesafeApiKey()) && !process.argv.includes("--sizes-only")
 const requireLive = process.argv.includes("--require-live");
 const repeatArg = process.argv.find((arg) => arg.startsWith("--repeat="));
 const repeat = Math.max(1, Number.parseInt(repeatArg?.split("=")[1] ?? "1", 10) || 1);
+const outputArg = process.argv.find((arg) => arg.startsWith("--output="))?.slice("--output=".length);
+const outputPath = outputArg
+  ? (isAbsolute(outputArg) ? outputArg : join(process.cwd(), outputArg))
+  : join(process.cwd(), "docs", "JEV-COMPRESSION-LIVE-RESULTS.md");
+const report: string[] = [];
+
+function emit(line = ""): void {
+  report.push(line);
+  console.log(line);
+}
 
 function padRequest(request: string, target = 9 * 1024): string {
   const lines = [request];
@@ -147,54 +157,58 @@ async function main(): Promise<void> {
     }
   }
 
-  console.log("# Jev compression fixture measurement");
-  console.log();
-  console.log(`Corpus: ${fixtures.length} labelled fixtures (${fixtures.filter((f) => f.domain === "backend").length} backend, ${fixtures.filter((f) => f.domain === "frontend").length} frontend).`);
-  console.log(`Live Jev accuracy: ${live ? `run (${repeat} repetition${repeat === 1 ? "" : "s"} per fixture/diet)` : "NOT RUN — TYPESAFE_API_KEY is unset; sizes only"}.`);
-  console.log();
-  console.log("| Diet | Median chars | Max chars | Under 10K | Correct catches | Missed catches | False catches | Correct clean | Unscored/errors | ");
-  console.log("|---|---:|---:|---:|---:|---:|---:|---:|---:|");
+  emit("# Jev compression fixture measurement");
+  emit();
+  emit(`Corpus: ${fixtures.length} labelled fixtures (${fixtures.filter((f) => f.domain === "backend").length} backend, ${fixtures.filter((f) => f.domain === "frontend").length} frontend).`);
+  emit(`Live Jev accuracy: ${live ? `run (${repeat} repetition${repeat === 1 ? "" : "s"} per fixture/diet)` : "NOT RUN — TYPESAFE_API_KEY is unset; sizes only"}.`);
+  emit();
+  emit("| Diet | Median chars | Max chars | Under 10K | Correct catches | Missed catches | False catches | Correct clean | Unscored/errors | ");
+  emit("|---|---:|---:|---:|---:|---:|---:|---:|---:|");
   for (const diet of DIETS) {
     const sizes = results.map((row) => row.diets[diet].chars);
     const scored = score(results, diet);
-    console.log(`| ${diet} | ${median(sizes).toLocaleString()} | ${Math.max(...sizes).toLocaleString()} | ${sizes.filter((size) => size < 10_000).length}/${sizes.length} | ${scored.correctCatches} | ${scored.missedCatches} | ${scored.falseCatches} | ${scored.correctClean} | ${scored.errors} |`);
+    emit(`| ${diet} | ${median(sizes).toLocaleString()} | ${Math.max(...sizes).toLocaleString()} | ${sizes.filter((size) => size < 10_000).length}/${sizes.length} | ${scored.correctCatches} | ${scored.missedCatches} | ${scored.falseCatches} | ${scored.correctClean} | ${scored.errors} |`);
   }
 
-  console.log();
-  console.log("## Domain split");
-  console.log();
-  console.log("| Domain | Diet | Correct catches | Missed catches | False catches | Correct clean | Unscored/errors | ");
-  console.log("|---|---|---:|---:|---:|---:|---:|");
+  emit();
+  emit("## Domain split");
+  emit();
+  emit("| Domain | Diet | Correct catches | Missed catches | False catches | Correct clean | Unscored/errors | ");
+  emit("|---|---|---:|---:|---:|---:|---:|");
   for (const domain of ["backend", "frontend"] as const) {
     for (const diet of DIETS) {
       const scored = score(results, diet, domain);
-      console.log(`| ${domain} | ${diet} | ${scored.correctCatches} | ${scored.missedCatches} | ${scored.falseCatches} | ${scored.correctClean} | ${scored.errors} |`);
+      emit(`| ${domain} | ${diet} | ${scored.correctCatches} | ${scored.missedCatches} | ${scored.falseCatches} | ${scored.correctClean} | ${scored.errors} |`);
     }
   }
 
-  console.log();
-  console.log("## Request ablation");
-  console.log();
-  console.log("The production candidate keeps the deterministic request slice. This ablation sends the identical compressed claims/evidence with an empty request.");
-  console.log();
-  console.log("| Domain | Median chars without request | Correct catches | Missed catches | False catches | Correct clean | Unscored/errors | ");
-  console.log("|---|---:|---:|---:|---:|---:|---:|");
+  emit();
+  emit("## Request ablation");
+  emit();
+  emit("The production candidate keeps the deterministic request slice. This ablation sends the identical compressed claims/evidence with an empty request.");
+  emit();
+  emit("| Domain | Median chars without request | Correct catches | Missed catches | False catches | Correct clean | Unscored/errors | ");
+  emit("|---|---:|---:|---:|---:|---:|---:|");
   for (const domain of ["backend", "frontend"] as const) {
     const domainRows = results.filter((row) => row.fixture.domain === domain);
     const scored = scoreResults(domainRows.map((row) => ({ fixture: row.fixture, result: row.requestAblation })));
-    console.log(`| ${domain} | ${median(domainRows.map((row) => row.requestAblation.chars)).toLocaleString()} | ${scored.correctCatches} | ${scored.missedCatches} | ${scored.falseCatches} | ${scored.correctClean} | ${scored.errors} |`);
+    emit(`| ${domain} | ${median(domainRows.map((row) => row.requestAblation.chars)).toLocaleString()} | ${scored.correctCatches} | ${scored.missedCatches} | ${scored.falseCatches} | ${scored.correctClean} | ${scored.errors} |`);
   }
 
-  console.log();
-  console.log("## Fixture rows");
-  console.log();
-  console.log("| Fixture | Domain | Shape | Truth | Full | Filtered | Compressed | Chars full/current/new | ");
-  console.log("|---|---|---|---|---|---|---|---:|");
+  emit();
+  emit("## Fixture rows");
+  emit();
+  emit("| Fixture | Domain | Shape | Truth | Full | Filtered | Compressed | Chars full/current/new | ");
+  emit("|---|---|---|---|---|---|---|---:|");
   for (const row of results) {
     const display = (result: DietResult): string => result.error ? "ERROR" : result.prediction ?? "not-run";
-    console.log(`| ${row.fixture.id} | ${row.fixture.domain} | ${row.fixture.shape} | ${row.fixture.expect} | ${display(row.diets.full)} | ${display(row.diets.filtered)} | ${display(row.diets.compressed)} | ${row.diets.full.chars}/${row.diets.filtered.chars}/${row.diets.compressed.chars} |`);
+    emit(`| ${row.fixture.id} | ${row.fixture.domain} | ${row.fixture.shape} | ${row.fixture.expect} | ${display(row.diets.full)} | ${display(row.diets.filtered)} | ${display(row.diets.compressed)} | ${row.diets.full.chars}/${row.diets.filtered.chars}/${row.diets.compressed.chars} |`);
   }
 
+  if (live) {
+    writeFileSync(outputPath, `${report.join("\n")}\n`, "utf8");
+    console.log(`\nWrote live Jev results to ${outputPath}`);
+  }
   if (requireLive && !live) process.exitCode = 2;
   if (live && results.some((row) => DIETS.some((diet) => row.diets[diet].error) || row.requestAblation.error)) process.exitCode = 1;
 }
