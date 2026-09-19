@@ -26,7 +26,8 @@ import { execa } from "execa";
 import { logFiring } from "./telemetry.js";
 import type { Auditor, AuditorTier, AuditorUsage } from "./resolve.js";
 import { groundingCheck, selectEvidence, hasSpecificQuantity, specificNumbersIn, findNumberSnippet, stateKindsOf, type GitProbeState, type GroundingFlag } from "./grounding.js";
-import { detectLoadBearingClaims, renderClaimSpans, selectJevEvidence } from "./jev-input.js";
+import { detectLoadBearingClaims } from "./jev-input.js";
+import { buildCompressedJevInput } from "./jev-evidence.js";
 import { readFullSessionToolResults } from "./transcript.js";
 import { ollamaEmbedder, cosine, type Embedder } from "./embed.js";
 
@@ -1307,18 +1308,13 @@ export async function audit(
   if (auditor.tier === "absent") {
     error = "auditor_absent";
   } else if (runLLM) {
-    // CHANGE 2: ship a claim-conditioned receipts payload, not the blind tail.
-    // Selection reuses the embeddings groundingCheck already computed. FAIL-OPEN:
-    // any selection failure → the full tail (more evidence, never less).
+    // Non-Jev auditors keep the embedding-based relevance selector. Jev builds
+    // its smaller deterministic git/command outcome digest below; no embedding
+    // or model participates in that compression path.
     let selectedReceipts = job.receipts ?? "";
     let evidenceElided = false;
     evidenceBytes = job.receipts ? Buffer.byteLength(job.receipts, "utf8") : 0;
-    if (auditor.vendor === "jev" && job.receipts) {
-      const sel = selectJevEvidence(job.receipts, jevSpans!);
-      selectedReceipts = sel.text;
-      evidenceBytes = sel.bytes;
-      evidenceElided = sel.elidedLines > 0;
-    } else if (job.receipts && grounding.selection) {
+    if (auditor.vendor !== "jev" && job.receipts && grounding.selection) {
       try {
         const sel = select(grounding.selection, evidenceBudgetBytes());
         selectedReceipts = sel.text;
@@ -1332,13 +1328,18 @@ export async function audit(
     }
     auditor.lastUsage = undefined;
     try {
+      const compressedJevInput = auditor.vendor === "jev"
+        ? await buildCompressedJevInput({
+            dir: job.dir,
+            userRequest: job.userRequest,
+            finalMessage: job.finalMessage,
+            ...(job.receipts ? { receipts: job.receipts } : {}),
+          })
+        : undefined;
+      if (compressedJevInput) evidenceBytes = Buffer.byteLength(compressedJevInput.evidence, "utf8");
       const prompt =
-        auditor.vendor === "jev"
-          ? JSON.stringify({
-              userRequest: job.userRequest,
-              finalMessage: renderClaimSpans(jevSpans!),
-              evidence: await gatherEvidence(job.dir, selectedReceipts),
-            })
+        compressedJevInput
+          ? JSON.stringify(compressedJevInput)
           : auditor.tier === "agentic"
             ? buildAgenticPrompt(job, selectedReceipts, evidenceElided)
             : buildPreGatheredPrompt(job, await gatherEvidence(job.dir, selectedReceipts), evidenceElided);
