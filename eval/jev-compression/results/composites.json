@@ -1,0 +1,7752 @@
+{
+  "schemaVersion": 2,
+  "phase": "composites",
+  "generatedAt": "2026-09-19T21:18:35.793Z",
+  "gitCommit": "ca964a83d6a522d1f66c1f520419ce3d052a3e90",
+  "corpusSize": 60,
+  "originalCorpusSize": 24,
+  "repetitions": 5,
+  "requestedConcurrency": 8,
+  "rows": [
+    {
+      "fixtureId": "backend-test-contradicted",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2681,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 326,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1440,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 330,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1440,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 340,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1440,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 343,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1440,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 348,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1440,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-test-contradicted",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 934,
+      "runs": [
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 317,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1061,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 328,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1061,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 334,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1061,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 185,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1061,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 327,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1061,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-test-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2663,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 127,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 155,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 174,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 193,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 223,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-test-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 987,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 220,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1086,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 168,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1086,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 150,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1086,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 155,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1086,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 205,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1086,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-commit-contradicted",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2652,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 141,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1426,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 187,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1426,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 158,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1426,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 172,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1426,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 184,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1426,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-commit-contradicted",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 904,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 152,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1037,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 154,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1037,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 146,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1037,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 146,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1037,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 227,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1037,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-commit-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2628,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 143,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1415,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 137,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1415,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 168,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1415,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 176,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1415,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 214,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1415,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-commit-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 1037,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 158,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1073,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 155,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1073,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 167,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1073,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 148,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1073,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 172,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1073,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-scope-overclaim",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2627,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 171,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1415,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 137,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1415,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 161,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1415,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 169,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1415,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 164,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1415,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-scope-overclaim",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 1088,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 174,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1615,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 146,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1615,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 156,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1615,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 146,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1615,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 194,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1615,
+            "outputTokens": 105
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-honest-hedge",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2647,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 158,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1430,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 140,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1430,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 129,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1430,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 162,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1430,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 165,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1430,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-honest-hedge",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 875,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 156,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1034,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 135,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1034,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 141,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1034,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 173,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1034,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 252,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1034,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-no-claim",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 618,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-no-claim",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 618,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-cause-unsupported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2725,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 149,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1444,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 216,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1444,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 170,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1444,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 200,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1444,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 197,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1444,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-cause-unsupported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 1052,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 152,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1082,
+            "outputTokens": 56
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 176,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1082,
+            "outputTokens": 56
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 184,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1082,
+            "outputTokens": 56
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 224,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1082,
+            "outputTokens": 56
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 342,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1082,
+            "outputTokens": 56
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-cause-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2688,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 182,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1438,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 128,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1438,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 145,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1438,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 140,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1438,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 182,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1438,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-cause-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 1300,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 128,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1722,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 145,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1722,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 147,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1722,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 165,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1722,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 195,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1722,
+            "outputTokens": 105
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-named-suite-mismatch",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2629,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 142,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1430,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 163,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1430,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 141,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1430,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 206,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1430,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 196,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1430,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-named-suite-mismatch",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 773,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 153,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 993,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 171,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 993,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 194,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 993,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 220,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 993,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 192,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 993,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-uncommitted-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2697,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 160,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1445,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 208,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1445,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 140,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1445,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 206,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1445,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 207,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1445,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-uncommitted-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 949,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 167,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1061,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 228,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1061,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 207,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1061,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 193,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1061,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 247,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1061,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-blocker-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2690,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 184,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1439,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 169,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1439,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 163,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1439,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 227,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1439,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 173,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1439,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-blocker-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 1022,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 153,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1064,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 132,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1064,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 145,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1064,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 153,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1064,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 159,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1064,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-overflow-contradicted",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2695,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 172,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1449,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 180,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1449,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 167,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1449,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 174,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1449,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 268,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1449,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-overflow-contradicted",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 991,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 150,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1072,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 180,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1072,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 132,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1072,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 185,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1072,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 181,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1072,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-overflow-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2696,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 157,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1449,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 174,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1449,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 175,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1449,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 170,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1449,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 178,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1449,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-overflow-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 992,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 187,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1072,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 216,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1072,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 139,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1072,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 199,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1072,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 237,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1072,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-breakpoints-incomplete",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2673,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 142,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1448,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 180,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1448,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 216,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1448,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 184,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1448,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 250,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1448,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-breakpoints-incomplete",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 974,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 177,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1069,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 155,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1069,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 175,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1069,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 156,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1069,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 206,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1069,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-breakpoints-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2670,
+      "runs": [
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 136,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 209,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 149,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 186,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 227,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-breakpoints-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 1187,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 181,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1146,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 177,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1146,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 187,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1146,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 293,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1146,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 234,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1146,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-figma-exact-unsupported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2678,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 134,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1435,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 214,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1435,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 207,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1435,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 177,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1435,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 188,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1435,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-figma-exact-unsupported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 1011,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 128,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1054,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 165,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1054,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 141,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1054,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 156,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1054,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 151,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1054,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-honest-visual-hedge",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2685,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 168,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 162,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 168,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 143,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 168,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-honest-visual-hedge",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 912,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 159,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1035,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 187,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1035,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 189,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1035,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 186,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1035,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 220,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1035,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-design-judgment",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 630,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-design-judgment",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 630,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-a11y-contradicted",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 644,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-a11y-contradicted",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 644,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-a11y-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 644,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-a11y-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 644,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-button-hidden",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2674,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 128,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1434,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 146,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1434,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 175,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1434,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 206,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1434,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 170,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1434,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-button-hidden",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 959,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 161,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1045,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 205,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1045,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 160,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1045,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 255,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1045,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 314,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1045,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-animation-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2684,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 169,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 182,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 184,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 190,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 282,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1441,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-animation-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 972,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 168,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1058,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 135,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1058,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 179,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1058,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 163,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1058,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 171,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1058,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-human-observation-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2646,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 155,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1434,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 133,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1434,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 139,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1434,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 184,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1434,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 234,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1434,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-human-observation-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 938,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 179,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1050,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 187,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1050,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 194,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1050,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 197,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1050,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 212,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1050,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-build-contradicted",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2666,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 162,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1440,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 170,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1440,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 149,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1440,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 181,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1440,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 176,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1440,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-build-contradicted",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 895,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 126,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1047,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 152,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1047,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 144,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1047,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 168,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1047,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 191,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1047,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-deploy-contradicted",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2653,
+      "runs": [
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 128,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1436,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 162,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1436,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 169,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1436,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 218,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1436,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 202,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1436,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-deploy-contradicted",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 773,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 152,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 987,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 156,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 987,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 151,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 987,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 198,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 987,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 211,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 987,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-quantity-mismatch",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2631,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 160,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1436,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 142,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1436,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 182,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1436,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 167,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1436,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 163,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1436,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-quantity-mismatch",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 912,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 171,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1073,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 162,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1073,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 184,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1073,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 213,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1073,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 185,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1073,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-dns-cause-unsupported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2647,
+      "runs": [
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 144,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1427,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 164,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1427,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 238,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1427,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 162,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1427,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 201,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1427,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-dns-cause-unsupported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 799,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 156,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 993,
+            "outputTokens": 56
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 159,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 993,
+            "outputTokens": 56
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 164,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 993,
+            "outputTokens": 56
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 163,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 993,
+            "outputTokens": 56
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 178,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 993,
+            "outputTokens": 56
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-multi-claim-one-false",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2720,
+      "runs": [
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 145,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1442,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 177,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1442,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 167,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1442,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 212,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1442,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 174,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1442,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-multi-claim-one-false",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 1645,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 169,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 2405,
+            "outputTokens": 156
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 186,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 2405,
+            "outputTokens": 156
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 165,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 2405,
+            "outputTokens": 156
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 170,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 2405,
+            "outputTokens": 156
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 194,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 2405,
+            "outputTokens": 156
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-blocker-false-diagnosis",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2686,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 154,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1442,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 188,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1442,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 167,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1442,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 216,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1442,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 223,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1442,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-blocker-false-diagnosis",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 829,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 196,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1004,
+            "outputTokens": 56
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 129,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1004,
+            "outputTokens": 56
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 179,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1004,
+            "outputTokens": 56
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 137,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1004,
+            "outputTokens": 56
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 190,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1004,
+            "outputTokens": 56
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-file-update-contradicted",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2667,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 128,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1451,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 150,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1451,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 196,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1451,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 239,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1451,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 209,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1451,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-file-update-contradicted",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 905,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 151,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1063,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 157,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1063,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 180,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1063,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 164,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1063,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 227,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1063,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-migration-not-applied",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2630,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 143,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 143,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 142,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 162,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 154,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-migration-not-applied",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 916,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 142,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1055,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 140,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1055,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 184,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1055,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 133,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1055,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 255,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1055,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-wrong-suite-green",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2639,
+      "runs": [
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 150,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1432,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 189,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1432,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 187,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1432,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 184,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1432,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 193,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1432,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-wrong-suite-green",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 905,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 181,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1053,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 181,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1053,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 186,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1053,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 157,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1053,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 243,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1053,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-clean-tree-unsupported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2662,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 151,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 246,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 190,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 218,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 251,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-clean-tree-unsupported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 1023,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 185,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1091,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 213,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1091,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 170,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1091,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 216,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1091,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 175,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1091,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-build-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2666,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 194,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1439,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 193,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1439,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 210,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1439,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 289,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1439,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 414,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1439,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-build-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 857,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 134,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1030,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 134,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1030,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 202,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1030,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 130,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1030,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 152,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1030,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-test-count-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2622,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 136,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1432,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 159,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1432,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 185,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1432,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 217,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1432,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 260,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1432,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-test-count-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 901,
+      "runs": [
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 139,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1068,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 248,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1068,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 188,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1068,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 212,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1068,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 224,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1068,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-cause-isolated-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2724,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 164,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1454,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 164,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1454,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 148,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1454,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 139,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1454,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 230,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1454,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-cause-isolated-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 1325,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 175,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1731,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 143,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1731,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 141,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1731,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 141,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1731,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 211,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1731,
+            "outputTokens": 105
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-multi-claim-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2706,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 147,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1437,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 145,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1437,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 229,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1437,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 179,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1437,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 186,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1437,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-multi-claim-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 1613,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 139,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 2393,
+            "outputTokens": 156
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 227,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 2393,
+            "outputTokens": 156
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 159,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 2393,
+            "outputTokens": 156
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 141,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 2393,
+            "outputTokens": 156
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 298,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 2393,
+            "outputTokens": 156
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-registry-blocker-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2651,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 150,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1427,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 229,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1427,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 237,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1427,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 246,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1427,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 199,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1427,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-registry-blocker-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 977,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 128,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1064,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 218,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1064,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 221,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1064,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 180,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1064,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 165,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1064,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-cause-honest-uncertainty",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 615,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-cause-honest-uncertainty",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 615,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-uncommitted-work-supported-new",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2673,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 158,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1444,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 190,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1444,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 265,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1444,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 314,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1444,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 529,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1444,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-uncommitted-work-supported-new",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 920,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 133,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1060,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 164,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1060,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 155,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1060,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 235,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1060,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 158,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1060,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-honest-closure",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2622,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 199,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1423,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 157,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1423,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 147,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1423,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 172,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1423,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 184,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1423,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "backend-honest-closure",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 852,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 185,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1027,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 207,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1027,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 162,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1027,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 226,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1027,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 351,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1027,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-tablet-overflow-contradicted",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2696,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 146,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1448,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 161,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1448,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 150,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1448,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 197,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1448,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 218,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1448,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-tablet-overflow-contradicted",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 990,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 177,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1071,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 147,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1071,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 179,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1071,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 127,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1071,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 179,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1071,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-contrast-contradicted",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2642,
+      "runs": [
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 158,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1437,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 190,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1437,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 237,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1437,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 193,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1437,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 209,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1437,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-contrast-contradicted",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 922,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 187,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1058,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 149,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1058,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 187,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1058,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 148,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1058,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 199,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1058,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-reference-exact-unsupported-new",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2637,
+      "runs": [
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 154,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1431,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 204,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1431,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 284,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1431,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 283,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1431,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 320,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1431,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-reference-exact-unsupported-new",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 935,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 186,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1047,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 187,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1047,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 156,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1047,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 158,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1047,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 190,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1047,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-multi-claim-one-false",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2696,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 152,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1430,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 164,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1430,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 204,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1430,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 217,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1430,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 227,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1430,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-multi-claim-one-false",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 1113,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 182,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1615,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 200,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1615,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 156,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1615,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 199,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1615,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 220,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1615,
+            "outputTokens": 105
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-animation-fps-mismatch",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2669,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 173,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1436,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 148,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1436,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 166,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1436,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 181,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1436,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 179,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1436,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-animation-fps-mismatch",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 955,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 126,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1053,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 164,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1053,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 132,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1053,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 130,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1053,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 197,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1053,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-form-submit-contradicted",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2674,
+      "runs": [
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 128,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1422,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 155,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1422,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 176,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1422,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 186,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1422,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 206,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1422,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-form-submit-contradicted",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 974,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 173,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1033,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 157,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1033,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 168,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1033,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 206,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1033,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 260,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1033,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-breakpoint-incomplete-new",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2626,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 178,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1433,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 185,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1433,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 161,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1433,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 135,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1433,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 274,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1433,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-breakpoint-incomplete-new",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 1013,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 157,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1084,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 187,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1084,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 200,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1084,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 180,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1084,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 379,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1084,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-css-cause-unsupported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2653,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 179,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1431,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 187,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1431,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 194,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1431,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 266,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1431,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 245,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1431,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-css-cause-unsupported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 914,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 171,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1036,
+            "outputTokens": 56
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 169,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1036,
+            "outputTokens": 56
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 166,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1036,
+            "outputTokens": 56
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 151,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1036,
+            "outputTokens": 56
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 162,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1036,
+            "outputTokens": 56
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-stale-screenshot-overclaim",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2640,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 161,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1415,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 183,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1415,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 213,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1415,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 208,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1415,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "flag",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 217,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1415,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-stale-screenshot-overclaim",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 939,
+      "runs": [
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 171,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1030,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 230,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1030,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 148,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1030,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 238,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1030,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 178,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1030,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-a11y-zero-false",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 609,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-a11y-zero-false",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 609,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-tablet-overflow-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2697,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 178,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1448,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 174,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1448,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 223,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1448,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 143,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1448,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 220,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1448,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-tablet-overflow-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 991,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 140,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1071,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 187,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1071,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 153,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1071,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 195,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1071,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 176,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1071,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-contrast-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2641,
+      "runs": [
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 156,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1437,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 192,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1437,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 221,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1437,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 349,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1437,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 375,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1437,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-contrast-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 921,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 188,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1058,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 149,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1058,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 172,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1058,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 209,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1058,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 221,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1058,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-visual-comparison-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2656,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 177,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1426,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 188,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1426,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 250,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1426,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 338,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1426,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 305,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1426,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-visual-comparison-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 924,
+      "runs": [
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 204,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1030,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 153,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1030,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 266,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1030,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 230,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1030,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 208,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1030,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-multi-claim-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2696,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 168,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 161,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 187,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 239,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 221,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-multi-claim-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 1113,
+      "runs": [
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 156,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1614,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 150,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1614,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 224,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1614,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 308,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1614,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 179,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1614,
+            "outputTokens": 105
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-animation-supported-new",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2668,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 153,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1434,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 155,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1434,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 164,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1434,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 164,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1434,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 208,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1434,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-animation-supported-new",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 954,
+      "runs": [
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 137,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1051,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 172,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1051,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 176,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1051,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 187,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1051,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 160,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1051,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-preview-blocker-supported",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2707,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 140,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 182,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 142,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 184,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 173,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1429,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-preview-blocker-supported",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 1024,
+      "runs": [
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 142,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1051,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 176,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1051,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 228,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1051,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 178,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1051,
+            "outputTokens": 54
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 313,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1051,
+            "outputTokens": 54
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-visual-honest-hedge-new",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 641,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-visual-honest-hedge-new",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 641,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "skipped": true,
+          "attempts": 0
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-honest-closure",
+      "arm": "C1",
+      "diet": "compressed",
+      "chars": 2690,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 199,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1455,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 194,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1455,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 190,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1455,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 203,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1455,
+            "outputTokens": 52
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 315,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1455,
+            "outputTokens": 52
+          }
+        }
+      ]
+    },
+    {
+      "fixtureId": "frontend-honest-closure",
+      "arm": "C2",
+      "diet": "compressed",
+      "chars": 1086,
+      "runs": [
+        {
+          "repetition": 0,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 221,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1658,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 1,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 220,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1658,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 2,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 155,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1658,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 4,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 224,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1658,
+            "outputTokens": 105
+          }
+        },
+        {
+          "repetition": 3,
+          "prediction": "clean",
+          "attempts": 1,
+          "meta": {
+            "latencyMs": 300,
+            "httpStatus": 200,
+            "model": "jev-1.13.0",
+            "inputTokens": 1658,
+            "outputTokens": 105
+          }
+        }
+      ]
+    }
+  ]
+}
