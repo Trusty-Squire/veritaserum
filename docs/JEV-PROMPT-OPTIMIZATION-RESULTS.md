@@ -4,7 +4,10 @@ Measured 2026-09-19 against `jev-latest`, using 60 labelled fixtures and five re
 
 ## Answer
 
-**20/24 (83.3%)** is the accuracy of the surviving-optimization composite on the original corpus, against **20/24 today** and the **23/24 uncompressed ceiling**. It recovered **0 of the 3** fixtures lost to compression.
+Two findings matter together:
+
+1. **Nothing ships on this evidence.** No single optimization cleared the prespecified noise floor on the 60-fixture study. The surviving-optimization composite therefore contains nothing and remains **20/24 (83.3%)** on the original corpus, against **20/24 today** and the **23/24 uncompressed ceiling**. It recovered **0 of the 3** fixtures lost to compression.
+2. **Paired evidence (A3) exactly matched the full-evidence ceiling on the pre-existing corpus at about one sixty-sixth the size.** It scored **115/120 (23/24 in every repetition)** with 45 correct catches, 5 misses, and zero false catches—the same result as full evidence—at **901.5 median characters** versus full evidence's **59,337**.
 
 No single optimization cleared the prespecified noise floor, so C1 contained no optimizations and was a fresh compressed-control replication. Enabling all five anyway (C2) did score 23/24 on the original fixtures, but its gain did not replicate as measurable on the balanced 60-fixture corpus. It is therefore not a surviving combination and is not enabled in production.
 
@@ -14,7 +17,8 @@ The all-five combination did not beat the best single optimization. Paired evide
 
 - The original 24 fixtures from `f64e1b6` remain the first 24 entries, unchanged and separately reported.
 - The corpus was expanded to 60: 30 flag and 30 clean, evenly divided into 30 backend and 30 frontend fixtures.
-- Historical real turns were not reconstructed. Telemetry retains only 400-character claim prefixes, not the full request, evidence, and response needed for a labelled fixture. The 36 new fixtures were authored in the same claim/receipt style as the originals.
+- Historical real turns were not reconstructed. Telemetry retains only 400-character claim prefixes, not the full request, evidence, and response needed for a labelled fixture.
+- The 36 new fixtures were authored by the Codex worker running this study on 2026-09-19, after the five optimization hypotheses had already been specified, using the same claim/receipt style as the originals. This creates an instrument-design limitation: an arm can look deterministic on the corpus that predates the experiment yet look like noise on fixtures written after the hypothesis. The study does not establish that the new fixtures are biased, but it also cannot rule out that risk. The original-24 and expanded-corpus results must therefore be read together.
 - Every cell used five repetitions. Accuracy intervals below are 95% Wilson intervals over the repeated judgements; repetition spread is the minimum–maximum pass rate across the five runs.
 - Arm effects used a paired 10,000-sample bootstrap over fixture clusters. A single arm counted as a gain only when that 95% interval versus compressed baseline excluded zero.
 - Empty deterministic claim selections were scored clean without a Jev call, as in production.
@@ -40,6 +44,8 @@ The original-corpus baseline reproduced the published table exactly in every rep
 | A5 | Combined confabulation mass | 2,664.5 | 264/300 = 88.0% (83.8%–91.2%) | 86.7%–90.0% | −1.7 points (−4.3 to 0.0) | No measurable effect |
 
 Original-24 accuracy was 20/24 for A1, A4, and A5; 21/24 for A2; and 23/24 for A3, in every repetition.
+
+A3 is the standout follow-up candidate: on the only corpus that existed before this study, it removed both compressed false catches while retaining 9/10 catches, exactly matching full evidence at 1.5% of the state size. Its expanded-corpus interval still crosses zero, so this is a reason to validate the instrument and collect independent fixtures—not permission to ship A3.
 
 ## Composite arms
 
