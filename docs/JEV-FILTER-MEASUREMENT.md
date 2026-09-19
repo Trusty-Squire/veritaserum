@@ -73,3 +73,30 @@ not-yet-existing module, the no-span integration test observed one Jev call
 instead of zero, and the input test observed the entire final message rather
 than only the surviving spans. After implementation the same command passes
 111 tests.
+
+## Verdict-parity replay availability
+
+The requested live Jev verdict-parity replay cannot be run from the retained
+sample. Telemetry stores only 400-character `claim` and `caught` prefixes and
+input byte counts; it does not store the user request, full final message, or
+evidence bodies. Processed queue jobs are deleted, and telemetry does not retain
+their transcript path. The worker environment used for this measurement also
+has no `TYPESAFE_API_KEY`.
+
+Sending the retained prefixes with empty or invented evidence would measure a
+different request, so no calls were made and no outcome was estimated. Thus the
+same-choice, silent-loss, opposite-direction-flip, and material-confidence-change
+counts are **not measured**, not zero. Historical confidence was not retained
+either. The same limitation prevents the requested unfiltered replay of all 38
+no-span turns.
+
+The complete row-by-row availability manifest is reproducible with:
+
+```text
+pnpm measure:jev-filter /home/lunchbox/.veritaserum/telemetry.jsonl --verdict-parity-manifest
+```
+
+It names all 267 filtered-input candidates and all 38 no-span candidates by
+timestamp, recorded verdict, and retained sentence/prefix. Every row is marked
+`INPUT+KEY`; the full manifest is also attached to the PR as a comment so the
+unmeasured rows are explicit rather than collapsed into a percentage.
