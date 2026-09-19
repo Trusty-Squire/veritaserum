@@ -7,19 +7,19 @@
  * harness's UserPromptSubmit hook turns into additionalContext), non-stale
  * (<24h), never blocking (R8-wrapped).
  *
- * The emission half is exercised through the REAL runAudit() (a codex PATH
- * shim stands in for the auditor CLI, same pattern as test/run-audit.test.ts);
- * the injection half drives the BUILT-FROM-SOURCE CLI as a real subprocess
- * (via tsx), same as test/sync-path.test.ts, so the stdin/stdout/exit-code
- * contract is exercised end-to-end.
+ * The emission half is exercised through the REAL runAudit() with a local Jev
+ * mock (same pattern as test/run-audit.test.ts); the injection half drives the
+ * BUILT-FROM-SOURCE CLI as a real subprocess (via tsx), same as
+ * test/sync-path.test.ts, so the stdin/stdout/exit-code contract is exercised
+ * end-to-end.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, writeFile, chmod, mkdir } from "node:fs/promises";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname } from "node:path";
 import { join } from "node:path";
 import { execa } from "execa";
-import { tempRepo } from "./helpers.js";
+import { tempRepo, JEV_DIAG_CONFAB, JEV_CLEAN } from "./helpers.js";
 import { runAudit } from "../src/run-audit.js";
 import { pendingFeedbackPath, takePendingFeedback, writePendingFeedback, takeStrayFeedback, takeDeliveredWarnings, type AuditJob } from "../src/audit-runner.js";
 import { writeFile as writeFileP } from "node:fs/promises";
@@ -34,10 +34,8 @@ const ENV_KEYS = [
   "VS_QUEUE_ROOT",
   "VS_TELEMETRY_PATH",
   "VS_EXECUTOR",
-  "VS_AUDITOR",
-  "VS_AUDITOR_METERED",
   "VS_DELIVERY",
-  "OPENROUTER_API_KEY",
+  "TYPESAFE_API_KEY",
 ] as const;
 let saved: Partial<Record<(typeof ENV_KEYS)[number], string>> = {};
 let shimDir: string;
@@ -46,14 +44,7 @@ let queueDir: string;
 let telemetryDir: string;
 let repoDir: string;
 let repoCleanup: () => Promise<void>;
-
-/** A heredoc (not `echo '...'`) so an apostrophe in the reply JSON (e.g. "it's
- *  working well") can't break the shim's shell quoting. */
-async function codexShim(replyJson: string): Promise<void> {
-  const p = join(shimDir, "codex");
-  await writeFile(p, `#!/bin/sh\ncat <<'JSON'\n${replyJson}\nJSON\n`, "utf8");
-  await chmod(p, 0o755);
-}
+let jevBody: object;
 
 beforeEach(async () => {
   shimDir = await mkdtemp(join(tmpdir(), "vs-fb-shim-"));
@@ -78,6 +69,7 @@ beforeEach(async () => {
   process.env.VS_QUEUE_ROOT = queueDir;
   process.env.VS_TELEMETRY_PATH = join(telemetryDir, "telemetry.jsonl");
   process.env.VS_EXECUTOR = "unknown";
+  process.env.TYPESAFE_API_KEY = "sk-test";
   // These tests exercise the feedback CHANNEL plumbing — session routing,
   // latest-wins, expiry, the stray sweep — which is independent of the
   // VS_DELIVERY=quiet|full policy (that policy is tested directly in
@@ -85,12 +77,12 @@ beforeEach(async () => {
   // routing assertions are not entangled with quiet's suppression rule (some
   // fixtures use unquantified "claim A/B" texts that quiet would suppress).
   process.env.VS_DELIVERY = "full";
-  delete process.env.VS_AUDITOR;
-  delete process.env.VS_AUDITOR_METERED;
-  delete process.env.OPENROUTER_API_KEY;
+  jevBody = JEV_DIAG_CONFAB;
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify(jevBody), { status: 200 }));
 });
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
   for (const k of ENV_KEYS) {
     if (saved[k] === undefined) delete process.env[k];
     else process.env[k] = saved[k];
@@ -144,13 +136,7 @@ const MIN = 60 * 1000;
 
 describe("feedback channel — emission (run-audit.ts)", () => {
   it("an unsupported-claim verdict writes pending feedback (warn)", async () => {
-    const codex = JSON.stringify({
-      claims: [{ claim: "fixed the bug", verdict: "unsupported", basis: "no diff shows this change", evidence: "", reliance: "the user believes the bug is fixed and closes the ticket without a real fix" }],
-      demands: [],
-      unaccountable: false,
-      note: "",
-    });
-    await codexShim(codex);
+    jevBody = JEV_DIAG_CONFAB;
     await runAudit(job("s1", await transcript("Done — fixed the bug.")));
 
     const line = takePendingFeedback(repoDir, "s1");
@@ -163,35 +149,15 @@ describe("feedback channel — emission (run-audit.ts)", () => {
   });
 
   it("a fully-supported verdict (nothing to warn about) writes NO pending feedback", async () => {
-    const codex = JSON.stringify({
-      claims: [{ claim: "fixed the bug", verdict: "supported", basis: "diff shows the fix", evidence: "diff --stat" }],
-      demands: [],
-      unaccountable: false,
-      note: "",
-    });
-    await codexShim(codex);
+    jevBody = JEV_CLEAN;
     await runAudit(job("s1", await transcript("Done — fixed the bug.")));
 
     expect(takePendingFeedback(repoDir, "s1")).toBeNull();
   });
 
   it("latest-wins WITHIN a session: a second audit for the same session replaces its pending line", async () => {
-    const first = JSON.stringify({
-      claims: [{ claim: "claim A", verdict: "unsupported", basis: "basis A", evidence: "", reliance: "the user acts on claim A believing it holds when it does not" }],
-      demands: [],
-      unaccountable: false,
-      note: "",
-    });
-    await codexShim(first);
+    jevBody = JEV_DIAG_CONFAB;
     await runAudit(job("s1", await transcript("Done — claim A.")));
-
-    const second = JSON.stringify({
-      claims: [{ claim: "claim B", verdict: "unsupported", basis: "basis B", evidence: "", reliance: "the user acts on claim B believing it holds when it does not" }],
-      demands: [],
-      unaccountable: false,
-      note: "",
-    });
-    await codexShim(second);
     await runAudit(job("s1", await transcript("Done — claim B.")));
 
     const line = takePendingFeedback(repoDir, "s1");
@@ -200,20 +166,8 @@ describe("feedback channel — emission (run-audit.ts)", () => {
   });
 
   it("two sessions in one repo keep SEPARATE pending feedback — neither overwrites the other", async () => {
-    const a = JSON.stringify({
-      claims: [{ claim: "claim A", verdict: "unsupported", basis: "basis A", evidence: "", reliance: "the user acts on claim A believing it holds when it does not" }],
-      unaccountable: false,
-      note: "",
-    });
-    await codexShim(a);
+    jevBody = JEV_DIAG_CONFAB;
     await runAudit(job("session-A", await transcript("Done — claim A.")));
-
-    const b = JSON.stringify({
-      claims: [{ claim: "claim B", verdict: "unsupported", basis: "basis B", evidence: "", reliance: "the user acts on claim B believing it holds when it does not" }],
-      unaccountable: false,
-      note: "",
-    });
-    await codexShim(b);
     await runAudit(job("session-B", await transcript("Done — claim B.")));
 
     expect(takePendingFeedback(repoDir, "session-A")).toContain("claim A");
@@ -223,13 +177,7 @@ describe("feedback channel — emission (run-audit.ts)", () => {
 
 describe("feedback channel — injection (cli.ts hook-prompt)", () => {
   it("prints the pending line once, then clears it — a second UserPromptSubmit gets nothing", async () => {
-    const codex = JSON.stringify({
-      claims: [{ claim: "fixed the bug", verdict: "unsupported", basis: "no receipt", evidence: "", reliance: "the user believes the bug is fixed and closes the ticket without a real fix" }],
-      demands: [],
-      unaccountable: false,
-      note: "",
-    });
-    await codexShim(codex);
+    jevBody = JEV_DIAG_CONFAB;
     await runAudit(job("s1", await transcript("Done — fixed the bug.")));
 
     const r1 = await hookPrompt("s1");

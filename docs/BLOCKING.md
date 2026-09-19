@@ -78,7 +78,7 @@ enqueue. Blocking is the path that waits on Jev.
 
 - Claude Code / Codex Stop: JSON `{decision:"block", reason}` on stdout
 - Goose Stop: exit 2 + stderr (existing plugin path, shared cap and fail-open)
-- Fail-open on a Jev/auditor outage (override `VS_AUDITOR=jev` with no key)
+- Fail-open on a Jev outage (no TYPESAFE_API_KEY, or Jev unreachable)
 - Session cap of 2
 - Anchor fixture `eval/fixtures/09-preexisting-clean-tree.json` is caught by
   the pipeline

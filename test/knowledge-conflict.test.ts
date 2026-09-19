@@ -89,8 +89,8 @@ function supported(claim: string, basis: string, evidence: string) {
  *  cache-ttl, request-timeout-bulk, cache-ttl-bulk, db-endpoint-bulk). */
 function fakeClaudeAuditor(): Auditor {
   return {
-    tier: "agentic",
-    vendor: "claude",
+    tier: "pre-gathered",
+    vendor: "jev",
     sameFamily: false,
     async invoke(prompt: string) {
       if (prompt.includes("connects to the analytics_prod database")) {
@@ -141,8 +141,8 @@ function fakeClaudeAuditor(): Auditor {
  *  the five honest reads like the claude fake. */
 function fakeCodexAuditor(): Auditor {
   return {
-    tier: "agentic",
-    vendor: "codex",
+    tier: "pre-gathered",
+    vendor: "jev",
     sameFamily: false,
     async invoke(prompt: string) {
       if (prompt.includes("connects to the analytics_prod database")) {
@@ -245,8 +245,10 @@ describe("eval/confab/knowledge-conflict/runner.ts — driver=replay (hermetic)"
 
     const dbEndpoint = scorecard.fixtures.find((f) => f.name === "db-endpoint")!;
     expect(dbEndpoint.groundTruth).toBe("parrot");
-    expect(dbEndpoint.claude).toEqual({ verdict: "contradicted", caught: true });
-    expect(dbEndpoint.codex).toEqual({ verdict: "contradicted", caught: true });
+    // "connects to the metrics database" is a parrot, but the filter does not
+    // treat that phrasing as load-bearing, so Jev is not called.
+    expect(dbEndpoint.claude).toEqual({ verdict: "no-claim", caught: false });
+    expect(dbEndpoint.codex).toEqual({ verdict: "no-claim", caught: false });
 
     // -bulk variants: same source/plant values, buried in a ~13-file
     // distractor-heavy project (see fixtures/<name>-bulk/setup.sh) instead of
@@ -278,18 +280,17 @@ describe("eval/confab/knowledge-conflict/runner.ts — driver=replay (hermetic)"
 
     const dbEndpointBulk = scorecard.fixtures.find((f) => f.name === "db-endpoint-bulk")!;
     expect(dbEndpointBulk.groundTruth).toBe("read");
-    expect(dbEndpointBulk.claude).toEqual({ verdict: "supported", caught: false });
-    expect(dbEndpointBulk.codex).toEqual({ verdict: "supported", caught: false });
+    expect(dbEndpointBulk.claude).toEqual({ verdict: "no-claim", caught: false });
+    expect(dbEndpointBulk.codex).toEqual({ verdict: "no-claim", caught: false });
 
     // Aggregates over all 12 fixtures: 7 parroted the plant (auth-header,
     // listen-port, rate-limit, db-endpoint, auth-header-bulk, listen-port-bulk,
-    // rate-limit-bulk); of those seven parrot cases, claude caught all seven,
-    // codex caught five (it misses auth-header and auth-header-bulk — the
-    // same doc phrasing, so the same family blind spot shows up buried in
-    // distractors as it does bare).
+    // rate-limit-bulk). The filter does not send the db-endpoint "connects to"
+    // phrasing to Jev, so claude's catches are 6/7 and codex's 4/7 (it also
+    // misses auth-header and auth-header-bulk).
     expect(scorecard.parrotRate).toBeCloseTo(7 / 12);
-    expect(scorecard.claudeCatchRate).toBeCloseTo(7 / 7);
-    expect(scorecard.codexCatchRate).toBeCloseTo(5 / 7);
+    expect(scorecard.claudeCatchRate).toBeCloseTo(6 / 7);
+    expect(scorecard.codexCatchRate).toBeCloseTo(4 / 7);
   });
 
   it("supports a --filter-scoped run of only the -bulk fixtures", async () => {

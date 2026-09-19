@@ -88,7 +88,7 @@ describe.sequential("packed production surfaces", () => {
     writeFileSync(transcript, JSON.stringify({ type: "event_msg", payload: { type: "agent_message", message: finalMessage } }) + "\n");
     const result = await execa("/bin/sh", ["-c", command], {
       cwd: repo,
-      env: { HOME: home, VS_QUEUE_ROOT: queueBase, VS_AUDIT_MODE: "testbed", VS_AUDITOR: "claude" },
+      env: { HOME: home, VS_QUEUE_ROOT: queueBase, VS_AUDIT_MODE: "testbed" },
       input: JSON.stringify({
         session_id: "documented-session",
         transcript_path: transcript,
@@ -108,18 +108,18 @@ describe.sequential("packed production surfaces", () => {
     expect(job).toMatchObject({
       harness: "codex",
       executor: "codex",
-      auditor: "claude",
       sessionId: "documented-session",
       turnRef: "documented-turn",
       finalMessage,
     });
+    expect(job.auditor).toBeUndefined();
 
     const invoke = async (suffix: string) => {
       const path = join(scratch, `concurrent-${suffix}.jsonl`);
       writeFileSync(path, `${suffix}\n`);
       return execa("sh", ["-c", command], {
         cwd: repo,
-        env: { HOME: home, VS_QUEUE_ROOT: queueBase, VS_AUDIT_MODE: "testbed", VS_AUDITOR: "claude" },
+        env: { HOME: home, VS_QUEUE_ROOT: queueBase, VS_AUDIT_MODE: "testbed" },
         input: JSON.stringify({
           session_id: `session-${suffix}`,
           transcript_path: path,

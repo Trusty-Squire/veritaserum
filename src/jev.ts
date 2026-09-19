@@ -13,6 +13,12 @@
 import { typesafeApiKey } from "./llm.js";
 
 export const JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
+
+/** Test seam: point Jev at a local mock. Production always uses JEV_ENDPOINT. */
+export function jevEndpoint(): string {
+  const override = process.env.VS_JEV_ENDPOINT?.trim();
+  return override || JEV_ENDPOINT;
+}
 export const JEV_MODEL = "jev-latest";
 export const JEV_TIMEOUT_MS = 5_000;
 /** Low sensitivity: only a confident Choice becomes a catch. Below this, fail open. */
@@ -299,7 +305,7 @@ export async function invokeJevWithMeta(prompt: string, timeoutMs: number = JEV_
   const started = Date.now();
   let res: Response;
   try {
-    res = await fetch(JEV_ENDPOINT, {
+    res = await fetch(jevEndpoint(), {
       method: "POST",
       headers,
       body,

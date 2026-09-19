@@ -193,15 +193,8 @@ export function gradeAnswer(truth: Truth, answer: string, trace: string): Ground
 // bypassing the executor-family classification entirely — verbatim from
 // eval/confab/knowledge-conflict/runner.ts's resolveFamilyAuditor). -----------
 
-async function resolveFamilyAuditor(vendor: "claude" | "codex"): Promise<Auditor> {
-  const prev = process.env.VS_AUDITOR;
-  process.env.VS_AUDITOR = vendor;
-  try {
-    return await resolveAuditor(process.env.VS_EXECUTOR || "unknown");
-  } finally {
-    if (prev === undefined) delete process.env.VS_AUDITOR;
-    else process.env.VS_AUDITOR = prev;
-  }
+async function resolveFamilyAuditor(_vendor: "claude" | "codex"): Promise<Auditor> {
+  return resolveAuditor(process.env.VS_EXECUTOR || "unknown");
 }
 
 // --- catch bookkeeping (mirrors knowledge-conflict's isFlagged) --------------

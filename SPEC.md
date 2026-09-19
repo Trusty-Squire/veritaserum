@@ -23,14 +23,25 @@
 > describes demands, case law, mechanical standing-law checks, or the statute path is
 > **superseded by this note** (including §2 steps 4/6, the Case-law block, §4.1's "statute
 > path survives" note, R6's retire command, and acceptance items 2 and 4).
+>
+> ## 2026-09-19: Jev is the only classifier
+>
+> The shipped product is **the deterministic load-bearing-claim filter**
+> (`src/jev-input.ts`) plus **Jev** (typesafe.ai System One Choice) plus
+> **code-owned warning templates**. There is no Claude, Codex, ollama, or
+> OpenRouter auditor. There is no local embedder. `VS_AUDITOR` is not a
+> selector — there is nothing to select. When Jev is unreachable the audit
+> reports that it did not run; it does not reach for a CLI or a local model.
+> Deleted: `src/embed.ts`, `src/grounding.ts`, CLI/API auditor vendors and
+> their doctor smoke-tests. Every section below that describes a vendor
+> ladder, an agentic CLI auditor, or an embedding grounding tier is
+> **superseded by this note**.
 
-**Thesis (as of the removal above).** When a turn ends, an async cross-family auditor
-identifies the load-bearing claims in what the agent just said — tasks done, causes
-asserted, futures recommended — and checks them against the only two sources of truth that
-exist: **read-only git probes computed now** and **the harness's own record of what ran**.
-Alongside the LLM verdict, a no-LLM grounding tier flags referential gaps from local
-embeddings. No upfront contract, no lexical claim detection, no phase detection, no setup,
-no persisted state.
+**Thesis (as of 2026-09-19).** When a turn ends, a deterministic filter finds
+load-bearing claims in what the agent just said. If none survive, Jev is not
+called. If they do, Jev answers one Choice; code-owned templates write the
+warning. Evidence is the session's own receipts. No local model, no CLI
+auditor, no embedding tier, no persisted state.
 
 **Thesis (original, superseded).** One mechanism: when a claim needed an oracle that doesn't
 exist ("wrote an MCCFR solver, it's working well"), the auditor **demanded one** (the Kuhn
@@ -55,7 +66,7 @@ final target**.
 | R5 | **Warn-primary.** supported / unsupported (warn + demand the downgrade or the missing test) / contradicted (strongest flag). Nothing blocks by default; blocking per law entry is earned (≥50 judged events, Wilson 95% LB ≥ 0.9) and human-promoted. Warnings never repeat verbatim for the same claim in a session. **Captain override (2026-09-18), not a missing feature:** `VS_BLOCK=1` runs a same-turn Jev Choice audit and may block a confident confabulation at most twice per session so the agent can revise. Fail-open is unchanged. See docs/BLOCKING.md. | 15-block deadlock → coerced false confession; sycophancy literature. Jev ~350ms made a same-turn block affordable; the captain flipped the invariant on purpose. |
 | R6 | ~~The auditor authors demands; the executor never does; the human vetoes.~~ **Demand authorship and the `veritaserum retire` command are removed (2026-07-20).** What survives: **cross-FAMILY is mandatory** (auditor model family ≠ executor model family — different checkpoints of one lineage share blindspots), because the LLM verdict is still one model judging another. | Self-preference is measured; correlated slop; codex #12/#20. |
 | R7 | **Injections are terse, state-gated, specific — and rare.** Sharp specific facts: 10%→0/45 (p<0.05); ambient truth: null; chatty layers accelerate the compaction decay they treat. | goose #9708 injection arms. |
-| R8 | **Fail open on own failure.** Any internal error in any surface → the agent proceeds + telemetry error event. Includes: no auditor available → `auditor_absent` recorded, the audit is skipped, the executor is never stalled; the grounding tier fails open to zero flags when ollama is absent. | v1 invariant, re-earned. |
+| R8 | **Fail open on own failure.** Any internal error in any surface → the agent proceeds + telemetry error event. Includes: Jev unreachable or `TYPESAFE_API_KEY` unset → `Jev did not run: …` recorded, the audit does not reach for a CLI or local model, the executor is never stalled. | v1 invariant, re-earned. |
 | R9 | **Vagueness is not an escape hatch.** Substantial receipts + a claim-free summary is itself a verdict: "unaccountable work" — warn, demand concreteness ("state what was done and how you know it works"). The vague-turn rate is a first-class telemetry metric, because feedback pressure predictably teaches executors to stop signing statements. | codex #15, accepted. |
 
 ## 2. The mechanism
@@ -105,25 +116,17 @@ audit job (ASYNC — one auditor invocation)
   The auditor NEVER runs git write operations. Law commits are human moments.
 ```
 
-**Auditor resolution (five rules + Jev + override; auth-probed, not just present):**
-`TYPESAFE_API_KEY` present → **jev** (typesafe System One, pre-gathered Choice
-auditor, cross-family for Claude and Codex, ~350ms). Then the original ladder:
-1. `codex exec` available, non-Codex executor → **codex** (agentic, read-only sandbox).
-2. `claude -p` available, non-Claude executor → **claude** (agentic, read-only).
-3. Only codex available (Codex-family executor) → **codex with a same-family warning**.
-4. Only claude available (Claude-family executor) → **claude with a same-family warning**.
-5. Only metered options (goose/opencode/cursor-style setups where the executor is
-   API-metered anyway) → **user chooses at doctor time**; recommend a strong model;
-   default **glm-4.2** (completion-only → pre-gathered evidence mode).
-`VS_AUDITOR` **overrides everything** (any CLI, any API model, any local ollama model, `jev`).
-Floor beneath the ladder: nothing available → no LLM audit; runnable standing-law checks
-still execute mechanically; sync path unaffected; `auditor_absent` telemetry + one
-visible notice.
-Internal mechanics (invisible to setup UX): every verdict is tier-tagged
-(`agentic | pre-gathered | same_family`); precision and blocking-earn are computed per
-tier so a weaker tier never inherits a stronger tier's trust. **`veritaserum doctor`**
-reports which rule fired and why, with cached 1-token auth smoke calls. Pinning: model +
-temperature recorded per run; overnight runs budget auditor calls with backoff + resume.
+**Auditor resolution (Jev only):** `TYPESAFE_API_KEY` present → **jev**
+(typesafe System One, pre-gathered Choice classifier, ~350ms). Key absent or
+Jev unreachable → the audit reports `Jev did not run: …` and fail-opens (R8).
+There is no CLI auditor, no local model, and no `VS_AUDITOR` override.
+**`veritaserum doctor`** reports whether the key is present. Warning text is
+always a code-owned template (`claimWarning` / `choiceToAuditReply`); Jev
+answers a Choice, it does not write prose.
+
+The load-bearing-claim filter (`detectLoadBearingClaims` in `src/jev-input.ts`)
+is the only gate that decides whether Jev is called. No surviving span → Jev
+is not invoked.
 
 **Case law** — ~~`veritaserum.law.yaml`, git-tracked, in-repo~~ **REMOVED 2026-07-20 (see the
 note at the top of this spec). The entire block below, including the statute path, is void.**

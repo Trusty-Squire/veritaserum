@@ -1,38 +1,38 @@
 /**
- * VS_BLOCK=1 on hook-stop — captain override of R5. Hermetic: PATH-shimmed
- * auditor, no live Jev/network. Fail-open and the session cap are the load-bearing
- * contracts; the goose plugin path is covered in hook-stop-goose-block.test.ts.
+ * VS_BLOCK=1 on hook-stop — captain override of R5. Hermetic: local Jev mock,
+ * no live network. Fail-open and the session cap are the load-bearing contracts.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { execa } from "execa";
-import { tempRepo } from "./helpers.js";
+import { tempRepo, startJevMock, JEV_STATE_CONFAB } from "./helpers.js";
 import { queueRoot } from "../src/audit-runner.js";
 
 const CLI = resolve(import.meta.dirname, "../src/cli.ts");
 const RUNNER = resolve(import.meta.dirname, "../node_modules/.bin/tsx");
 
-let shimDir: string;
 let cacheDir: string;
 let queueDir: string;
 let telemetryDir: string;
 let cleanups: Array<() => Promise<void>> = [];
+let jev: { url: string; close: () => Promise<void> } | undefined;
 
-beforeEach(() => {
-  shimDir = mkdtempSync(join(tmpdir(), "vs-vsblock-shim-"));
+beforeEach(async () => {
   cacheDir = mkdtempSync(join(tmpdir(), "vs-vsblock-cache-"));
   queueDir = mkdtempSync(join(tmpdir(), "vs-vsblock-queue-"));
   telemetryDir = mkdtempSync(join(tmpdir(), "vs-vsblock-telemetry-"));
+  jev = await startJevMock(JEV_STATE_CONFAB);
 });
 
 afterEach(async () => {
   await Promise.all(cleanups.map((c) => c()));
   cleanups = [];
+  await jev?.close();
+  jev = undefined;
   await Promise.all([
-    rm(shimDir, { recursive: true, force: true }),
     rm(cacheDir, { recursive: true, force: true }),
     rm(queueDir, { recursive: true, force: true }),
     rm(telemetryDir, { recursive: true, force: true }),
@@ -45,28 +45,20 @@ async function repo(): Promise<string> {
   return dir;
 }
 
-function writeCodexShim(reply: string): void {
-  const p = join(shimDir, "codex");
-  writeFileSync(p, `#!/bin/sh\necho '${reply}'\nexit 0\n`, "utf8");
-  chmodSync(p, 0o755);
-}
-
-const CONTRADICTED =
-  '{"claims":[{"claim":"PRE-EXISTING - fails on clean tree too","verdict":"contradicted","basis":"no clean-tree run in the receipts; HEAD only touches README","evidence":"git show --stat HEAD","reliance":"the user treats the suite as pre-broken and skips the real failure in this tree"}],"unaccountable":false,"note":""}';
-
 async function hookStop(dir: string, payload: object, env: Record<string, string> = {}) {
   const r = await execa(RUNNER, [CLI, "hook-stop"], {
     cwd: dir,
     input: JSON.stringify(payload),
     reject: false,
     env: {
-      PATH: `${shimDir}:${dirname(process.execPath)}:/usr/bin:/bin`,
+      PATH: `${dirname(process.execPath)}:/usr/bin:/bin`,
       VS_DOCTOR_CACHE_PATH: join(cacheDir, "doctor.json"),
       VS_QUEUE_ROOT: queueDir,
       VS_TELEMETRY_PATH: join(telemetryDir, "telemetry.jsonl"),
       VS_EXECUTOR: "unknown",
       VS_HARNESS: "claude-code",
-      TYPESAFE_API_KEY: "",
+      TYPESAFE_API_KEY: "sk-test",
+      VS_JEV_ENDPOINT: jev!.url,
       ...env,
     },
   });
@@ -79,7 +71,7 @@ function transcript(dir: string, text: string): string {
   const tpath = join(tdir, "transcript.jsonl");
   writeFileSync(
     tpath,
-    JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] } }) + "\n",
+    JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text }] } }) + "\n",
   );
   return tpath;
 }
@@ -87,12 +79,11 @@ function transcript(dir: string, text: string): string {
 describe("hook-stop VS_BLOCK=1 — captain override", () => {
   it("a confident unbacked state claim blocks Claude Code with JSON decision:block", async () => {
     const dir = await repo();
-    writeCodexShim(CONTRADICTED);
     const tpath = transcript(dir, "PRE-EXISTING - fails on clean tree too");
     const r = await hookStop(
       dir,
       { transcript_path: tpath, cwd: dir, last_assistant_message: "PRE-EXISTING - fails on clean tree too" },
-      { VS_BLOCK: "1", VS_AUDITOR: "codex" },
+      { VS_BLOCK: "1" },
     );
     expect(r.code).toBe(0);
     const body = JSON.parse(r.out.trim().split("\n").pop()!) as { decision: string; reason: string };
@@ -100,13 +91,13 @@ describe("hook-stop VS_BLOCK=1 — captain override", () => {
     expect(body.reason).toContain("PRE-EXISTING");
   });
 
-  it("an auditor outage (jev override, no key) does NOT block", async () => {
+  it("an auditor outage (no key) does NOT block", async () => {
     const dir = await repo();
     const tpath = transcript(dir, "PRE-EXISTING - fails on clean tree too");
     const r = await hookStop(
       dir,
       { transcript_path: tpath, cwd: dir, last_assistant_message: "PRE-EXISTING - fails on clean tree too" },
-      { VS_BLOCK: "1", VS_AUDITOR: "jev", TYPESAFE_API_KEY: "" },
+      { VS_BLOCK: "1", TYPESAFE_API_KEY: "" },
     );
     expect(r.code).toBe(0);
     expect(r.out).not.toContain('"decision":"block"');
@@ -114,7 +105,6 @@ describe("hook-stop VS_BLOCK=1 — captain override", () => {
 
   it("a session already at cap 2 does not block again", async () => {
     const dir = await repo();
-    writeCodexShim(CONTRADICTED);
     const tpath = transcript(dir, "PRE-EXISTING - fails on clean tree too");
     const prev = process.env.VS_QUEUE_ROOT;
     process.env.VS_QUEUE_ROOT = queueDir;
@@ -129,7 +119,7 @@ describe("hook-stop VS_BLOCK=1 — captain override", () => {
     const r = await hookStop(
       dir,
       { transcript_path: tpath, cwd: dir, last_assistant_message: "PRE-EXISTING - fails on clean tree too" },
-      { VS_BLOCK: "1", VS_AUDITOR: "codex", VS_BLOCK_CAP: "2" },
+      { VS_BLOCK: "1", VS_BLOCK_CAP: "2" },
     );
     expect(r.code).toBe(0);
     expect(r.out).not.toContain('"decision":"block"');

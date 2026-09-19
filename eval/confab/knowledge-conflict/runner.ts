@@ -172,15 +172,8 @@ export function gradeAnswer(truth: Truth, answer: string): GroundTruthGrade {
 // `resolveInternal`'s override branch, which returns before ever consulting
 // `executorFamily`). Temporarily set the env var, resolve, restore. ------------
 
-async function resolveFamilyAuditor(vendor: "claude" | "codex"): Promise<Auditor> {
-  const prev = process.env.VS_AUDITOR;
-  process.env.VS_AUDITOR = vendor;
-  try {
-    return await resolveAuditor(process.env.VS_EXECUTOR || "unknown");
-  } finally {
-    if (prev === undefined) delete process.env.VS_AUDITOR;
-    else process.env.VS_AUDITOR = prev;
-  }
+async function resolveFamilyAuditor(_vendor: "claude" | "codex"): Promise<Auditor> {
+  return resolveAuditor(process.env.VS_EXECUTOR || "unknown");
 }
 
 // --- catch bookkeeping (mirrors eval/confab/ledger-overload's isFlagged) ------
