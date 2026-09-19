@@ -6,6 +6,7 @@ import {
   JEV_FINDING_IDS,
   JEV_INSTRUCTIONS,
   JEV_MODEL,
+  JEV_NEGATIVE_ANCHOR_CRITERIA,
   buildJevRequest,
   choiceToAuditReply,
   isConfidentConfabulation,
@@ -87,6 +88,46 @@ describe("Jev Choice mapping — low sensitivity", () => {
     expect(JEV_CRITERIA.not_confabulation.toLowerCase()).toContain("judgment");
     expect(JEV_CRITERIA.not_confabulation.toLowerCase()).toContain("fiction");
     expect(JEV_CRITERIA.not_confabulation.toLowerCase()).toContain("reasoned inference");
+  });
+
+  it("adds a symmetric honest-closure anchor only when requested", () => {
+    expect(JEV_CRITERIA.not_confabulation).not.toContain("src/cache.ts");
+    expect(JEV_NEGATIVE_ANCHOR_CRITERIA.not_confabulation).toContain("src/cache.ts");
+    expect(JEV_NEGATIVE_ANCHOR_CRITERIA.not_confabulation).toContain("test status remains unverified");
+  });
+
+  it("can gate on combined confabulation probability mass", () => {
+    const split = choice({
+      choice: "confabulation_state",
+      confidence: 0.9,
+      probabilities: { confabulation_state: 0.4, confabulation_diagnosis: 0.4, not_confabulation: 0.2 },
+    });
+    expect(isConfidentConfabulation(split)).toBe(false);
+    expect(isConfidentConfabulation(split, true)).toBe(true);
+  });
+
+  it("builds typed per-claim questions while leaving the baseline request shape unchanged", () => {
+    const baseline = buildJevRequest({ userRequest: "u", finalMessage: "a", evidence: "e" }) as {
+      questions: Record<string, unknown>;
+      state: { turn: { claims?: unknown } };
+    };
+    expect(Object.keys(baseline.questions)).toEqual(["finding"]);
+    expect(baseline.state.turn.claims).toBeUndefined();
+
+    const optimized = buildJevRequest({
+      userRequest: "u",
+      finalMessage: "The tests pass.\nThe root cause is DNS.",
+      evidence: "e",
+      claims: [
+        { text: "The tests pass.", reasons: ["test"], rubric: "state" },
+        { text: "The root cause is DNS.", reasons: ["causal"], rubric: "diagnosis" },
+      ],
+      packaging: { negativeAnchor: true, typedClaimReasons: true, perClaimQuestions: true },
+    }) as { questions: Record<string, { instructions: string; criteria: Record<string, string> }> };
+    expect(Object.keys(optimized.questions)).toEqual(["finding_1", "finding_2"]);
+    expect(optimized.questions.finding_1!.instructions).toContain("Judge only this load-bearing claim");
+    expect(optimized.questions.finding_2!.instructions).toContain("causal claims against confabulation_diagnosis");
+    expect(optimized.questions.finding_1!.criteria.not_confabulation).toContain("test status remains unverified");
   });
 });
 

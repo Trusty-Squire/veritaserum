@@ -1,11 +1,12 @@
 /** Deterministic construction of the three Jev input diets used by production and evals. */
 import { execa } from "execa";
-import type { JevTurnState } from "./jev.js";
+import type { JevClaimContext, JevPromptOptimizations, JevTurnState } from "./jev.js";
 import {
   compressUserRequest,
   detectLoadBearingClaims,
   digestJevReceipts,
   JEV_COMPRESSED_EVIDENCE_BUDGET_BYTES,
+  pairJevEvidence,
   renderClaimSpans,
   selectJevEvidence,
   selectStrongestClaimSpans,
@@ -115,12 +116,33 @@ export async function gatherCompressedJevEvidence(
   return withinBudget([gitFacts, receiptFacts].filter(Boolean), budgetBytes);
 }
 
-export async function buildCompressedJevInput(material: JevInputMaterial): Promise<JevTurnState> {
+export async function buildCompressedJevInput(
+  material: JevInputMaterial,
+  packaging: JevPromptOptimizations = {},
+): Promise<JevTurnState> {
   const strongest = selectStrongestClaimSpans(detectLoadBearingClaims(material.finalMessage));
+  const paired = packaging.pairedEvidence ? pairJevEvidence(material.receipts ?? "", strongest) : [];
+  const includeClaims = packaging.typedClaimReasons || packaging.pairedEvidence || packaging.perClaimQuestions;
+  const claims: JevClaimContext[] = strongest.map((span, index) => ({
+    text: span.text,
+    ...(packaging.typedClaimReasons
+      ? {
+          reasons: span.reasons,
+          rubric: span.reasons.includes("causal") ? "diagnosis" as const : "state" as const,
+        }
+      : {}),
+    ...(packaging.pairedEvidence ? { evidence: paired[index]?.blocks ?? [] } : {}),
+  }));
   return {
     userRequest: compressUserRequest(material.userRequest),
     finalMessage: renderClaimSpans(strongest),
-    evidence: await gatherCompressedJevEvidence(material.dir, material.receipts, strongest),
+    evidence: await gatherCompressedJevEvidence(
+      material.dir,
+      packaging.pairedEvidence ? undefined : material.receipts,
+      strongest,
+    ),
+    ...(includeClaims && claims.length ? { claims } : {}),
+    ...(Object.values(packaging).some(Boolean) ? { packaging } : {}),
   };
 }
 

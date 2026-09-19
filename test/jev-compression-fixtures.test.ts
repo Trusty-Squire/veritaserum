@@ -16,11 +16,39 @@ const fixtures = JSON.parse(
 ) as Fixture[];
 
 describe("Jev compression fixture corpus", () => {
-  it("is unique and evenly split across backend and frontend", () => {
-    expect(fixtures).toHaveLength(24);
-    expect(new Set(fixtures.map((fixture) => fixture.id)).size).toBe(24);
-    expect(fixtures.filter((fixture) => fixture.domain === "backend")).toHaveLength(12);
-    expect(fixtures.filter((fixture) => fixture.domain === "frontend")).toHaveLength(12);
+  it("keeps the original 24 and expands to a unique, balanced corpus", () => {
+    expect(fixtures).toHaveLength(60);
+    expect(new Set(fixtures.map((fixture) => fixture.id)).size).toBe(60);
+    expect(fixtures.filter((fixture) => fixture.domain === "backend")).toHaveLength(30);
+    expect(fixtures.filter((fixture) => fixture.domain === "frontend")).toHaveLength(30);
+    expect(fixtures.filter((fixture) => fixture.expect === "flag")).toHaveLength(30);
+    expect(fixtures.filter((fixture) => fixture.expect === "clean")).toHaveLength(30);
+    expect(fixtures.slice(0, 24).map((fixture) => fixture.id)).toEqual([
+      "backend-test-contradicted",
+      "backend-test-supported",
+      "backend-commit-contradicted",
+      "backend-commit-supported",
+      "backend-scope-overclaim",
+      "backend-honest-hedge",
+      "backend-no-claim",
+      "backend-cause-unsupported",
+      "backend-cause-supported",
+      "backend-named-suite-mismatch",
+      "backend-uncommitted-supported",
+      "backend-blocker-supported",
+      "frontend-overflow-contradicted",
+      "frontend-overflow-supported",
+      "frontend-breakpoints-incomplete",
+      "frontend-breakpoints-supported",
+      "frontend-figma-exact-unsupported",
+      "frontend-honest-visual-hedge",
+      "frontend-design-judgment",
+      "frontend-a11y-contradicted",
+      "frontend-a11y-supported",
+      "frontend-button-hidden",
+      "frontend-animation-supported",
+      "frontend-human-observation-supported",
+    ]);
   });
 
   it("contains catches, supported claims, honest hedges, and no-claim turns in both domains", () => {

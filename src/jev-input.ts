@@ -354,6 +354,11 @@ interface ReceiptBlock {
   index: number;
 }
 
+export interface JevPairedEvidence {
+  claim: ClaimSpan;
+  blocks: Array<{ call: string; output: string[] }>;
+}
+
 function commandFromReceiptLine(line: string): string | undefined {
   if (/^\$\s+/.test(line)) return line.replace(/^\$\s+/, "").trim();
   if (!/^>\s+/.test(line)) return undefined;
@@ -386,6 +391,74 @@ function receiptBlocks(receipts: string): { blocks: ReceiptBlock[]; loose: Array
     else if (line.trim()) loose.push({ text: line.trim(), index });
   });
   return { blocks, loose };
+}
+
+/** Pair retained receipt blocks to the claim that made each block relevant. */
+export function pairJevEvidence(
+  receipts: string,
+  spans: ClaimSpan[],
+  budgetBytes: number = JEV_COMPRESSED_EVIDENCE_BUDGET_BYTES,
+): JevPairedEvidence[] {
+  const parsed = receiptBlocks(receipts);
+  const candidates: Array<{
+    claimIndex: number;
+    score: number;
+    index: number;
+    block: { call: string; output: string[] };
+  }> = [];
+  for (const [claimIndex, span] of spans.entries()) {
+    const anchors = evidenceAnchors([span]);
+    for (const block of parsed.blocks) {
+      const combined = `${block.command}\n${block.output.join("\n")}`;
+      const lower = combined.toLowerCase();
+      let score = 0;
+      if (anchors.files.some((anchor) => lower.includes(anchor))) score = Math.max(score, 100);
+      if (anchors.commands.some((anchor) => lower.includes(anchor))) score = Math.max(score, 100);
+      if (anchors.numbers.length && numbersIn(combined).some((n) => anchors.numbers.some((claim) => approxEq(n, claim)))) score = Math.max(score, 95);
+      if (stateSignature([span], combined)) score = Math.max(score, 90);
+      const tokenHits = anchors.tokens.filter((token) => lower.includes(token)).length;
+      if (tokenHits > 0) score = Math.max(score, 30 + Math.min(tokenHits, 5));
+      if (score > 0) {
+        candidates.push({
+          claimIndex,
+          score,
+          index: block.index,
+          block: {
+            call: block.command.slice(0, 300),
+            output: block.output.map((line) => line.replace(/^<\s?/, "").trim()).filter(Boolean).slice(0, 8),
+          },
+        });
+      }
+    }
+    for (const loose of parsed.loose) {
+      const lower = loose.text.toLowerCase();
+      const tokenHits = anchors.tokens.filter((token) => lower.includes(token)).length;
+      const numberHit = anchors.numbers.length > 0 && numbersIn(loose.text).some((n) => anchors.numbers.some((claim) => approxEq(n, claim)));
+      if (tokenHits === 0 && !numberHit) continue;
+      candidates.push({
+        claimIndex,
+        score: (numberHit ? 95 : 0) + 30 + Math.min(tokenHits, 5),
+        index: loose.index,
+        block: { call: "session evidence", output: [loose.text.slice(0, 400)] },
+      });
+    }
+  }
+
+  const selected: typeof candidates = [];
+  let used = 0;
+  for (const candidate of [...candidates].sort((a, b) => b.score - a.score || a.index - b.index)) {
+    const bytes = Buffer.byteLength(JSON.stringify(candidate.block), "utf8");
+    if (bytes > budgetBytes - used) continue;
+    selected.push(candidate);
+    used += bytes;
+  }
+  return spans.map((claim, claimIndex) => ({
+    claim,
+    blocks: selected
+      .filter((candidate) => candidate.claimIndex === claimIndex)
+      .sort((a, b) => a.index - b.index)
+      .map((candidate) => candidate.block),
+  }));
 }
 
 function maximumCounter(text: string, label: "passed" | "failed"): number | undefined {
