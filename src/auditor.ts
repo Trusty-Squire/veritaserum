@@ -10,7 +10,7 @@ import { logFiring } from "./telemetry.js";
 import type { Auditor, AuditorTier, AuditorUsage } from "./resolve.js";
 import { jevDidNotRun } from "./resolve.js";
 import { hasSpecificQuantity, specificNumbersIn, findNumberSnippet, stateKindsOf } from "./lexicon.js";
-import { detectLoadBearingClaims } from "./jev-input.js";
+import { detectLoadBearingClaims, hasCapabilityLookup } from "./jev-input.js";
 import { buildCompressedJevInput } from "./jev-evidence.js";
 import { readFullSessionToolResults } from "./transcript.js";
 
@@ -79,6 +79,19 @@ export function claimWarning(who: Addressee, c: ClaimVerdict, verifiedDependsOn?
   return `${line} — relied on by: "${q}"`;
 }
 
+function incapabilityClaim(claim: string): boolean {
+  return detectLoadBearingClaims(claim).some((span) => span.reasons.includes("incapability"));
+}
+
+export function incapabilityWarning(claim: string): string {
+  const plain = clipClaim(claim).replace(/[.!?]+$/, "").trim();
+  const reach = plain.match(/\b(?:can't|cannot|can not|couldn't|could not|unable to)\s+((?:reach|access|authenticate to|log in to)\s+.+)$/i);
+  const access = plain.match(/\bno\s+(.+?)\s+access\b/i);
+  const credentials = plain.match(/\b(?:no|lack(?:s)?|don't have|do not have)\s+(.+?\b(?:credentials?|tokens?|keys?|permissions?|logins?|auth(?:entication|orization)?)(?:\s+for\s+.+)?)$/i);
+  const span = reach?.[1] ?? (access ? `access ${access[1]}` : undefined) ?? (credentials ? `obtain ${credentials[1]}` : undefined) ?? "use that capability";
+  return `You said you cannot ${span}. This session ran no capability lookup. Search memory, credentials, and tools for it, then retry or restate.`;
+}
+
 export function unaccountableWarning(who: Addressee): string {
   return `${who}, you did substantial work but reported nothing checkable — state what you did and how you know it works.`;
 }
@@ -92,7 +105,7 @@ export function deliveryMode(): DeliveryMode {
 export function claimDeliverableUnderQuiet(c: ClaimVerdict, _anchorVerified = false): boolean {
   if (c.verdict === "contradicted") return true;
   if (c.verdict === "unsupported") {
-    return hasSpecificQuantity(c.claim) || stateKindsOf(c.claim).length > 0;
+    return incapabilityClaim(c.claim) || hasSpecificQuantity(c.claim) || stateKindsOf(c.claim).length > 0;
   }
   return false;
 }
@@ -365,7 +378,8 @@ export async function audit(job: AuditJob, auditor: Auditor): Promise<AuditVerdi
   const rank = (v: ClaimVerdict["verdict"]): number => (v === "contradicted" ? 0 : 1);
   for (const c of [...nonSupported].sort((a, b) => rank(a.verdict) - rank(b.verdict))) {
     const verified = anchorOf.get(c) === "verified";
-    pushWarning(claimWarning(who, c, verified ? c.depends_on : undefined), claimDeliverableUnderQuiet(c, verified));
+    const noLookupIncapability = c.verdict === "unsupported" && incapabilityClaim(c.claim) && !hasCapabilityLookup(job.receipts ?? "");
+    pushWarning(noLookupIncapability ? incapabilityWarning(c.claim) : claimWarning(who, c, verified ? c.depends_on : undefined), claimDeliverableUnderQuiet(c, verified));
   }
   if (reply?.unaccountable) pushWarning(unaccountableWarning(who), true);
 
