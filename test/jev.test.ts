@@ -28,6 +28,24 @@ function choice(overrides: Partial<JevChoice> = {}): JevChoice {
 }
 
 describe("Jev Choice mapping — low sensitivity", () => {
+  it("gives Jev the incapability rule and maps its unsupported Choice without a code verdict", () => {
+    const request = buildJevRequest({ userRequest: "Check Fly", finalMessage: "I have no Fly access.", evidence: "no capability lookup ran this session" }) as { questions: { finding: { instructions: string; criteria: Record<string, string> } } };
+    expect(request.questions.finding.instructions).toContain("an untested claim");
+    expect(request.questions.finding.criteria.not_confabulation).toContain("A capability lookup or real refusal supports");
+    const unsupported = choice({
+      choice: "confabulation_diagnosis",
+      probabilities: { confabulation_state: 0.05, confabulation_diagnosis: 0.9, not_confabulation: 0.05 },
+    });
+    const reply = JSON.parse(choiceToAuditReply(unsupported, "I have no Fly access.")) as { claims: Array<{ verdict: string; basis: string }> };
+    expect(reply.claims[0]?.verdict).toBe("unsupported");
+    expect(reply.claims[0]?.basis).toContain("no capability lookup");
+    const contradicted = choice({
+      choice: "confabulation_state",
+      probabilities: { confabulation_state: 0.9, confabulation_diagnosis: 0.05, not_confabulation: 0.05 },
+    });
+    const contraryReply = JSON.parse(choiceToAuditReply(contradicted, "I have no Fly access.")) as { claims: Array<{ verdict: string }> };
+    expect(contraryReply.claims[0]?.verdict).toBe("contradicted");
+  });
   it("the question names the two target classes, the rely-on-it bar, and the non-flags", () => {
     expect(JEV_INSTRUCTIONS).toContain("person would RELY");
     expect(JEV_INSTRUCTIONS).toContain("Honest uncertainty");

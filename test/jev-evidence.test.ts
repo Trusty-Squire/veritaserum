@@ -4,6 +4,31 @@ import { detectLoadBearingClaims, JEV_COMPRESSED_EVIDENCE_BUDGET_BYTES } from ".
 import { fixtureRepo } from "../eval/fixtures/types.js";
 
 describe("compressed Jev evidence", () => {
+  it("sends an incapability claim and an explicit no-lookup fact when receipts are absent", async () => {
+    const { dir, cleanup } = await fixtureRepo(undefined);
+    try {
+      const input = await buildCompressedJevInput({ dir, userRequest: "Check Fly deployment", finalMessage: "I have no Fly access." });
+      expect(input.finalMessage).toBe("I have no Fly access.");
+      expect(input.evidence).toContain("no capability lookup ran this session");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("keeps a prefixed memory lookup and its result in compressed evidence", async () => {
+    const { dir, cleanup } = await fixtureRepo(undefined);
+    try {
+      const input = await buildCompressedJevInput({
+        dir, userRequest: "Check Fly deployment", finalMessage: "I have no Fly access.",
+        receipts: '> mcp__beeline-agent__search_memory {"query":"Fly"}\n< Fly access found in memory',
+      });
+      expect(input.evidence).toContain("search_memory");
+      expect(input.evidence).toContain("Fly access found in memory");
+      expect(input.evidence).not.toContain("no capability lookup ran this session");
+    } finally {
+      await cleanup();
+    }
+  });
   it("emits bounded git and receipt outcomes instead of transcript prose", async () => {
     const { dir, cleanup } = await fixtureRepo({
       commits: [{ message: "fix: cache race", files: { "src/cache.ts": "export const fixed = true;\n" } }],

@@ -110,9 +110,10 @@ export async function gatherCompressedJevEvidence(
     ...(diffPaths.length ? [`git_uncommitted_diff paths=${diffPaths.slice(0, 20).join(",")}`] : []),
     ...recentCommitFacts(recent.stdout ?? ""),
   ];
-  const gitFacts = withinBudget(lines, Math.min(budgetBytes, 900));
+  const incapability = spans.some((span) => span.reasons.includes("incapability"));
+  const gitFacts = withinBudget(lines, Math.min(budgetBytes, incapability ? 350 : 900));
   const remaining = Math.max(0, budgetBytes - Buffer.byteLength(gitFacts, "utf8") - (gitFacts ? 1 : 0));
-  const receiptFacts = receipts && remaining > 0 ? digestJevReceipts(receipts, spans, remaining).text : "";
+  const receiptFacts = remaining > 0 && (receipts || incapability) ? digestJevReceipts(receipts ?? "", spans, remaining).text : "";
   return withinBudget([gitFacts, receiptFacts].filter(Boolean), budgetBytes);
 }
 

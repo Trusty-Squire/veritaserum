@@ -8,7 +8,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { execa } from "execa";
-import { tempRepo, startJevMock, JEV_STATE_CONFAB } from "./helpers.js";
+import { tempRepo, startJevMock, JEV_STATE_CONFAB, JEV_DIAG_CONFAB } from "./helpers.js";
 import { queueRoot } from "../src/audit-runner.js";
 
 const CLI = resolve(import.meta.dirname, "../src/cli.ts");
@@ -77,6 +77,24 @@ function transcript(dir: string, text: string): string {
 }
 
 describe("hook-stop VS_BLOCK=1 — captain override", () => {
+  it("blocks a Jev-unsupported untested incapability claim", async () => {
+    await jev?.close();
+    jev = await startJevMock(JEV_DIAG_CONFAB);
+    const dir = await repo();
+    const tpath = transcript(dir, "I have no Fly access.");
+    const r = await hookStop(dir, { transcript_path: tpath, cwd: dir, last_assistant_message: "I have no Fly access." }, { VS_BLOCK: "1" });
+    expect(r.code).toBe(0);
+    const body = JSON.parse(r.out.trim().split("\n").pop()!) as { decision: string; reason: string };
+    expect(body.decision).toBe("block");
+    expect(body.reason).toContain("I have no Fly access.");
+  });
+
+  it("does not block an incapability claim when Jev lacks a key", async () => {
+    const dir = await repo();
+    const tpath = transcript(dir, "I have no Fly access.");
+    const r = await hookStop(dir, { transcript_path: tpath, cwd: dir, last_assistant_message: "I have no Fly access." }, { VS_BLOCK: "1", TYPESAFE_API_KEY: "" });
+    expect(r.out).not.toContain('"decision":"block"');
+  });
   it("a confident unbacked state claim blocks Claude Code with JSON decision:block", async () => {
     const dir = await repo();
     const tpath = transcript(dir, "PRE-EXISTING - fails on clean tree too");

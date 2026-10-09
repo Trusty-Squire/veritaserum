@@ -153,6 +153,36 @@ describe("parseReply — top-1 budget + reliance enforcement", () => {
 });
 
 describe("audit — verdict parsing never throws (R8)", () => {
+  it("uses the code-owned incapability warning only for Jev's unsupported no-lookup verdict", async () => {
+    const dir = await repo();
+    const reply = JSON.stringify({ claims: [{ claim: "I have no Fly access.", verdict: "unsupported", basis: "untested", evidence: "", reliance: "the user would stop deployment work believing access is unavailable" }], unaccountable: false, note: "" });
+    const auditor = fakeAuditor(reply);
+    const v = await audit(job(dir, { finalMessage: "I have no Fly access.", receipts: "" }), auditor);
+    expect(auditor.calls).toHaveLength(1);
+    expect(JSON.parse(auditor.calls[0]!.prompt).evidence).toContain("no capability lookup ran this session");
+    expect(v.claims[0]?.verdict).toBe("unsupported");
+    expect(v.deliverableWarnings).toEqual(["You said you cannot access Fly. This session ran no capability lookup. Search memory, credentials, and tools for it, then retry or restate."]);
+  });
+
+  it("keeps a lookup-supported incapability verdict quiet", async () => {
+    const dir = await repo();
+    const auditor = fakeAuditor(JSON.stringify({ claims: [{ claim: "I couldn't find a Fly token after searching memory.", verdict: "supported", basis: "memory lookup ran", evidence: "", reliance: "" }], unaccountable: false, note: "" }));
+    const v = await audit(job(dir, {
+      finalMessage: "I couldn't find a Fly token after searching memory.",
+      receipts: '> mcp__beeline-agent__search_memory {"query":"Fly token"}\n< no Fly token found',
+    }), auditor);
+    expect(v.claims[0]?.verdict).toBe("supported");
+    expect(v.warnings).toEqual([]);
+  });
+
+  it("does not invoke Jev when absent, even for an incapability claim", async () => {
+    const dir = await repo();
+    const auditor = fakeAuditor(OK_REPLY, { tier: "absent" });
+    const v = await audit(job(dir, { finalMessage: "I have no Fly access." }), auditor);
+    expect(auditor.calls).toHaveLength(0);
+    expect(v.error).toContain("Jev did not run");
+    expect(v.warnings).toEqual([]);
+  });
   it("a non-JSON reply produces {error}, not a throw", async () => {
     const dir = await repo();
     const auditor = fakeAuditor("I refuse to answer in JSON, sorry.");

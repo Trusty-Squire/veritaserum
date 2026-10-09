@@ -3,11 +3,20 @@ import {
   compressUserRequest,
   detectLoadBearingClaims,
   digestJevReceipts,
+  hasCapabilityLookup,
   selectJevEvidence,
   selectStrongestClaimSpans,
 } from "../src/jev-input.js";
 
 describe("detectLoadBearingClaims", () => {
+  it("classifies access claims without classifying ordinary failed outcomes", () => {
+    for (const claim of ["I have no Fly access.", "I don't have credentials for prod.", "I lack a token for Fly.", "I can't reach prod logs.", "This is outside my tools."]) {
+      expect(detectLoadBearingClaims(claim)[0]?.reasons, claim).toContain("incapability");
+    }
+    for (const claim of ["I was unable to reproduce the bug.", "I couldn't find a Fly token after searching memory.", '"I can\'t reach prod logs."', "```\nI have no Fly access.\n```"]) {
+      expect(detectLoadBearingClaims(claim).some((span) => span.reasons.includes("incapability")), claim).toBe(false);
+    }
+  });
   it("returns verbatim source-offset spans for state, work, test, quantity, and causal claims", () => {
     const message = [
       "The root cause is the expired token.",
@@ -75,6 +84,29 @@ describe("selectJevEvidence", () => {
 });
 
 describe("compressed Jev input", () => {
+  it("retains capability lookups and named-resource failures ahead of unrelated receipts", () => {
+    const spans = detectLoadBearingClaims("I have no Fly access.");
+    const receipts = [
+      ...Array.from({ length: 30 }, (_, i) => `> Bash {"command":"unrelated-${i}"}\n< output`),
+      '> mcp__beeline-agent__search_memory {"query":"Fly access"}',
+      '< Fly credential is available',
+      '> Bash {"command":"fly logs"}',
+      '< error: Fly refused the request (403)',
+    ].join("\n");
+    const evidence = digestJevReceipts(receipts, spans, 700).text;
+    expect(evidence).toContain("search_memory");
+    expect(evidence).toContain("credential is available");
+    expect(evidence).toContain("fly logs");
+    expect(evidence).toContain("refused the request");
+    expect(evidence).not.toContain("no capability lookup ran this session");
+  });
+
+  it("replaces default lookup suffixes with VS_LOOKUP_TOOLS", () => {
+    const receipts = '> mcp__beeline-agent__search_memory {"query":"Fly"}\n< found';
+    expect(hasCapabilityLookup(receipts, {})).toBe(true);
+    expect(hasCapabilityLookup(receipts, { VS_LOOKUP_TOOLS: "custom_lookup" })).toBe(false);
+    expect(hasCapabilityLookup('> mcp__other__custom_lookup {"query":"Fly"}', { VS_LOOKUP_TOOLS: "custom_lookup" })).toBe(true);
+  });
   it("keeps request scope and constraints within a hard UTF-8 budget", () => {
     const request = [
       "For background, the old release was noisy and several people discussed replacing it.",

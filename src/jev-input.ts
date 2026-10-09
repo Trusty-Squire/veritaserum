@@ -17,7 +17,7 @@ import {
   stateKindsOf,
 } from "./lexicon.js";
 
-export type LoadBearingReason = "state" | "work" | "test" | "quantity" | "causal" | "blocker";
+export type LoadBearingReason = "state" | "work" | "test" | "quantity" | "causal" | "blocker" | "incapability";
 
 export interface ClaimSpan {
   start: number;
@@ -45,7 +45,8 @@ const FICTION =
 const CAUSAL =
   /\b(root cause|caused?|because of|due to|stems? from|responsible for|the reason (?:is|was)|explains? (?:the|why)|is why|bottleneck (?:is|was))\b/i;
 const BLOCKER =
-  /\b(can'?t|cannot|can\s?not|impossible|no way|blocked|lock(?:ed|s)?|denied|refus(?:e|es|ed|ing)|frozen|not permitted|unsupported|unavailable|only via|app-?only|out of (?:money|funds)|no endpoint|not allowed|forbidden|prohibited)\b/i;
+  /\b(can'?t|cannot|can\s?not|couldn't|could\s+not|impossible|no way|blocked|lock(?:ed|s)?|denied|refus(?:e|es|ed|ing)|frozen|not permitted|unsupported|unavailable|only via|app-?only|out of (?:money|funds)|no endpoint|not allowed|forbidden|prohibited)\b/i;
+const INCAPABILITY = /\b(?:no\s+(?:(?:[\w-]+\s+){0,3})?(?:access|permissions?|credentials?|tokens?|keys?|logins?|auth(?:entication|orization)?)(?:\s+for\b)?|(?:do\s+not|don't|does\s+not|doesn't|did\s+not|didn't)\s+have\s+(?:(?:a|an|any|the|[\w-]+)\s+){0,3}(?:access|permissions?|credentials?|tokens?|keys?|logins?|auth(?:entication|orization)?)|lacks?\s+(?:(?:a|an|any|the|[\w-]+)\s+){0,3}(?:access|permissions?|credentials?|tokens?|keys?|logins?|auth(?:entication|orization)?)|(?:can't|cannot|can\s+not|couldn't|could\s+not|unable\s+to)\s+(?:reach|access|authenticate\s+to|log\s+in\s+to)\s+\S+|outside\s+(?:of\s+)?my\s+(?:tools|access))\b/i;
 const COMPLETED_WORK =
   /\b(implement(?:ed|ing)|fix(?:ed|es|ing)|correct(?:ed|ing)|resolv(?:ed|ing)|add(?:ed|ing)|remov(?:ed|ing)|refactor(?:ed|ing)|updat(?:ed|ing)|renam(?:ed|ing)|patch(?:ed|ing)|edit(?:ed|ing)|wrote|rewrote|creat(?:ed|ing)|delet(?:ed|ing)|label(?:ed|ing)|port(?:ed|ing)|applied|made|shipped|landed|merged|installed|configured)\b/i;
 const SETTLED_STATE =
@@ -132,6 +133,7 @@ function reasonsFor(text: string): LoadBearingReason[] {
   if (hasSpecificQuantity(plain) || UNIT_QUANTITY.test(plain)) reasons.add("quantity");
   if (CAUSAL.test(plain) || /^because\b/i.test(plain)) reasons.add("causal");
   if (BLOCKER.test(plain)) reasons.add("blocker");
+  if (INCAPABILITY.test(plain)) reasons.add("incapability");
   // The captain's "present state" class is broader than the seven repo-state
   // signatures. Keep plain declarative state reports, but not pure taste calls.
   if (GENERIC_STATE.test(plain) && !(JUDGMENT.test(plain) && reasons.size === 0)) reasons.add("state");
@@ -216,6 +218,7 @@ function claimStrength(span: ClaimSpan): number {
     work: 50,
     causal: 45,
     blocker: 45,
+    incapability: 70,
     quantity: 20,
     state: 10,
   };
@@ -348,6 +351,7 @@ export function selectJevEvidence(
 }
 
 interface ReceiptBlock {
+  tool: string;
   command: string;
   output: string[];
   index: number;
@@ -382,7 +386,7 @@ function receiptBlocks(receipts: string): { blocks: ReceiptBlock[]; loose: Array
   receipts.split(/\r?\n/).forEach((line, index) => {
     const command = commandFromReceiptLine(line);
     if (command) {
-      current = { command, output: [], index };
+      current = { tool: /^>\s+/.test(line) ? line.slice(2).split(/\s|\{/)[0] ?? "" : command.split(/\s/)[0] ?? "", command, output: [], index };
       blocks.push(current);
       return;
     }
@@ -390,6 +394,49 @@ function receiptBlocks(receipts: string): { blocks: ReceiptBlock[]; loose: Array
     else if (line.trim()) loose.push({ text: line.trim(), index });
   });
   return { blocks, loose };
+}
+
+const DEFAULT_LOOKUP_TOOLS = ["ToolSearch", "list_credentials", "search_memory"];
+
+/** VS_LOOKUP_TOOLS replaces the generic suffix list; MCP server prefixes are ignored. */
+export function capabilityLookupTools(env: NodeJS.ProcessEnv = process.env): string[] {
+  return env.VS_LOOKUP_TOOLS === undefined
+    ? DEFAULT_LOOKUP_TOOLS
+    : env.VS_LOOKUP_TOOLS.split(",").map((name) => name.trim()).filter(Boolean);
+}
+
+function isCapabilityLookup(block: ReceiptBlock, lookupTools: string[]): boolean {
+  const name = block.tool.toLowerCase();
+  return lookupTools.some((suffix) => name.toLowerCase() === suffix.toLowerCase()
+    || ["__", ".", "/", ":"].some((separator) => name.endsWith(`${separator}${suffix.toLowerCase()}`)));
+}
+
+export function hasCapabilityLookup(receipts: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  return receiptBlocks(receipts).blocks.some((block) => isCapabilityLookup(block, capabilityLookupTools(env)));
+}
+
+const FAILED_ATTEMPT = /\b(?:error|fail(?:ed|ure)?|denied|refus(?:ed|al)|forbidden|unauthori[sz]ed|permission denied|not found|unreachable|timed? out|no such|401|403)\b/i;
+
+function incapabilityResourceTokens(spans: ClaimSpan[]): string[] {
+  const generic = new Set(["access", "permission", "permissions", "credential", "credentials", "token", "tokens", "key", "keys", "login", "auth", "authentication", "authorization", "tools", "reach", "cannot", "couldn", "can", "unable", "have", "lack", "outside", "system", "the", "for", "this", "with", "said", "that", "from", "after", "searching", "memory", "don", "doesn", "no", "my", "we", "our", "you", "your", "any", "not", "are", "was", "were", "did", "does", "do", "to", "in", "on", "at", "of", "an", "it", "me"]);
+  return [...new Set(spans.filter((span) => span.reasons.includes("incapability"))
+    .flatMap((span) => span.text.toLowerCase().match(/[a-z][a-z0-9_-]{1,}/g) ?? []))]
+    .filter((token) => !generic.has(token));
+}
+
+function capabilityEvidence(block: ReceiptBlock, resourceTokens: string[], lookupTools: string[]): boolean {
+  if (isCapabilityLookup(block, lookupTools)) return true;
+  const output = block.output.join("\n");
+  return FAILED_ATTEMPT.test(output) && resourceTokens.some((token) => `${block.command}\n${output}`.toLowerCase().includes(token));
+}
+
+function capabilityResultLines(block: ReceiptBlock, resourceTokens: string[]): string[] {
+  const lines = block.output.map((line) => line.trim()).filter(Boolean);
+  const relevant = lines.filter((line) => resourceTokens.some((token) => line.toLowerCase().includes(token))
+    || /\b(?:found|available|denied|refused|error|failed|missing|not found|401|403)\b/i.test(line));
+  return (relevant.length ? relevant : lines).slice(0, 2).map((line) => line
+    .replace(/\b((?:api[_-]?)?(?:token|key|secret|password))\s*[:=]\s*(?!found\b|not\b|none\b|missing\b|available\b|unavailable\b|denied\b|false\b|true\b)\S+/gi, "$1=[redacted]")
+    .replace(/\b(?:sk|ghp|github_pat|hf|glpat)-?[A-Za-z0-9_-]{12,}\b/g, "[redacted]"));
 }
 
 /** Pair retained receipt blocks to the claim that made each block relevant. */
@@ -407,6 +454,8 @@ export function pairJevEvidence(
   }> = [];
   for (const [claimIndex, span] of spans.entries()) {
     const anchors = evidenceAnchors([span]);
+    const resourceTokens = incapabilityResourceTokens([span]);
+    const lookupTools = capabilityLookupTools();
     for (const block of parsed.blocks) {
       const combined = `${block.command}\n${block.output.join("\n")}`;
       const lower = combined.toLowerCase();
@@ -417,14 +466,17 @@ export function pairJevEvidence(
       if (stateSignature([span], combined)) score = Math.max(score, 90);
       const tokenHits = anchors.tokens.filter((token) => lower.includes(token)).length;
       if (tokenHits > 0) score = Math.max(score, 30 + Math.min(tokenHits, 5));
+      const capability = span.reasons.includes("incapability") && capabilityEvidence(block, resourceTokens, lookupTools);
+      if (capability) score = 1000;
       if (score > 0) {
         candidates.push({
           claimIndex,
           score,
           index: block.index,
           block: {
-            call: block.command.slice(0, 300),
-            output: block.output.map((line) => line.replace(/^<\s?/, "").trim()).filter(Boolean).slice(0, 8),
+            call: (block.command.startsWith(block.tool) ? block.command : `${block.tool} ${block.command}`).slice(0, 300),
+            output: (capability ? capabilityResultLines(block, resourceTokens) : block.output.map((line) => line.replace(/^<\s?/, "").trim()).filter(Boolean).slice(0, 8))
+              .map((line) => line.slice(0, capability ? 180 : 400)),
           },
         });
       }
@@ -483,11 +535,14 @@ export function digestJevReceipts(
   spans: ClaimSpan[],
   budgetBytes: number = JEV_COMPRESSED_EVIDENCE_BUDGET_BYTES,
 ): JevEvidenceSelection {
-  if (!receipts.trim() || spans.length === 0 || budgetBytes <= 0) {
+  if (spans.length === 0 || budgetBytes <= 0) {
     return { text: "", bytes: 0, retainedLines: 0, elidedLines: receipts ? receipts.split(/\r?\n/).length : 0 };
   }
+  const incapability = spans.some((span) => span.reasons.includes("incapability"));
   const anchors = evidenceAnchors(spans);
   const parsed = receiptBlocks(receipts);
+  const lookupTools = capabilityLookupTools();
+  const resourceTokens = incapabilityResourceTokens(spans);
   const facts: Array<{ text: string; score: number; index: number; sourceLines: number }> = [];
   const structuredOutcome = /^(?:BROWSER_ASSERT|DOM_ASSERT|A11Y_ASSERT|VISUAL_ASSERT|SCREENSHOT_FACT|OBSERVATION_FACT)\b|\b(?:horizontal_overflow|overflow|visible|clipped|violations|serious|critical|measured_fps|dropped_frames|viewport)=[^\s]+/i;
   for (const block of parsed.blocks) {
@@ -512,11 +567,17 @@ export function digestJevReceipts(
       .map((line) => cleanMachineFact(line))
       .filter(Boolean)
       .slice(0, 3);
+    const capability = incapability && capabilityEvidence(block, resourceTokens, lookupTools);
+    const capabilityResult = capability
+      ? capabilityResultLines(block, resourceTokens).map((line) => cleanMachineFact(line)).join("; ")
+      : "";
     let score = outcome === "unknown" ? 5 : 25;
+    if (capability) score += 1000;
     if (mentions.length) score += 100;
     if (stateSignature(spans, combined)) score += 80;
     if (anchors.numbers.length && numbersIn(combined).some((n) => anchors.numbers.some((claim) => approxEq(n, claim)))) score += 70;
     const fields = [
+      ...(capability && isCapabilityLookup(block, lookupTools) ? [`tool=${quoted(block.tool, 120)}`] : []),
       `command=${quoted(block.command)}`,
       `exit=${exitCode ?? "unknown"}`,
       `outcome=${outcome}`,
@@ -524,6 +585,7 @@ export function digestJevReceipts(
       ...(failed !== undefined ? [`failed=${failed}`] : []),
       ...(mentions.length ? [`mentions=${mentions.join(",")}`] : []),
       ...(machineFacts.length ? [`facts=${machineFacts.join(";")}`] : []),
+      ...(capabilityResult ? [`result=${quoted(capabilityResult, 400)}`] : []),
     ];
     facts.push({ text: fields.join(" "), score, index: block.index, sourceLines: block.output.length + 1 });
   }
@@ -536,9 +598,11 @@ export function digestJevReceipts(
   }
 
   const lineCount = receipts.split(/\r?\n/).length;
-  const header = `receipt_outcomes source_lines=${lineCount} commands=${parsed.blocks.length}`;
+  const header = `receipt_outcomes source_lines=${receipts ? lineCount : 0} commands=${parsed.blocks.length}`;
+  const noLookup = incapability && !parsed.blocks.some((block) => isCapabilityLookup(block, lookupTools))
+    ? "no capability lookup ran this session" : "";
   const kept: typeof facts = [];
-  let used = Buffer.byteLength(header, "utf8");
+  let used = Buffer.byteLength(header, "utf8") + (noLookup ? Buffer.byteLength(noLookup, "utf8") + 1 : 0);
   for (const fact of [...facts].sort((a, b) => b.score - a.score || a.index - b.index)) {
     const extra = Buffer.byteLength(fact.text, "utf8") + 1;
     if (extra > budgetBytes - used) continue;
@@ -547,7 +611,7 @@ export function digestJevReceipts(
   }
   kept.sort((a, b) => a.index - b.index);
   const retainedLines = kept.reduce((sum, fact) => sum + fact.sourceLines, 0);
-  const text = clipUtf8([header, ...kept.map((fact) => fact.text)].join("\n"), budgetBytes);
+  const text = clipUtf8([header, noLookup, ...kept.map((fact) => fact.text)].filter(Boolean).join("\n"), budgetBytes);
   return {
     text,
     bytes: Buffer.byteLength(text, "utf8"),
